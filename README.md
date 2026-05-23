@@ -1,17 +1,15 @@
-# mdncare_project
+# Madeena Care Project (Klinik System)
 
-A new Flutter project.
+Proyek aplikasi Flutter yang terintegrasi dengan Firebase & Cloud Firestore.
 
-## Getting Started
+## 🚀 Panduan Cara Setup Setelah Clone (Mengatasi Eror Firebase)
 
-This project is a starting point for a Flutter application.
+Karena alasan keamanan, file kredensial dan konfigurasi Firebase (`google-services.json`, `firebase_options.dart`, dll) **tidak dimasukkan** ke dalam repositori GitHub ini. 
 
-A few resources to get you started if this is your first Flutter project:
+Agar aplikasi bisa berjalan langsung tanpa eror setelah di-clone, ikuti langkah-langkah konfigurasi ulang berikut:
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+### 1. Prasyarat
+* Pastikan komputer Anda sudah terinstal [Firebase CLI](https://firebase.google.com/docs/cli).
+* Buka terminal komputer Anda dan pastikan sudah login ke akun Firebase:
+```bash
+  firebase login

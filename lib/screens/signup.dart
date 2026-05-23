@@ -79,10 +79,13 @@ class _SignUpScreenState extends State<SignUpScreen> {
           .createUserWithEmailAndPassword(email: email, password: password);
       await userCredential.user?.updateDisplayName("$name|$generatedNip");
       await saveLastActiveTime();
+      if (userCredential.user != null) {
+        await userCredential.user!.sendEmailVerification();
+      }
 
       if (mounted) {
         _showSnackBar(
-          "Akun berhasil dibuat dengan NIP: $generatedNip",
+          "Registrasi sukses (NIP: $generatedNip). Silakan CEK EMAIL Anda untuk memverifikasi akun sebelum login!",
           isError: false,
         );
         Navigator.pushReplacementNamed(context, '/home');

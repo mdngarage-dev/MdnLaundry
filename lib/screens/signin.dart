@@ -60,19 +60,35 @@ class _SignInScreenState extends State<SignInScreen> {
     setState(() => _isLoggingIn = true);
 
     try {
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
+      // 1. Login dulu
+      UserCredential userCredential = await FirebaseAuth.instance
+          .signInWithEmailAndPassword(email: email, password: password);
 
-      await _saveCredentials();
-      await saveLastActiveTime();
+      User? user = userCredential.user;
 
-      if (mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const HomeWrapper()),
-          (route) => false,
-        );
+      if (user != null) {
+        // 2. Reload dari server supaya emailVerified up-to-date
+        await user.reload();
+        user = FirebaseAuth.instance.currentUser;
+
+        if (user != null && user.emailVerified) {
+          // ✅ Email sudah diverifikasi → boleh masuk
+          await _saveCredentials();
+          await saveLastActiveTime();
+          if (mounted) {
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => const HomeWrapper()),
+              (route) => false,
+            );
+          }
+        } else {
+          // ❌ Belum verifikasi → tolak & sign out
+          await FirebaseAuth.instance.signOut();
+          _showSnackBar(
+            "Email belum diverifikasi. Cek kotak masuk atau folder spam Anda.",
+            isError: true,
+          );
+        }
       }
     } on FirebaseAuthException catch (e) {
       String message = "Terjadi kesalahan";
@@ -82,6 +98,8 @@ class _SignInScreenState extends State<SignInScreen> {
         message = "Password salah";
       } else if (e.code == 'invalid-email') {
         message = "Format email salah";
+      } else if (e.code == 'invalid-credential') {
+        message = "Email atau password salah";
       }
       _showSnackBar(message, isError: true);
     } catch (e) {

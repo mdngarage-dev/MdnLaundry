@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:screenshot/screenshot.dart';
 import 'package:share_plus/share_plus.dart';
@@ -35,6 +36,8 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
 
   String _selectedJK = "Laki-laki";
   String _selectedLayanan = "Umum";
+  // ── TAMBAHAN: sub-layanan KIA ──────────────────────────────────
+  String _subLayananKIA = "KB 1 Bulan";
   bool _isSubmitting = false;
 
   @override
@@ -64,6 +67,7 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
     setState(() {
       _selectedJK = "Laki-laki";
       _selectedLayanan = "Umum";
+      _subLayananKIA = "KB 1 Bulan"; // ← reset juga
     });
   }
 
@@ -121,10 +125,30 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
     return raw;
   }
 
+  // ── TAMBAHAN: Hitung tgl_kembali persis seperti HomeScreen ────
+  String _hitungTglKembali() {
+    if (_selectedLayanan != "KIA") return "";
+    final now = DateTime.now();
+    final int bulan = _subLayananKIA == "KB 2 Bulan"
+        ? 2
+        : _subLayananKIA == "KB 3 Bulan"
+        ? 3
+        : 1;
+    final finalDate = DateTime(
+      now.year,
+      now.month + bulan,
+      now.day,
+    ).subtract(const Duration(days: 3));
+    return DateFormat('dd-MM-yyyy').format(finalDate);
+  }
+
   // ─── FUNGSI UTAMA: SIMPAN KE FIREBASE + BACKUP TO SHEETS ─────
   Future<void> _submitData() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isSubmitting = true);
+
+    // Hitung tgl_kembali di sini sebelum masuk try
+    final String tglKembali = _hitungTglKembali();
 
     try {
       String namaFinal = _namaController.text.trim();
@@ -140,7 +164,7 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
       String nipBaru = "";
 
       if (kIsWeb) {
-        // ✅ WEB: Apps Script via GET (tidak kena CORS, tidak butuh Firestore)
+        // ✅ WEB: Apps Script via GET
         final uri = Uri.parse(baseAppScriptUrl).replace(
           queryParameters: {
             'action': 'registerPatient',
@@ -156,6 +180,7 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
             'biaya': _biayaController.text.replaceAll('.', '').trim(),
             'hp': hpFinal,
             'admin': adminFinal,
+            'tgl_kembali': tglKembali, // ← TAMBAHAN
           },
         );
 
@@ -204,6 +229,7 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
           'tinggi_badan': double.tryParse(_tinggiController.text.trim()) ?? 0.0,
           'admin_pemeriksa': adminFinal,
           'waktu_kunjungan': FieldValue.serverTimestamp(),
+          'tgl_kembali': tglKembali, // ← TAMBAHAN: simpan ke Firestore
         });
 
         await firestore.collection('keuangan').add({
@@ -234,6 +260,7 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
                   'biaya': _biayaController.text.replaceAll('.', '').trim(),
                   'hp': hpFinal,
                   'admin': adminFinal,
+                  'tgl_kembali': tglKembali, // ← TAMBAHAN
                 },
               ),
             )
@@ -331,7 +358,7 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
                           ? Image.file(
                               File(OutletSettings.logoPath),
                               fit: BoxFit.cover,
-                              errorBuilder: (_, _, _) => const Icon(
+                              errorBuilder: (_, __, ___) => const Icon(
                                 Icons.local_hospital_rounded,
                                 color: Colors.white,
                                 size: 26,
@@ -464,7 +491,7 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
                               ? Image.network(
                                   qrUrl,
                                   fit: BoxFit.cover,
-                                  errorBuilder: (_, _, _) => const Icon(
+                                  errorBuilder: (_, __, ___) => const Icon(
                                     Icons.qr_code_2,
                                     size: 52,
                                     color: Colors.grey,
@@ -822,8 +849,10 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  // Dropdown layanan
+                  // ── Dropdown layanan ──
                   _buildLayananDropdown(),
+                  // ── TAMBAHAN: Radio KB muncul jika pilih KIA ──
+                  if (_selectedLayanan == "KIA") _buildSubLayananKIA(),
                   const SizedBox(height: 12),
                   _buildTextField(
                     "Nomor WhatsApp",
@@ -882,6 +911,55 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
 
   // ─── Widget Helpers ───────────────────────────────────────────
 
+  // ── TAMBAHAN: Widget radio sub-layanan KIA ────────────────────
+  Widget _buildSubLayananKIA() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 10),
+        Padding(
+          padding: const EdgeInsets.only(left: 4.0, bottom: 4.0),
+          child: Text(
+            "Tipe KB (Untuk Estimasi Jadwal Kembali)",
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              fontStyle: FontStyle.italic,
+              color: kPrimary,
+            ),
+          ),
+        ),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              _buildSubRadio("KB 1 Bln", "KB 1 Bulan"),
+              _buildSubRadio("KB 2 Bln", "KB 2 Bulan"),
+              _buildSubRadio("KB 3 Bln", "KB 3 Bulan"),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSubRadio(String label, String value) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Radio<String>(
+          value: value,
+          groupValue: _subLayananKIA,
+          activeColor: kPrimary,
+          onChanged: (val) => setState(() => _subLayananKIA = val!),
+        ),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(fontSize: 13),
+        ),
+        const SizedBox(width: 4),
+      ],
+    );
+  }
+
   Widget _buildLayananDropdown() {
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
     return DropdownButtonFormField<String>(
@@ -918,7 +996,13 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
         "Gigi",
         "Khitan",
       ].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-      onChanged: (v) => setState(() => _selectedLayanan = v ?? "Umum"),
+      onChanged: (v) => setState(() {
+        _selectedLayanan = v ?? "Umum";
+        // Reset sub-layanan saat ganti ke non-KIA
+        if (_selectedLayanan != "KIA") {
+          _subLayananKIA = "KB 1 Bulan";
+        }
+      }),
     );
   }
 

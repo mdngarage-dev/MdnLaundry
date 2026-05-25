@@ -1,10 +1,3 @@
-// ─── main_screen.dart (HomeScreen) ───────────────────────────────────────
-// PERUBAHAN:
-// 1. Status bar icon: hitam di light mode, putih di dark mode (AnnotatedRegion)
-// 2. Area bawah search: 2 mode
-//    - Sebelum search → tampil list pasien terbaru (StreamBuilder Firestore)
-//    - Setelah search  → tampil hasil rekam medis pasien
-
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -16,6 +9,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:convert';
 import '../scanner_screen.dart';
 import 'screens.dart';
+import 'notifikasi.dart';
+import '../components/global_refresh.dart'; // ← import GlobalRefresh
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -42,6 +37,7 @@ class _HomeScreenState extends State<HomeScreen>
   Map<String, dynamic>? _kiaData;
   Map<String, dynamic>? _statsData;
 
+  // _heartController dipakai untuk animasi hati di header (bukan refresh)
   late AnimationController _heartController;
   late Animation<double> _heartAnim;
 
@@ -71,6 +67,16 @@ class _HomeScreenState extends State<HomeScreen>
     _tindakanController.dispose();
     _beratController.dispose();
     super.dispose();
+  }
+
+  // ─── RESET SEARCH ────────────────────────────────────────────────────────
+  void _resetSearch() {
+    _searchController.clear();
+    setState(() {
+      _resultData = null;
+      _kiaData = null;
+      _statsData = null;
+    });
   }
 
   Future<File?> _loadLocalProfileImage() async {
@@ -312,6 +318,20 @@ class _HomeScreenState extends State<HomeScreen>
     ).format(DateTime.now());
     final String biayaRaw = _biayaController.text.replaceAll('.', '').trim();
 
+    // Simpan snapshot data sebelum direset
+    final savedResultData = Map<String, dynamic>.from(_resultData!);
+    final savedSubLayananKIA = _subLayananKIA;
+    final savedStatsData = _statsData != null
+        ? Map<String, dynamic>.from(_statsData!)
+        : null;
+    final savedKiaData = _kiaData != null
+        ? Map<String, dynamic>.from(_kiaData!)
+        : null;
+    final savedDiagnosa = _diagnosaController.text;
+    final savedTindakan = _tindakanController.text;
+    final savedBerat = _beratController.text;
+    final savedBiaya = _biayaController.text;
+
     try {
       final firestore = FirebaseFirestore.instance;
 
@@ -359,17 +379,19 @@ class _HomeScreenState extends State<HomeScreen>
           .catchError((_) {});
 
       await _fetchStats();
-      await _searchPatient(nip);
-      _beratController.clear();
-      _diagnosaController.clear();
-      _tindakanController.clear();
-      _biayaController.clear();
 
       if (mounted) {
-        _showModernToast(
-          message: "Data kunjungan berhasil disimpan!",
-          icon: Icons.check_circle_outline_rounded,
-          color: kPrimary,
+        // Tampilkan popup sukses dengan data yang sudah disimpan
+        _showSuccessPopup(
+          savedResultData: savedResultData,
+          savedSubLayananKIA: savedSubLayananKIA,
+          savedStatsData: savedStatsData,
+          savedKiaData: savedKiaData,
+          savedDiagnosa: savedDiagnosa,
+          savedTindakan: savedTindakan,
+          savedBerat: savedBerat,
+          savedBiaya: savedBiaya,
+          tglKembali: tglKembali,
         );
       }
     } catch (e) {
@@ -383,6 +405,160 @@ class _HomeScreenState extends State<HomeScreen>
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  // ─── POPUP SUKSES SETELAH SIMPAN ─────────────────────────────────────────
+  void _showSuccessPopup({
+    required Map<String, dynamic> savedResultData,
+    required String savedSubLayananKIA,
+    required Map<String, dynamic>? savedStatsData,
+    required Map<String, dynamic>? savedKiaData,
+    required String savedDiagnosa,
+    required String savedTindakan,
+    required String savedBerat,
+    required String savedBiaya,
+    required String tglKembali,
+  }) {
+    final tanggalCetak = DateFormat('dd-MM-yyyy HH:mm').format(DateTime.now());
+    final visitKe =
+        ((savedStatsData?['total_kunjungan_pasien'] ?? 0) as int) + 1;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => Dialog(
+        backgroundColor: Theme.of(context).cardColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // ── Ikon sukses ──────────────────────────────────────────
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: kPrimary.withOpacity(0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.check_circle_outline_rounded,
+                    color: Color(0xFF0D9488),
+                    size: 40,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  "Kunjungan Tersimpan!",
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: kPrimary,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  "Data berhasil dicatat. Pilih tindakan selanjutnya:",
+                  textAlign: TextAlign.center,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(fontSize: 13),
+                ),
+                const SizedBox(height: 24),
+
+                // ── Tombol Share WA ──────────────────────────────────────
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      _resetSearch();
+                      ButtonBawah.showWhatsAppOptions(
+                        context,
+                        savedResultData,
+                        savedSubLayananKIA,
+                      );
+                    },
+                    icon: const Icon(Icons.send, size: 18),
+                    label: const Text("Share via WhatsApp"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF25D366),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 15),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+
+                // ── Tombol Cetak ─────────────────────────────────────────
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      // Buka print preview dengan data snapshot yang sudah disimpan
+                      _showPrintPreviewFromData(
+                        resultData: savedResultData,
+                        statsData: savedStatsData,
+                        kiaData: savedKiaData,
+                        diagnosa: savedDiagnosa,
+                        tindakan: savedTindakan,
+                        berat: savedBerat,
+                        biaya: savedBiaya,
+                        tanggalCetak: tanggalCetak,
+                        visitKe: visitKe.toString(),
+                        onDone: _resetSearch,
+                      );
+                    },
+                    icon: Icon(
+                      Icons.print,
+                      size: 18,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    label: Text(
+                      "Cetak Rekam Medis",
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 15),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+
+                // ── Tombol Close ─────────────────────────────────────────
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton.icon(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      _resetSearch();
+                    },
+                    icon: const Icon(Icons.close, size: 16, color: Colors.grey),
+                    label: const Text(
+                      "Tutup",
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _updateHP(String newHP) async {
@@ -524,7 +700,6 @@ class _HomeScreenState extends State<HomeScreen>
     final user = FirebaseAuth.instance.currentUser;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // ✅ FIX STATUS BAR: hitam di light mode, putih di dark mode
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: isDark
           ? SystemUiOverlayStyle.light
@@ -538,73 +713,92 @@ class _HomeScreenState extends State<HomeScreen>
         child: Scaffold(
           backgroundColor: Colors.transparent,
           body: SafeArea(
-            child: RefreshIndicator(
-              color: kPrimary,
-              onRefresh: () async {
-                await _fetchStats();
-                if (_searchController.text.isNotEmpty) {
-                  await _searchPatient(_searchController.text);
-                }
-              },
-              child: SingleChildScrollView(
-                controller: _scrollController,
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.symmetric(horizontal: 25),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 25),
-                    _buildHeader(user),
-                    const SizedBox(height: 35),
-                    _buildStatsRow(),
-                    const SizedBox(height: 35),
-                    Text(
-                      "Layanan Utama",
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.primary,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── FIXED: Hanya Header (sapaan + lonceng + avatar) ────────
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 25),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 25),
+                      _buildHeader(user),
+                      const SizedBox(height: 8),
+                    ],
+                  ),
+                ),
+
+                // ── SCROLLABLE: Stats + Search + Konten, dengan GlobalRefresh ─
+                Expanded(
+                  child: GlobalRefresh(
+                    onRefresh: () async {
+                      await _fetchStats();
+                      if (_searchController.text.isNotEmpty) {
+                        await _searchPatient(_searchController.text);
+                      }
+                    },
+                    child: SingleChildScrollView(
+                      controller: _scrollController,
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.symmetric(horizontal: 25),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 27),
+
+                          // Stats card ikut scroll
+                          _buildStatsRow(),
+                          const SizedBox(height: 35),
+
+                          Text(
+                            "Layanan Utama",
+                            style: Theme.of(context).textTheme.bodyLarge
+                                ?.copyWith(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
+                          ),
+                          const SizedBox(height: 15),
+                          _buildSearchBar(),
+
+                          // ── Area bawah search ────────────────────────────
+                          if (_isLoading)
+                            const Padding(
+                              padding: EdgeInsets.all(20.0),
+                              child: Center(
+                                child: CircularProgressIndicator(
+                                  color: Color(0xFF0D9488),
+                                ),
+                              ),
+                            )
+                          else if (_resultData != null) ...[
+                            const SizedBox(height: 20),
+                            _buildPatientDetailCard(),
+                            const SizedBox(height: 30),
+                          ] else if (_searchController.text.length >= 6)
+                            Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(20.0),
+                                child: Text(
+                                  "Data Pasien Tidak Ditemukan",
+                                  style: Theme.of(context).textTheme.bodyLarge,
+                                ),
+                              ),
+                            )
+                          else ...[
+                            const SizedBox(height: 24),
+                            _buildRecentPatientsSection(),
+                          ],
+
+                          const SizedBox(height: 100),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 15),
-                    _buildSearchBar(),
-
-                    // ✅ AREA BAWAH SEARCH: 2 mode
-                    if (_isLoading)
-                      const Padding(
-                        padding: EdgeInsets.all(20.0),
-                        child: Center(
-                          child: CircularProgressIndicator(color: kPrimary),
-                        ),
-                      )
-                    else if (_resultData != null) ...[
-                      // ─── MODE 2: Setelah search berhasil ───────────────
-                      const SizedBox(height: 20),
-                      _buildPatientDetailCard(),
-                      const SizedBox(height: 16),
-                      _buildActionButtons(),
-                      const SizedBox(height: 30),
-                    ] else if (_searchController.text.length >= 6)
-                      // ─── Tidak ditemukan ────────────────────────────────
-                      Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(20.0),
-                          child: Text(
-                            "Data Pasien Tidak Ditemukan",
-                            style: Theme.of(context).textTheme.bodyLarge,
-                          ),
-                        ),
-                      )
-                    else ...[
-                      // ─── MODE 1: Sebelum search → recent patients ───────
-                      const SizedBox(height: 24),
-                      _buildRecentPatientsSection(),
-                    ],
-
-                    const SizedBox(height: 100),
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ),
           ),
         ),
@@ -614,7 +808,6 @@ class _HomeScreenState extends State<HomeScreen>
 
   // ─── WIDGET HELPERS ─────────────────────────────────────────────────────
 
-  // ✅ BARU: List pasien terbaru sebelum search
   Widget _buildRecentPatientsSection() {
     final now = DateTime.now();
     final String d = now.day.toString().padLeft(2, '0');
@@ -667,15 +860,13 @@ class _HomeScreenState extends State<HomeScreen>
             ),
             const SizedBox(height: 12),
 
-            // Loading state
             if (snapshot.connectionState == ConnectionState.waiting)
               const Center(
                 child: Padding(
                   padding: EdgeInsets.all(20),
-                  child: CircularProgressIndicator(color: kPrimary),
+                  child: CircularProgressIndicator(color: Color(0xFF0D9488)),
                 ),
               )
-            // Error state
             else if (snapshot.hasError)
               Container(
                 width: double.infinity,
@@ -693,7 +884,6 @@ class _HomeScreenState extends State<HomeScreen>
                   textAlign: TextAlign.center,
                 ),
               )
-            // Empty state
             else if (!snapshot.hasData || snapshot.data!.docs.isEmpty)
               Container(
                 width: double.infinity,
@@ -727,12 +917,10 @@ class _HomeScreenState extends State<HomeScreen>
                   ],
                 ),
               )
-            // List pasien hari ini
             else
               ...snapshot.data!.docs.map((doc) {
                 final data = doc.data() as Map<String, dynamic>;
                 final waktu = data['waktu_kunjungan']?.toString() ?? "-";
-                // Ambil jam dari format "dd/MM/yyyy HH:mm"
                 String jamStr = "-";
                 if (waktu.contains(" ") && waktu.split(" ").length > 1) {
                   jamStr = waktu.split(" ").last;
@@ -768,26 +956,26 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                     child: Row(
                       children: [
-                        // Ikon layanan
                         Container(
                           width: 44,
                           height: 44,
                           decoration: BoxDecoration(
-                            color: (isKIA ? Colors.pink : kPrimary).withOpacity(
-                              0.12,
-                            ),
+                            color:
+                                (isKIA ? Colors.pink : const Color(0xFF0D9488))
+                                    .withOpacity(0.12),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Icon(
                             isKIA
                                 ? Icons.favorite_outline_rounded
                                 : Icons.local_hospital_outlined,
-                            color: isKIA ? Colors.pink : kPrimary,
+                            color: isKIA
+                                ? Colors.pink
+                                : const Color(0xFF0D9488),
                             size: 20,
                           ),
                         ),
                         const SizedBox(width: 14),
-                        // Info NIP + layanan + diagnosa
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -809,14 +997,19 @@ class _HomeScreenState extends State<HomeScreen>
                                       vertical: 2,
                                     ),
                                     decoration: BoxDecoration(
-                                      color: (isKIA ? Colors.pink : kPrimary)
-                                          .withOpacity(0.1),
+                                      color:
+                                          (isKIA
+                                                  ? Colors.pink
+                                                  : const Color(0xFF0D9488))
+                                              .withOpacity(0.1),
                                       borderRadius: BorderRadius.circular(6),
                                     ),
                                     child: Text(
                                       layanan,
                                       style: TextStyle(
-                                        color: isKIA ? Colors.pink : kPrimary,
+                                        color: isKIA
+                                            ? Colors.pink
+                                            : const Color(0xFF0D9488),
                                         fontSize: 10,
                                         fontWeight: FontWeight.w600,
                                       ),
@@ -842,7 +1035,6 @@ class _HomeScreenState extends State<HomeScreen>
                           ),
                         ),
                         const SizedBox(width: 8),
-                        // Badge jam kunjungan
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 10,
@@ -878,48 +1070,170 @@ class _HomeScreenState extends State<HomeScreen>
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              "Halo, ${user?.displayName ?? 'User'}!",
-              style: TextStyle(
-                fontSize: 24,
-                fontFamily: 'BubbbleGum',
-                fontWeight: FontWeight.bold,
-                color: Theme.of(context).colorScheme.primary,
+        // ── Sisi kiri: sapaan & subtitle ──────────────────────────────────
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "Halo, ${(user?.displayName ?? 'User').split('|')[0].trim()}!",
+                style: TextStyle(
+                  fontSize: 24,
+                  fontFamily: 'BubbbleGum',
+                  fontWeight: FontWeight.bold,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
               ),
+              Text(
+                "Sistem Rekam Medis ${OutletSettings.namaKlinik}",
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  fontSize: 13,
+                  color: Theme.of(context).textTheme.bodySmall?.color,
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // ── Sisi kanan: icon lonceng + avatar ─────────────────────────────
+        Row(
+          children: [
+            // ── Icon lonceng dengan badge notif ───────────────────────────
+            StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('rekam_medis')
+                  .where('tgl_kembali', isNotEqualTo: '')
+                  .snapshots(),
+              builder: (context, snapshot) {
+                int jumlahNotif = 0;
+                if (snapshot.hasData) {
+                  final now = DateTime.now();
+                  final hariIni = DateTime(now.year, now.month, now.day);
+                  final batasAwal = hariIni.subtract(const Duration(days: 1));
+                  final batasAkhir = hariIni.add(const Duration(days: 3));
+
+                  final Set<String> nipSet = {};
+                  for (final doc in snapshot.data!.docs) {
+                    final data = doc.data() as Map<String, dynamic>;
+                    final nip = data['nomer_induk_pasien']?.toString() ?? '';
+                    if (nip.isEmpty || nipSet.contains(nip)) continue;
+
+                    final tglStr = data['tgl_kembali']?.toString().trim() ?? '';
+                    if (tglStr.isEmpty) continue;
+
+                    DateTime? tgl;
+                    try {
+                      tgl = DateFormat('dd-MM-yyyy').parse(tglStr);
+                    } catch (_) {
+                      try {
+                        tgl = DateFormat('dd-MMM-yyyy', 'id_ID').parse(tglStr);
+                      } catch (_) {
+                        continue;
+                      }
+                    }
+
+                    if (!tgl.isBefore(batasAwal) && !tgl.isAfter(batasAkhir)) {
+                      nipSet.add(nip);
+                      jumlahNotif++;
+                    }
+                  }
+                }
+
+                return GestureDetector(
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const NotifikasiScreen()),
+                  ),
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).cardColor,
+                          borderRadius: BorderRadius.circular(13),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.06),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Icon(
+                          jumlahNotif > 0
+                              ? Icons.notifications_rounded
+                              : Icons.notifications_none_rounded,
+                          color: kPrimary,
+                          size: 22,
+                        ),
+                      ),
+                      if (jumlahNotif > 0)
+                        Positioned(
+                          top: -4,
+                          right: -4,
+                          child: Container(
+                            width: 18,
+                            height: 18,
+                            decoration: BoxDecoration(
+                              color: Colors.red,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: Theme.of(
+                                  context,
+                                ).scaffoldBackgroundColor,
+                                width: 1.5,
+                              ),
+                            ),
+                            child: Center(
+                              child: Text(
+                                jumlahNotif > 9 ? '9+' : jumlahNotif.toString(),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                );
+              },
             ),
-            Text(
-              "Sistem Rekam Medis ${OutletSettings.namaKlinik}",
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                fontSize: 13,
-                color: Theme.of(context).textTheme.bodySmall?.color,
+
+            const SizedBox(width: 10),
+
+            // ── Avatar profil ──────────────────────────────────────────────
+            GestureDetector(
+              onTap: () => Navigator.pushNamed(
+                context,
+                '/profile',
+              ).then((_) => setState(() {})),
+              child: FutureBuilder<File?>(
+                future: _loadLocalProfileImage(),
+                builder: (context, snapshot) {
+                  final localImageFile = snapshot.data;
+                  return CircleAvatar(
+                    radius: 22,
+                    backgroundColor: kPrimary,
+                    backgroundImage: localImageFile != null
+                        ? FileImage(localImageFile)
+                        : null,
+                    child: localImageFile == null
+                        ? const Icon(
+                            Icons.person,
+                            color: Colors.white,
+                            size: 22,
+                          )
+                        : null,
+                  );
+                },
               ),
             ),
           ],
-        ),
-        GestureDetector(
-          onTap: () => Navigator.pushNamed(
-            context,
-            '/profile',
-          ).then((_) => setState(() {})),
-          child: FutureBuilder<File?>(
-            future: _loadLocalProfileImage(),
-            builder: (context, snapshot) {
-              final localImageFile = snapshot.data;
-              return CircleAvatar(
-                radius: 22,
-                backgroundColor: kPrimary,
-                backgroundImage: localImageFile != null
-                    ? FileImage(localImageFile)
-                    : null,
-                child: localImageFile == null
-                    ? const Icon(Icons.person, color: Colors.white, size: 22)
-                    : null,
-              );
-            },
-          ),
         ),
       ],
     );
@@ -1352,57 +1666,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildActionButtons() {
-    return Row(
-      children: [
-        Expanded(
-          child: ElevatedButton.icon(
-            onPressed: _resultData == null
-                ? null
-                : () => ButtonBawah.showWhatsAppOptions(
-                    context,
-                    _resultData!,
-                    _subLayananKIA,
-                  ),
-            icon: const Icon(Icons.send, size: 18),
-            label: const Text("Share WA"),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF25D366),
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 15),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: ElevatedButton.icon(
-            onPressed: _showPrintPreview,
-            icon: Icon(
-              Icons.print,
-              size: 18,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            label: Text(
-              "Cetak",
-              style: TextStyle(color: Theme.of(context).colorScheme.primary),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Theme.of(context).cardColor,
-              side: BorderSide(color: Theme.of(context).colorScheme.primary),
-              padding: const EdgeInsets.symmetric(vertical: 15),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
   void _showEditHPDialog() {
     final ctrl = TextEditingController(text: _resultData!['hp']);
     showDialog(
@@ -1448,6 +1711,8 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  // ─── PRINT PREVIEW DIPANGGIL LANGSUNG (dari tombol di layar, bukan popup) ─
+  // Versi ini masih bisa dipakai jika ada tombol cetak di tempat lain
   void _showPrintPreview() {
     if (_resultData == null) return;
     if (!_validateBiaya()) return;
@@ -1466,6 +1731,38 @@ class _HomeScreenState extends State<HomeScreen>
     final biaya = _biayaController.text.isEmpty ? "-" : _biayaController.text;
     final visitKe = _statsData?['total_kunjungan_pasien']?.toString() ?? "-";
     final tanggalCetak = DateFormat('dd-MM-yyyy HH:mm').format(DateTime.now());
+
+    _showPrintPreviewFromData(
+      resultData: _resultData!,
+      statsData: _statsData,
+      kiaData: _kiaData,
+      diagnosa: diagnosa,
+      tindakan: tindakan,
+      berat: berat,
+      biaya: biaya,
+      tanggalCetak: tanggalCetak,
+      visitKe: visitKe,
+      onDone: null, // tidak reset karena belum simpan
+    );
+  }
+
+  // ─── PRINT PREVIEW DARI DATA SNAPSHOT (dipanggil dari popup sukses) ──────
+  void _showPrintPreviewFromData({
+    required Map<String, dynamic> resultData,
+    required Map<String, dynamic>? statsData,
+    required Map<String, dynamic>? kiaData,
+    required String diagnosa,
+    required String tindakan,
+    required String berat,
+    required String biaya,
+    required String tanggalCetak,
+    required String visitKe,
+    required VoidCallback? onDone,
+  }) {
+    final nama = resultData['nama'] ?? "-";
+    final nip = resultData['nip'] ?? "-";
+    final gender = resultData['jk'] ?? "-";
+    final terakhir = resultData['terakhir'] ?? "-";
 
     showDialog(
       context: context,
@@ -1519,19 +1816,22 @@ class _HomeScreenState extends State<HomeScreen>
                 _printRow("Tindakan", tindakan),
                 _printRow("Berat Badan", "$berat kg"),
                 _printRow("Biaya", "Rp $biaya"),
-                if (_kiaData != null &&
-                    (_kiaData!['tgl_kembali']?.toString() ?? "")
+                if (kiaData != null &&
+                    (kiaData['tgl_kembali']?.toString() ?? "")
                         .trim()
                         .isNotEmpty) ...[
                   const Divider(height: 20),
-                  _printRow("Jadwal Kembali KB", _kiaData!['tgl_kembali']),
+                  _printRow("Jadwal Kembali KB", kiaData['tgl_kembali']),
                 ],
                 const SizedBox(height: 20),
                 Row(
                   children: [
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: () => Navigator.pop(context),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          onDone?.call(); // reset search jika dari popup sukses
+                        },
                         icon: const Icon(Icons.close, size: 16),
                         label: const Text("Tutup"),
                         style: OutlinedButton.styleFrom(
@@ -1549,6 +1849,7 @@ class _HomeScreenState extends State<HomeScreen>
                     ElevatedButton.icon(
                       onPressed: () {
                         Navigator.pop(context);
+                        onDone?.call(); // reset search
                         Navigator.push(
                           context,
                           MaterialPageRoute(
@@ -1564,8 +1865,8 @@ class _HomeScreenState extends State<HomeScreen>
                                 'berat': berat,
                                 'biaya': biaya,
                                 'tanggalCetak': tanggalCetak,
-                                if (_kiaData != null)
-                                  'tgl_kembali': _kiaData!['tgl_kembali'],
+                                if (kiaData != null)
+                                  'tgl_kembali': kiaData['tgl_kembali'],
                               },
                             ),
                           ),

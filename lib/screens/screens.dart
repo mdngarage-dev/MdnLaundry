@@ -21,6 +21,7 @@ export '../laporan/list_pengeluaran.dart';
 export '../laporan/laporan_order.dart';
 export '../laporan/analisis_pelanggan.dart';
 export '../laporan/kinerja_pegawai.dart';
+export 'notifikasi.dart';
 
 export 'setting.dart';
 export '../settings/password.dart';

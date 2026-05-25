@@ -34,9 +34,7 @@ class _RingkasanPageState extends State<RingkasanPage> {
   String repeatCustomer = "0";
   String berpiutang = "0";
 
-  // Data piutang mentah untuk ditampilkan di bottom sheet
   List<Map<String, dynamic>> _dataPiutang = [];
-
   Map<int, double> chartDataPerHari = {};
 
   String _formatYLabel(double value) {
@@ -62,37 +60,59 @@ class _RingkasanPageState extends State<RingkasanPage> {
     fetchFirestoreData(startDate, endDate);
   }
 
+  // ════════════════════════════════════════════════════════════
+  // HELPER: parse date fleksibel (String ATAU Timestamp)
+  // ════════════════════════════════════════════════════════════
+  DateTime? _parseFlexibleDate(dynamic raw) {
+    if (raw == null) return null;
+    if (raw is Timestamp) return raw.toDate();
+    if (raw is String) {
+      if (raw.trim().isEmpty) return null;
+      try {
+        return DateFormat('dd/MM/yyyy HH:mm').parse(raw.trim());
+      } catch (_) {
+        try {
+          return DateFormat('dd/MM/yyyy').parse(raw.trim());
+        } catch (_) {
+          return null;
+        }
+      }
+    }
+    return null;
+  }
+
+  String _formatDateToString(DateTime dt) =>
+      DateFormat('dd/MM/yyyy HH:mm').format(dt);
+
+  // ════════════════════════════════════════════════════════════
+  // FETCH FIRESTORE
+  // ════════════════════════════════════════════════════════════
   Future<void> fetchFirestoreData(DateTime start, DateTime end) async {
     try {
       final results = await Future.wait([
         FirebaseFirestore.instance.collection('keuangan').get(),
         FirebaseFirestore.instance.collection('pengeluaran').get(),
         FirebaseFirestore.instance.collection('rekam_medis').get(),
-        // ✅ FIX: Ambil koleksi pasien untuk mendapatkan nama & no HP yang benar
         FirebaseFirestore.instance.collection('pasien').get(),
       ]);
 
-      var keuanganSnapshot = results[0];
-      var pengeluaranSnapshot = results[1];
-      var rekamSnapshot = results[2];
-      var pasienSnapshot = results[3];
+      final keuanganSnapshot = results[0];
+      final pengeluaranSnapshot = results[1];
+      final rekamSnapshot = results[2];
+      final pasienSnapshot = results[3];
 
-      // ✅ FIX: Buat map NIP → data pasien (nama & no_hp)
-      // Field Firestore aktual: nama_lengkap, nomer_hp, nomer_induk_pasien
+      // ── Map NIP → data pasien ──
       Map<String, Map<String, String>> dataPasienMap = {};
       for (var doc in pasienSnapshot.docs) {
         final data = doc.data();
-        final nip = data['nomer_induk_pasien'] as String? ?? '';
+        final nip = (data['nomer_induk_pasien'] ?? '').toString().trim();
         if (nip.isNotEmpty) {
-          final resolvedNama = _resolveNama(data);
-          final resolvedHp = _resolveNoHp(data);
-          debugPrint(
-            "LOG PASIEN: NIP=\$nip | nama=\$resolvedNama | hp=\$resolvedHp",
-          );
-          dataPasienMap[nip] = {'nama': resolvedNama, 'no_hp': resolvedHp};
+          dataPasienMap[nip] = {
+            'nama': _resolveNama(data),
+            'no_hp': _resolveNoHp(data),
+          };
         }
       }
-      debugPrint("LOG PASIEN MAP: total=\${dataPasienMap.length} pasien");
 
       double hitungOmzet = 0;
       double hitungUangMasuk = 0;
@@ -102,174 +122,153 @@ class _RingkasanPageState extends State<RingkasanPage> {
       Map<int, double> omzetPerHari = {};
       Set<String> pasienUnik = {};
       Set<String> pasienBerpiutang = {};
-
       List<Map<String, dynamic>> listPiutang = [];
 
-      DateFormat firestoreDateFormat = DateFormat("dd/MM/yyyy HH:mm");
-
-      DateTime tanggalMulaiHanyaHari = DateTime(
+      final DateTime tanggalMulaiHanyaHari = DateTime(
         start.year,
         start.month,
         start.day,
       );
-      DateTime tanggalAkhirHanyaHari = DateTime(end.year, end.month, end.day);
+      final DateTime tanggalAkhirHanyaHari = DateTime(
+        end.year,
+        end.month,
+        end.day,
+      );
 
       // ── Loop rekam_medis ──
       Map<String, List<DateTime>> semuaKunjungan = {};
-
-      // ✅ FIX: Map "NIP|tanggal(dd/MM/yyyy)" → info layanan dari rekam_medis
-      // Key pakai NIP+tanggal supaya bisa join ke transaksi keuangan
       Map<String, Map<String, String>> rekamLayananMap = {};
 
       for (var doc in rekamSnapshot.docs) {
         final data = doc.data();
-        String nip = data['nomer_induk_pasien'] ?? "";
-        String waktuStr = data['waktu_kunjungan'] ?? "";
-        if (nip.isEmpty || waktuStr.isEmpty) continue;
+        final String nip = (data['nomer_induk_pasien'] ?? '').toString().trim();
+        if (nip.isEmpty) continue;
 
-        try {
-          DateTime tglKunjungan = firestoreDateFormat.parse(waktuStr);
-          semuaKunjungan.putIfAbsent(nip, () => []).add(tglKunjungan);
+        // ✅ FIX: pakai _parseFlexibleDate
+        final DateTime? tglKunjungan = _parseFlexibleDate(
+          data['waktu_kunjungan'],
+        );
+        if (tglKunjungan == null) continue;
 
-          // Ambil layanan & tindakan dari rekam_medis
-          String layanan = (data['layanan'] as String? ?? '').trim();
-          String tindakan = (data['tindakan'] as String? ?? '').trim();
+        semuaKunjungan.putIfAbsent(nip, () => []).add(tglKunjungan);
 
-          // Gabungkan layanan + tindakan jika keduanya ada
-          String infoLayanan;
-          if (layanan.isNotEmpty && tindakan.isNotEmpty) {
-            infoLayanan = '$layanan – $tindakan';
-          } else if (layanan.isNotEmpty) {
-            infoLayanan = layanan;
-          } else if (tindakan.isNotEmpty) {
-            infoLayanan = tindakan;
-          } else {
-            infoLayanan = '-';
+        final String layanan = (data['layanan'] as String? ?? '').trim();
+        final String tindakan = (data['tindakan'] as String? ?? '').trim();
+
+        String infoLayanan;
+        if (layanan.isNotEmpty && tindakan.isNotEmpty) {
+          infoLayanan = '$layanan – $tindakan';
+        } else if (layanan.isNotEmpty) {
+          infoLayanan = layanan;
+        } else if (tindakan.isNotEmpty) {
+          infoLayanan = tindakan;
+        } else {
+          infoLayanan = '-';
+        }
+
+        final String tglKey = DateFormat('dd/MM/yyyy').format(tglKunjungan);
+        final String mapKey = '$nip|$tglKey';
+
+        if (rekamLayananMap.containsKey(mapKey)) {
+          final String existing = rekamLayananMap[mapKey]!['layanan'] ?? '-';
+          if (existing != infoLayanan && infoLayanan != '-') {
+            rekamLayananMap[mapKey] = {'layanan': '$existing, $infoLayanan'};
           }
-
-          // Key: "MC-021|20/05/2026" — tanggal saja (tanpa jam)
-          String tglKey = DateFormat('dd/MM/yyyy').format(tglKunjungan);
-          String mapKey = '$nip|$tglKey';
-
-          // Jika ada beberapa rekam di hari sama, gabungkan
-          if (rekamLayananMap.containsKey(mapKey)) {
-            String existing = rekamLayananMap[mapKey]!['layanan'] ?? '-';
-            if (existing != infoLayanan && infoLayanan != '-') {
-              rekamLayananMap[mapKey] = {'layanan': '$existing, $infoLayanan'};
-            }
-          } else {
-            rekamLayananMap[mapKey] = {'layanan': infoLayanan};
-          }
-        } catch (e) {
-          debugPrint("LOG ERROR: rekam_medis doc ${doc.id}: $e");
+        } else {
+          rekamLayananMap[mapKey] = {'layanan': infoLayanan};
         }
       }
 
       // ── Loop keuangan ──
       for (var doc in keuanganSnapshot.docs) {
         final data = doc.data();
-        String waktuTransaksiStr = data['waktu_transaksi'] ?? "";
-        if (waktuTransaksiStr.isEmpty) continue;
 
-        try {
-          DateTime tglUtuh = firestoreDateFormat.parse(waktuTransaksiStr);
-          DateTime tglHari = DateTime(tglUtuh.year, tglUtuh.month, tglUtuh.day);
+        // ✅ FIX: pakai _parseFlexibleDate
+        final DateTime? tglUtuh = _parseFlexibleDate(data['waktu_transaksi']);
+        if (tglUtuh == null) continue;
 
-          bool masukRange =
-              !tglHari.isBefore(tanggalMulaiHanyaHari) &&
-              !tglHari.isAfter(tanggalAkhirHanyaHari);
+        final DateTime tglHari = DateTime(
+          tglUtuh.year,
+          tglUtuh.month,
+          tglUtuh.day,
+        );
+        final bool masukRange =
+            !tglHari.isBefore(tanggalMulaiHanyaHari) &&
+            !tglHari.isAfter(tanggalAkhirHanyaHari);
+        if (!masukRange) continue;
 
-          if (masukRange) {
-            double nominalBiaya = (data['biaya'] ?? 0).toDouble();
-            String statusBayar = data['status_bayar'] ?? "";
-            String noPasien = data['nomer_induk_pasien'] ?? "";
-            // Ambil dari keuangan dulu, fallback ke rekam_medis berdasarkan NIP+tanggal
-            String namaLayananKeuangan = (data['nama_layanan'] as String? ?? '')
-                .trim();
-            String namaLayanan = namaLayananKeuangan.isNotEmpty
-                ? namaLayananKeuangan
-                : '-';
+        final double nominalBiaya = (data['biaya'] ?? 0).toDouble();
+        final String statusBayar = (data['status_bayar'] ?? '').toString();
+        final String noPasien = (data['nomer_induk_pasien'] ?? '')
+            .toString()
+            .trim();
+        final String waktuStr = _formatDateToString(tglUtuh);
 
-            // ✅ FIX: Ambil nama dari map pasien, fallback ke field keuangan
-            String namaPasien;
-            String noHp;
-            if (noPasien.isNotEmpty && dataPasienMap.containsKey(noPasien)) {
-              namaPasien = dataPasienMap[noPasien]!['nama'] ?? '-';
-              noHp = dataPasienMap[noPasien]!['no_hp'] ?? '';
-            } else {
-              // Fallback: coba ambil dari dokumen keuangan itu sendiri
-              namaPasien = _resolveNamaFromKeuangan(data);
-              noHp = '';
-            }
-
-            hitungOmzet += nominalBiaya;
-
-            int hariTransaksi = tglHari.day;
-            omzetPerHari[hariTransaksi] =
-                (omzetPerHari[hariTransaksi] ?? 0) + nominalBiaya;
-
-            if (statusBayar == "Belum Lunas") {
-              hitungPiutang += nominalBiaya;
-              if (noPasien.isNotEmpty) pasienBerpiutang.add(noPasien);
-              // ✅ FIX: Join layanan dari rekam_medis pakai key NIP+tanggal
-              String tglKeyPiutang = DateFormat('dd/MM/yyyy').format(tglHari);
-              String rekamKey = '$noPasien|$tglKeyPiutang';
-              String layananFinal = rekamLayananMap.containsKey(rekamKey)
-                  ? (rekamLayananMap[rekamKey]!['layanan'] ?? namaLayanan)
-                  : namaLayanan;
-
-              listPiutang.add({
-                'nama': namaPasien,
-                'nip': noPasien,
-                'layanan': layananFinal,
-                'nominal': nominalBiaya,
-                'waktu': waktuTransaksiStr,
-                'no_hp': noHp,
-              });
-            } else {
-              hitungUangMasuk += nominalBiaya;
-            }
-
-            if (noPasien.isNotEmpty) pasienUnik.add(noPasien);
-          }
-        } catch (e) {
-          debugPrint("LOG ERROR: keuangan doc ${doc.id}: $e");
+        String namaPasien;
+        String noHp;
+        if (noPasien.isNotEmpty && dataPasienMap.containsKey(noPasien)) {
+          namaPasien = dataPasienMap[noPasien]!['nama'] ?? '-';
+          noHp = dataPasienMap[noPasien]!['no_hp'] ?? '';
+        } else {
+          namaPasien = _resolveNamaFromKeuangan(data);
+          noHp = '';
         }
+
+        hitungOmzet += nominalBiaya;
+        omzetPerHari[tglHari.day] =
+            (omzetPerHari[tglHari.day] ?? 0) + nominalBiaya;
+
+        if (statusBayar == 'Belum Lunas') {
+          hitungPiutang += nominalBiaya;
+          if (noPasien.isNotEmpty) pasienBerpiutang.add(noPasien);
+
+          final String tglKeyP = DateFormat('dd/MM/yyyy').format(tglHari);
+          final String rekamKey = '$noPasien|$tglKeyP';
+          final String layananFinal = rekamLayananMap.containsKey(rekamKey)
+              ? (rekamLayananMap[rekamKey]!['layanan'] ?? '-')
+              : '-';
+
+          listPiutang.add({
+            'nama': namaPasien,
+            'nip': noPasien,
+            'layanan': layananFinal,
+            'nominal': nominalBiaya,
+            'waktu': waktuStr,
+            'no_hp': noHp,
+          });
+        } else {
+          hitungUangMasuk += nominalBiaya;
+        }
+
+        if (noPasien.isNotEmpty) pasienUnik.add(noPasien);
       }
 
       // ── Loop pengeluaran ──
       for (var doc in pengeluaranSnapshot.docs) {
         final data = doc.data();
-        DateTime? tglPengeluaran;
-        final rawTanggal = data['tanggal'];
 
-        if (rawTanggal is Timestamp) {
-          tglPengeluaran = rawTanggal.toDate();
-        } else if (rawTanggal is String && rawTanggal.isNotEmpty) {
-          try {
-            tglPengeluaran = firestoreDateFormat.parse(rawTanggal);
-          } catch (_) {}
-        }
+        // ✅ FIX: pakai _parseFlexibleDate
+        final DateTime? tglPengeluaran = _parseFlexibleDate(data['tanggal']);
+        if (tglPengeluaran == null) continue;
 
-        if (tglPengeluaran != null) {
-          DateTime tglHari = DateTime(
-            tglPengeluaran.year,
-            tglPengeluaran.month,
-            tglPengeluaran.day,
-          );
-          bool masukRange =
-              !tglHari.isBefore(tanggalMulaiHanyaHari) &&
-              !tglHari.isAfter(tanggalAkhirHanyaHari);
-          if (masukRange) {
-            hitungPengeluaran += (data['nominal'] ?? 0).toDouble();
-          }
+        final DateTime tglHari = DateTime(
+          tglPengeluaran.year,
+          tglPengeluaran.month,
+          tglPengeluaran.day,
+        );
+        final bool masukRange =
+            !tglHari.isBefore(tanggalMulaiHanyaHari) &&
+            !tglHari.isAfter(tanggalAkhirHanyaHari);
+        if (masukRange) {
+          hitungPengeluaran += (data['nominal'] ?? 0).toDouble();
         }
       }
 
-      DateTime batas4Bulan = tanggalAkhirHanyaHari.subtract(
+      // ── Hitung pelanggan ──
+      final DateTime batas4Bulan = tanggalAkhirHanyaHari.subtract(
         const Duration(days: 120),
       );
-      DateTime batas1Bulan = tanggalAkhirHanyaHari.subtract(
+      final DateTime batas1Bulan = tanggalAkhirHanyaHari.subtract(
         const Duration(days: 30),
       );
 
@@ -278,25 +277,25 @@ class _RingkasanPageState extends State<RingkasanPage> {
       Set<String> pasienRepeat = {};
 
       for (var entry in semuaKunjungan.entries) {
-        String nip = entry.key;
-        List<DateTime> kunjungan = entry.value;
-        kunjungan.sort((a, b) => a.compareTo(b));
+        final String nip = entry.key;
+        final List<DateTime> kunjungan = entry.value
+          ..sort((a, b) => a.compareTo(b));
 
-        DateTime tglPertama = DateTime(
+        final DateTime tglPertama = DateTime(
           kunjungan.first.year,
           kunjungan.first.month,
           kunjungan.first.day,
         );
-        DateTime tglTerakhir = DateTime(
+        final DateTime tglTerakhir = DateTime(
           kunjungan.last.year,
           kunjungan.last.month,
           kunjungan.last.day,
         );
 
-        bool isAktif = !tglTerakhir.isBefore(batas4Bulan);
+        final bool isAktif = !tglTerakhir.isBefore(batas4Bulan);
         if (isAktif) pelangganAktifSet.add(nip);
 
-        bool isBaru = !tglPertama.isBefore(batas1Bulan);
+        final bool isBaru = !tglPertama.isBefore(batas1Bulan);
         if (isBaru) pasienBaru.add(nip);
 
         if (kunjungan.length > 1 && isAktif) pasienRepeat.add(nip);
@@ -319,10 +318,8 @@ class _RingkasanPageState extends State<RingkasanPage> {
         labaRugi = currency.format(hitungUangMasuk - hitungPengeluaran);
         pemasukanNota = currency.format(hitungUangMasuk);
 
-        // ✅ FIX: PPh 2,5% dari (Total Omzet - Piutang) = uang masuk aktual
-        double dasarPph = hitungOmzet - hitungPiutang; // = hitungUangMasuk
-        double hitungPph = dasarPph * 0.025;
-        ppn = currency.format(hitungPph);
+        final double dasarPph = hitungOmzet - hitungPiutang;
+        ppn = currency.format(dasarPph * 0.025);
 
         pelangganAktif = pelangganAktifSet.length.toString();
         pelangganBaru = pasienBaru.length.toString();
@@ -332,13 +329,14 @@ class _RingkasanPageState extends State<RingkasanPage> {
         chartDataPerHari = omzetPerHari;
         _dataPiutang = listPiutang;
       });
-    } catch (e) {
-      debugPrint("LOG ERROR: Terjadi kesalahan sistem utama: $e");
+    } catch (e, stack) {
+      debugPrint('LOG ERROR: Terjadi kesalahan sistem utama: $e\n$stack');
     }
   }
 
-  // ✅ FIX: Helper untuk resolve nama dari dokumen pasien
-  // Urutan prioritas sesuai struktur Firestore aktual
+  // ════════════════════════════════════════════════════════════
+  // HELPERS nama & HP
+  // ════════════════════════════════════════════════════════════
   String _resolveNama(Map<String, dynamic> data) {
     for (final key in ['nama_lengkap', 'nama', 'nama_pasien', 'name']) {
       final val = data[key];
@@ -347,7 +345,6 @@ class _RingkasanPageState extends State<RingkasanPage> {
     return '-';
   }
 
-  // ✅ FIX: Helper untuk resolve nama dari dokumen keuangan (fallback)
   String _resolveNamaFromKeuangan(Map<String, dynamic> data) {
     for (final key in ['nama_lengkap', 'nama_pasien', 'nama', 'name']) {
       final val = data[key];
@@ -356,8 +353,6 @@ class _RingkasanPageState extends State<RingkasanPage> {
     return '-';
   }
 
-  // ✅ FIX: Helper untuk resolve no HP dari dokumen pasien
-  // Urutan prioritas sesuai struktur Firestore aktual
   String _resolveNoHp(Map<String, dynamic> data) {
     for (final key in [
       'nomer_hp',
@@ -379,7 +374,6 @@ class _RingkasanPageState extends State<RingkasanPage> {
   // ════════════════════════════════════════════════════════════
   Future<void> _kirimTagihanWA(Map<String, dynamic> item) async {
     final noHp = (item['no_hp'] as String? ?? '').trim();
-
     if (noHp.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -404,25 +398,19 @@ class _RingkasanPageState extends State<RingkasanPage> {
     final nominal = currency.format(item['nominal'] ?? 0);
     final waktu = item['waktu'] ?? '-';
 
-    // Format pesan tagihan
     final pesan =
-        '''Halo ${nama},
+        'Halo $nama,\n\n'
+        'Kami dari Klinik ingin menginformasikan bahwa Anda masih memiliki tagihan yang belum dilunasi.\n\n'
+        '📋 *Detail Tagihan*\n'
+        'Nama      : $nama\n'
+        'No. Pasien: $nip\n'
+        'Layanan   : $layanan\n'
+        'Tanggal   : $waktu\n'
+        'Nominal   : *$nominal*\n\n'
+        'Mohon segera melakukan pembayaran. Terima kasih atas kepercayaan Anda.\n\n'
+        '_Salam,_\n'
+        '_Tim Klinik_';
 
-Kami dari Klinik ingin menginformasikan bahwa Anda masih memiliki tagihan yang belum dilunasi.
-
-📋 *Detail Tagihan*
-Nama      : $nama
-No. Pasien: $nip
-Layanan   : $layanan
-Tanggal   : $waktu
-Nominal   : *$nominal*
-
-Mohon segera melakukan pembayaran. Terima kasih atas kepercayaan Anda.
-
-_Salam,_
-_Tim Klinik_''';
-
-    // Normalkan nomor HP ke format internasional (62xxx)
     String normalizedHp = noHp.replaceAll(RegExp(r'\s+|-'), '');
     if (normalizedHp.startsWith('0')) {
       normalizedHp = '62${normalizedHp.substring(1)}';
@@ -430,11 +418,10 @@ _Tim Klinik_''';
       normalizedHp = '62$normalizedHp';
     }
 
-    final encodedPesan = Uri.encodeComponent(pesan);
-    final waUrl = 'https://wa.me/$normalizedHp?text=$encodedPesan';
-
+    final uri = Uri.parse(
+      'https://wa.me/$normalizedHp?text=${Uri.encodeComponent(pesan)}',
+    );
     try {
-      final uri = Uri.parse(waUrl);
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
       } else {
@@ -448,12 +435,12 @@ _Tim Klinik_''';
         }
       }
     } catch (e) {
-      debugPrint("LOG ERROR: WhatsApp launch: $e");
+      debugPrint('LOG ERROR: WhatsApp launch: $e');
     }
   }
 
   // ════════════════════════════════════════════════════════════
-  // DETAIL PIUTANG — bottom sheet
+  // DETAIL PIUTANG
   // ════════════════════════════════════════════════════════════
   void _showDetailPiutang() {
     final currency = NumberFormat.currency(
@@ -479,7 +466,6 @@ _Tim Klinik_''';
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Handle bar
               Center(
                 child: Container(
                   width: 40,
@@ -540,10 +526,10 @@ _Tim Klinik_''';
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(
+                            const Icon(
                               Icons.check_circle_outline_rounded,
                               size: 48,
-                              color: const Color(0xff16A34A),
+                              color: Color(0xff16A34A),
                             ),
                             const SizedBox(height: 8),
                             const Text(
@@ -562,13 +548,12 @@ _Tim Klinik_''';
                         ),
                         itemBuilder: (_, i) {
                           final item = _dataPiutang[i];
-                          final noHp = item['no_hp'] as String? ?? '';
+                          final noHp = (item['no_hp'] as String? ?? '');
                           return Padding(
                             padding: const EdgeInsets.symmetric(vertical: 10),
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                // Avatar icon
                                 Container(
                                   padding: const EdgeInsets.all(8),
                                   decoration: BoxDecoration(
@@ -582,16 +567,14 @@ _Tim Klinik_''';
                                   ),
                                 ),
                                 const SizedBox(width: 12),
-                                // Info pasien
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      // ✅ FIX: Nama pasien (tidak null)
                                       Text(
-                                        item['nama']?.toString().isNotEmpty ==
-                                                true
+                                        (item['nama']?.toString().isNotEmpty ==
+                                                true)
                                             ? item['nama']
                                             : '-',
                                         style: const TextStyle(
@@ -600,7 +583,6 @@ _Tim Klinik_''';
                                         ),
                                       ),
                                       const SizedBox(height: 2),
-                                      // ✅ FIX: NIP • No HP (bukan layanan)
                                       Text(
                                         '${item['nip'] ?? '-'}  •  ${noHp.isNotEmpty ? noHp : 'No HP tidak ada'}',
                                         style: Theme.of(context)
@@ -609,7 +591,6 @@ _Tim Klinik_''';
                                             ?.copyWith(fontSize: 12),
                                       ),
                                       const SizedBox(height: 2),
-                                      // Layanan di baris sendiri
                                       Text(
                                         item['layanan'] ?? '-',
                                         style: Theme.of(context)
@@ -629,7 +610,6 @@ _Tim Klinik_''';
                                             ?.copyWith(fontSize: 11),
                                       ),
                                       const SizedBox(height: 8),
-                                      // Nominal
                                       Text(
                                         currency.format(item['nominal'] ?? 0),
                                         style: const TextStyle(
@@ -639,7 +619,6 @@ _Tim Klinik_''';
                                         ),
                                       ),
                                       const SizedBox(height: 8),
-                                      // ✅ BARU: Tombol Kirim Tagihan WA
                                       SizedBox(
                                         width: double.infinity,
                                         child: OutlinedButton.icon(
@@ -695,38 +674,39 @@ _Tim Klinik_''';
   }
 
   // ════════════════════════════════════════════════════════════
-  // HELPERS
+  // HELPERS chart & periode
   // ════════════════════════════════════════════════════════════
   String _formatPeriodeText() {
-    List<String> bulan = [
-      "Jan",
-      "Feb",
-      "Mar",
-      "Apr",
-      "Mei",
-      "Jun",
-      "Jul",
-      "Agu",
-      "Sep",
-      "Okt",
-      "Nov",
-      "Des",
+    const bulan = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'Mei',
+      'Jun',
+      'Jul',
+      'Agu',
+      'Sep',
+      'Okt',
+      'Nov',
+      'Des',
     ];
     if (startDate.month == endDate.month && startDate.year == endDate.year) {
-      return "${bulan[startDate.month - 1]} ${startDate.year}";
+      return '${bulan[startDate.month - 1]} ${startDate.year}';
     }
-    return "${startDate.day} ${bulan[startDate.month - 1]} - "
-        "${endDate.day} ${bulan[endDate.month - 1]} ${endDate.year}";
+    return '${startDate.day} ${bulan[startDate.month - 1]} - '
+        '${endDate.day} ${bulan[endDate.month - 1]} ${endDate.year}';
   }
 
   List<FlSpot> _buildChartSpots() {
     if (chartDataPerHari.isEmpty) {
       return [const FlSpot(1, 0), const FlSpot(31, 0)];
     }
-    List<FlSpot> spots = chartDataPerHari.entries
-        .map((e) => FlSpot(e.key.toDouble(), e.value))
-        .toList();
-    spots.sort((a, b) => a.x.compareTo(b.x));
+    final spots =
+        chartDataPerHari.entries
+            .map((e) => FlSpot(e.key.toDouble(), e.value))
+            .toList()
+          ..sort((a, b) => a.x.compareTo(b.x));
     if (spots.length == 1) {
       spots.insert(0, FlSpot(spots.first.x - 1 < 1 ? 1 : spots.first.x - 1, 0));
     }
@@ -735,9 +715,9 @@ _Tim Klinik_''';
 
   double _getChartMaxY() {
     if (chartDataPerHari.isEmpty) return 100000;
-    double maxVal = chartDataPerHari.values.reduce((a, b) => a > b ? a : b);
-    double magnitude = (maxVal / 5);
-    double rounded =
+    final maxVal = chartDataPerHari.values.reduce((a, b) => a > b ? a : b);
+    final magnitude = maxVal / 5;
+    final rounded =
         (magnitude / _niceStep(magnitude)).ceil() * _niceStep(magnitude) * 5;
     return rounded * 1.2;
   }
@@ -770,7 +750,7 @@ _Tim Klinik_''';
             _buildChartSection(cardColor),
             const SizedBox(height: 24),
             Text(
-              "Rincian Laporan",
+              'Rincian Laporan',
               style:
                   bodyLarge?.copyWith(
                     fontSize: 18,
@@ -785,8 +765,8 @@ _Tim Klinik_''';
               icon: Icons.receipt_long_rounded,
               iconColor: const Color(0xff0284C7),
               iconBgColor: const Color(0xffE0F2FE),
-              title: "Total Omzet",
-              subtitle: "Semua nota yang dibuat di periode ini",
+              title: 'Total Omzet',
+              subtitle: 'Semua nota yang dibuat di periode ini',
               value: totalOmzet,
               valueColor: bodyLarge?.color ?? const Color(0xff1E293B),
             ),
@@ -796,8 +776,8 @@ _Tim Klinik_''';
               icon: Icons.account_balance_wallet_rounded,
               iconColor: const Color(0xff16A34A),
               iconBgColor: const Color(0xffDCFCE7),
-              title: "Uang Masuk",
-              subtitle: "Uang yang aktual diterima di periode ini",
+              title: 'Uang Masuk',
+              subtitle: 'Uang yang aktual diterima di periode ini',
               value: uangMasuk,
               valueColor: bodyLarge?.color ?? const Color(0xff1E293B),
             ),
@@ -807,8 +787,8 @@ _Tim Klinik_''';
               icon: Icons.hourglass_empty_rounded,
               iconColor: const Color(0xffD97706),
               iconBgColor: const Color(0xffFEF3C7),
-              title: "Piutang",
-              subtitle: "Layanan periode ini yang belum dibayar",
+              title: 'Piutang',
+              subtitle: 'Layanan periode ini yang belum dibayar',
               value: piutang,
               valueColor: bodyLarge?.color ?? const Color(0xff1E293B),
               hasDetail: true,
@@ -820,18 +800,16 @@ _Tim Klinik_''';
               icon: Icons.upload_rounded,
               iconColor: const Color(0xffDC2626),
               iconBgColor: const Color(0xffFEE2E2),
-              title: "Pengeluaran",
-              subtitle: "Total biaya operasional & pengeluaran lain",
+              title: 'Pengeluaran',
+              subtitle: 'Total biaya operasional & pengeluaran lain',
               value: pengeluaran,
               valueColor: bodyLarge?.color ?? const Color(0xff1E293B),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const FormPengeluaranPage(),
-                  ),
-                );
-              },
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const FormPengeluaranPage(),
+                ),
+              ),
             ),
             _buildReportCard(
               cardColor: cardColor,
@@ -839,8 +817,8 @@ _Tim Klinik_''';
               icon: Icons.stars_rounded,
               iconColor: const Color(0xff15803D),
               iconBgColor: const Color(0xffE2F0D9),
-              title: "Laba / Rugi",
-              subtitle: "Total uang masuk yang sudah dikurangi pengeluaran",
+              title: 'Laba / Rugi',
+              subtitle: 'Total uang masuk yang sudah dikurangi pengeluaran',
               value: labaRugi,
               valueColor: const Color(0xff16A34A),
             ),
@@ -848,17 +826,17 @@ _Tim Klinik_''';
             _buildDetailSection(
               cardColor: cardColor,
               bodyLarge: bodyLarge,
-              title: "DETAIL UANG MASUK",
+              title: 'DETAIL UANG MASUK',
               accentColor: const Color(0xff0284C7),
               items: [
                 _buildDetailRow(
-                  "Pemasukan Nota",
+                  'Pemasukan Nota',
                   pemasukanNota,
                   bodyLarge: bodyLarge,
                 ),
                 const Divider(height: 24, thickness: 1),
                 _buildDetailRow(
-                  "Total Uang Masuk",
+                  'Total Uang Masuk',
                   uangMasuk,
                   isTotal: true,
                   totalColor: const Color(0xff16A34A),
@@ -869,12 +847,11 @@ _Tim Klinik_''';
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      // ✅ FIX: label PPh menjelaskan dasarnya
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            "PPh 2,5%",
+                            'PPh 2,5%',
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.bold,
@@ -884,7 +861,7 @@ _Tim Klinik_''';
                             ),
                           ),
                           Text(
-                            "dari Omzet dikurangi Piutang",
+                            'dari Omzet dikurangi Piutang',
                             style: TextStyle(
                               fontSize: 10,
                               color: Theme.of(
@@ -911,29 +888,29 @@ _Tim Klinik_''';
             _buildDetailSection(
               cardColor: cardColor,
               bodyLarge: bodyLarge,
-              title: "PELANGGAN",
+              title: 'PELANGGAN',
               accentColor: const Color(0xff0284C7),
               items: [
                 _buildDetailRow(
-                  "Total Pelanggan Aktif",
+                  'Total Pelanggan Aktif',
                   pelangganAktif,
                   isBoldValue: true,
                   bodyLarge: bodyLarge,
                 ),
                 _buildDetailRow(
-                  "Pelanggan Baru",
+                  'Pelanggan Baru',
                   pelangganBaru,
                   isBoldValue: true,
                   bodyLarge: bodyLarge,
                 ),
                 _buildDetailRow(
-                  "Repeat Customer",
+                  'Repeat Customer',
                   repeatCustomer,
                   isBoldValue: true,
                   bodyLarge: bodyLarge,
                 ),
                 _buildDetailRow(
-                  "Berpiutang",
+                  'Berpiutang',
                   berpiutang,
                   isBoldValue: true,
                   bodyLarge: bodyLarge,
@@ -950,7 +927,6 @@ _Tim Klinik_''';
   // ════════════════════════════════════════════════════════════
   // WIDGETS
   // ════════════════════════════════════════════════════════════
-
   Widget _buildPeriodeSelector(Color cardColor, TextStyle? bodyLarge) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -967,7 +943,7 @@ _Tim Klinik_''';
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                "Periode Laporan",
+                'Periode Laporan',
                 style:
                     bodyLarge?.copyWith(fontSize: 12, color: Colors.grey) ??
                     const TextStyle(fontSize: 12, color: Colors.grey),
@@ -999,7 +975,7 @@ _Tim Klinik_''';
               ),
               elevation: 0,
             ),
-            child: const Text("Ubah", style: TextStyle(color: Colors.white)),
+            child: const Text('Ubah', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -1048,7 +1024,7 @@ _Tim Klinik_''';
                       ),
                     );
                   }
-                  double mid = (meta.min + meta.max) / 2;
+                  final double mid = (meta.min + meta.max) / 2;
                   if ((value - mid).abs() < meta.max * 0.08) {
                     return Text(
                       _formatYLabel(value),
@@ -1068,7 +1044,7 @@ _Tim Klinik_''';
               sideTitles: SideTitles(
                 showTitles: true,
                 getTitlesWidget: (value, meta) {
-                  final labels = [1, 5, 10, 15, 20, 25, 31];
+                  const labels = [1, 5, 10, 15, 20, 25, 31];
                   if (labels.contains(value.toInt())) {
                     return Text(
                       value.toInt().toString().padLeft(2, '0'),
@@ -1191,7 +1167,7 @@ _Tim Klinik_''';
                           child: const Row(
                             children: [
                               Text(
-                                "Lihat Detail ",
+                                'Lihat Detail ',
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: Colors.orange,
@@ -1305,7 +1281,7 @@ _Tim Klinik_''';
         ),
         child: AppBar(
           title: const Text(
-            "Ringkasan Klinik",
+            'Ringkasan Klinik',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
           ),
           backgroundColor: kPrimary,

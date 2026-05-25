@@ -83,12 +83,21 @@ class _SignUpScreenState extends State<SignUpScreen> {
         await userCredential.user!.sendEmailVerification();
       }
 
+      await FirebaseAuth.instance.signOut();
+
       if (mounted) {
         _showSnackBar(
-          "Registrasi sukses (NIP: $generatedNip). Silakan CEK EMAIL Anda untuk memverifikasi akun sebelum login!",
+          "Registrasi sukses (NIP: $generatedNip). Silakan cek EMAIL Anda untuk verifikasi akun sebelum login!",
           isError: false,
         );
-        Navigator.pushReplacementNamed(context, '/home');
+        // Tunggu sebentar agar snackbar kebaca, baru arahkan ke login
+        await Future.delayed(const Duration(seconds: 2));
+        if (mounted) {
+          Navigator.pushReplacementNamed(
+            context,
+            '/signin',
+          ); // atau '/login' sesuai route kamu
+        }
       }
     } on FirebaseAuthException catch (e) {
       String message = "Terjadi kesalahan";

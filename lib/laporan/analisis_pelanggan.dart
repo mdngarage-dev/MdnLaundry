@@ -41,7 +41,8 @@ class _AnalisisPelangganPageState extends State<AnalisisPelangganPage> {
   String _selectedPeriode = '30 Hari Terakhir';
   DateTime _startDate = DateTime.now().subtract(const Duration(days: 29));
   DateTime _endDate = DateTime.now();
-
+  List<Map<String, dynamic>> _rawTransaksi = []; // semua transaksi mentah
+  Map<String, String> _nipToNama = {};
   // ── Sort & Search ──
   _SortMode _sortMode = _SortMode.topSpending;
   String _searchQuery = '';
@@ -83,7 +84,6 @@ class _AnalisisPelangganPageState extends State<AnalisisPelangganPage> {
     try {
       final DateFormat fmt = DateFormat('dd/MM/yyyy HH:mm');
 
-      // Fetch paralel
       final results = await Future.wait([
         FirebaseFirestore.instance.collection('keuangan').get(),
         FirebaseFirestore.instance.collection('pasien').get(),
@@ -96,46 +96,41 @@ class _AnalisisPelangganPageState extends State<AnalisisPelangganPage> {
       final Map<String, String> nipToNama = {};
       for (var doc in pasienSnap.docs) {
         final d = doc.data();
-        final nip = d['nomer_induk_pasien'] ?? '';
-        final nama = d['nama_lengkap'] ?? '-';
+        final nip = (d['nomer_induk_pasien'] ?? '').toString().trim();
+        final nama = (d['nama_lengkap'] ?? '-').toString().trim();
         if (nip.isNotEmpty) nipToNama[nip] = nama;
       }
 
-      // Group by NIP (customer)
-      final Map<String, _CustomerData> map = {};
-
+      // Simpan semua transaksi mentah (tanpa filter periode)
+      final List<Map<String, dynamic>> rawList = [];
       for (var doc in keuanganSnap.docs) {
         final data = doc.data();
-        final String waktu = data['waktu_transaksi'] ?? '';
+        final String waktu = (data['waktu_transaksi'] ?? '').toString().trim();
         if (waktu.isEmpty) continue;
 
+        DateTime tgl;
         try {
-          final DateTime tgl = fmt.parse(waktu);
-          final String nip = data['nomer_induk_pasien'] ?? '-';
-          final double biaya = (data['biaya'] ?? 0).toDouble();
-          final String nama = nipToNama[nip] ?? nip;
+          tgl = fmt.parse(waktu);
+        } catch (_) {
+          continue;
+        }
 
-          if (map.containsKey(nip)) {
-            map[nip]!.orderCount += 1;
-            map[nip]!.totalRevenue += biaya;
-            final prev = map[nip]!.lastOrderDate;
-            if (prev == null || tgl.isAfter(prev)) {
-              map[nip]!.lastOrderDate = tgl;
-            }
-          } else {
-            map[nip] = _CustomerData(
-              nip: nip,
-              nama: nama,
-              orderCount: 1,
-              totalRevenue: biaya,
-              lastOrderDate: tgl,
-            );
-          }
-        } catch (_) {}
+        final String nip = (data['nomer_induk_pasien'] ?? '-')
+            .toString()
+            .trim();
+        final double biaya = (data['biaya'] ?? 0).toDouble();
+
+        rawList.add({
+          'nip': nip,
+          'nama': nipToNama[nip] ?? nip,
+          'biaya': biaya,
+          'tgl': tgl,
+        });
       }
 
       setState(() {
-        _allCustomers = map.values.toList();
+        _rawTransaksi = rawList;
+        _nipToNama = nipToNama;
         _isLoading = false;
       });
       _applyFilter();
@@ -145,9 +140,6 @@ class _AnalisisPelangganPageState extends State<AnalisisPelangganPage> {
     }
   }
 
-  // ════════════════════════════════════════════════════════════
-  // FILTER & SORT
-  // ════════════════════════════════════════════════════════════
   void _applyFilter() {
     final DateTime start = DateTime(
       _startDate.year,
@@ -156,22 +148,46 @@ class _AnalisisPelangganPageState extends State<AnalisisPelangganPage> {
     );
     final DateTime end = DateTime(_endDate.year, _endDate.month, _endDate.day);
 
-    // Filter by periode: cek lastOrderDate ada di range
-    // (lebih akurat: filter per transaksi, tapi karena sudah di-group,
-    //  kita filter customer yang lastOrderDate-nya dalam range)
-    List<_CustomerData> list = _allCustomers.where((c) {
-      final tgl = c.lastOrderDate;
-      if (tgl == null) return false;
-      final hari = DateTime(tgl.year, tgl.month, tgl.day);
-      final inRange = !hari.isBefore(start) && !hari.isAfter(end);
+    // ── Group transaksi dalam periode by NIP ──
+    final Map<String, _CustomerData> map = {};
 
-      final matchSearch =
-          _searchQuery.isEmpty ||
-          c.nama.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          c.nip.contains(_searchQuery);
+    for (var t in _rawTransaksi) {
+      final DateTime tgl = t['tgl'] as DateTime;
+      final DateTime hari = DateTime(tgl.year, tgl.month, tgl.day);
 
-      return inRange && matchSearch;
-    }).toList();
+      // Filter periode per transaksi (bukan lastOrderDate)
+      if (hari.isBefore(start) || hari.isAfter(end)) continue;
+
+      final String nip = t['nip'] as String;
+      final String nama = t['nama'] as String;
+      final double biaya = t['biaya'] as double;
+
+      // Filter search
+      if (_searchQuery.isNotEmpty &&
+          !nama.toLowerCase().contains(_searchQuery.toLowerCase()) &&
+          !nip.contains(_searchQuery)) {
+        continue;
+      }
+
+      if (map.containsKey(nip)) {
+        map[nip]!.orderCount += 1;
+        map[nip]!.totalRevenue += biaya;
+        if (map[nip]!.lastOrderDate == null ||
+            tgl.isAfter(map[nip]!.lastOrderDate!)) {
+          map[nip]!.lastOrderDate = tgl;
+        }
+      } else {
+        map[nip] = _CustomerData(
+          nip: nip,
+          nama: nama,
+          orderCount: 1,
+          totalRevenue: biaya,
+          lastOrderDate: tgl,
+        );
+      }
+    }
+
+    List<_CustomerData> list = map.values.toList();
 
     // Sort
     if (_sortMode == _SortMode.topSpending) {
@@ -180,7 +196,6 @@ class _AnalisisPelangganPageState extends State<AnalisisPelangganPage> {
       list.sort((a, b) => b.orderCount.compareTo(a.orderCount));
     }
 
-    // Summary
     final totalOrder = list.fold<int>(0, (s, c) => s + c.orderCount);
     final totalRevenue = list.fold<double>(0, (s, c) => s + c.totalRevenue);
 

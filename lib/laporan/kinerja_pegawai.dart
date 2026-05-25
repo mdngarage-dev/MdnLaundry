@@ -88,8 +88,7 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
   Future<void> _fetchData() async {
     setState(() => _isLoading = true);
     try {
-      final DateFormat fmtRekam = DateFormat('dd/MM/yyyy HH:mm');
-      final DateFormat fmtKeuangan = DateFormat('dd/MM/yyyy HH:mm');
+      final DateFormat fmt = DateFormat('dd/MM/yyyy HH:mm');
 
       final results = await Future.wait([
         FirebaseFirestore.instance.collection('rekam_medis').get(),
@@ -110,62 +109,86 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
         _endDate.day,
       );
 
-      // ── Hitung berapa kali tiap pasien pernah datang (ALL TIME)
-      //    untuk menentukan apakah pasien "baru pertama datang"
-      final Map<String, int> pasienVisitCount = {};
+      // ── 1. Hitung total kunjungan ALL TIME per pasien (untuk deteksi pasien baru)
+      final Map<String, int> pasienVisitCountAllTime = {};
       for (var doc in rekamSnap.docs) {
-        final data = doc.data();
-        final String noInduk = (data['nomer_induk_pasien'] ?? '')
+        final noInduk = (doc.data()['nomer_induk_pasien'] ?? '')
             .toString()
             .trim();
         if (noInduk.isEmpty) continue;
-        pasienVisitCount[noInduk] = (pasienVisitCount[noInduk] ?? 0) + 1;
+        pasienVisitCountAllTime[noInduk] =
+            (pasienVisitCountAllTime[noInduk] ?? 0) + 1;
       }
 
-      // ── Build map keuangan: nomer_induk_pasien → total biaya (dalam periode)
-      //    Satu pasien bisa punya beberapa transaksi; kita sum per pasien.
+      // ── 2. Build map keuangan: nomer_induk_pasien → biaya
+      //       Hanya transaksi dalam periode, LUNAS saja (opsional filter status)
+      //       Key: nomer_induk_pasien, Value: total biaya semua transaksi pasien itu
       final Map<String, double> keuanganByPasien = {};
       for (var doc in keuanganSnap.docs) {
         final data = doc.data();
-        final String waktu = data['waktu_transaksi'] ?? '';
+        final String waktu = (data['waktu_transaksi'] ?? '').toString().trim();
         if (waktu.isEmpty) continue;
 
         DateTime tgl;
         try {
-          tgl = fmtKeuangan.parse(waktu);
+          tgl = fmt.parse(waktu);
         } catch (_) {
           continue;
         }
 
-        final DateTime hari = DateTime(tgl.year, tgl.month, tgl.day);
+        final hari = DateTime(tgl.year, tgl.month, tgl.day);
         if (hari.isBefore(start) || hari.isAfter(end)) continue;
 
-        final String noInduk = (data['nomer_induk_pasien'] ?? '')
-            .toString()
-            .trim();
+        final noInduk = (data['nomer_induk_pasien'] ?? '').toString().trim();
         if (noInduk.isEmpty) continue;
 
         final double biaya = (data['biaya'] ?? 0).toDouble();
+        // Akumulasi semua transaksi per pasien dalam periode
         keuanganByPasien[noInduk] = (keuanganByPasien[noInduk] ?? 0) + biaya;
       }
 
-      // ── Baca rekam_medis dalam periode untuk akumulasi per pegawai
+      // ── 3. Baca rekam_medis dalam periode
+      //       Setiap kunjungan = 1 record, revenue dibagi rata jika pasien
+      //       punya lebih dari 1 kunjungan di periode yang sama
+
+      // Pertama, hitung dulu berapa kali tiap pasien kunjungan DI PERIODE INI
+      // supaya bisa bagi revenue secara proporsional per kunjungan
+      final Map<String, int> pasienVisitInPeriod = {};
+      for (var doc in rekamSnap.docs) {
+        final data = doc.data();
+        final String waktu = (data['waktu_kunjungan'] ?? '').toString().trim();
+        if (waktu.isEmpty) continue;
+        DateTime tgl;
+        try {
+          tgl = fmt.parse(waktu);
+        } catch (_) {
+          continue;
+        }
+        final hari = DateTime(tgl.year, tgl.month, tgl.day);
+        if (hari.isBefore(start) || hari.isAfter(end)) continue;
+
+        final noInduk = (data['nomer_induk_pasien'] ?? '').toString().trim();
+        if (noInduk.isEmpty) continue;
+        pasienVisitInPeriod[noInduk] = (pasienVisitInPeriod[noInduk] ?? 0) + 1;
+      }
+
+      // ── 4. Akumulasi per pegawai
       final Map<String, _PegawaiKinerja> map = {};
 
       for (var doc in rekamSnap.docs) {
         final data = doc.data();
 
-        final String waktu = data['waktu_kunjungan'] ?? '';
+        final String waktu = (data['waktu_kunjungan'] ?? '').toString().trim();
         if (waktu.isEmpty) continue;
 
         DateTime tgl;
         try {
-          tgl = fmtRekam.parse(waktu);
+          tgl = fmt.parse(waktu);
         } catch (_) {
           continue;
         }
 
-        final DateTime hari = DateTime(tgl.year, tgl.month, tgl.day);
+        final hari = DateTime(tgl.year, tgl.month, tgl.day);
         if (hari.isBefore(start) || hari.isAfter(end)) continue;
 
         final String namaPegawai = (data['admin_pemeriksa'] ?? '')
@@ -176,40 +199,37 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
         final String noInduk = (data['nomer_induk_pasien'] ?? '')
             .toString()
             .trim();
-        final String layanan = (data['layanan'] ?? 'Lainnya').toString();
+        final String layanan = (data['layanan'] ?? 'Lainnya').toString().trim();
 
-        if (!map.containsKey(namaPegawai)) {
-          map[namaPegawai] = _PegawaiKinerja(nama: namaPegawai);
-        }
-
+        map.putIfAbsent(namaPegawai, () => _PegawaiKinerja(nama: namaPegawai));
         final p = map[namaPegawai]!;
+
         p.totalOrder += 1;
+        p.orderSelesai += 1;
         p.layananCount[layanan] = (p.layananCount[layanan] ?? 0) + 1;
 
-        // Revenue: ambil dari keuangan via nomer_induk_pasien
+        // ── Revenue: bagi rata per kunjungan supaya tidak double-count
+        //    Contoh: pasien MC-022 bayar Rp30.000, kunjungan 2x di periode ini
+        //    → tiap kunjungan dihitung Rp15.000
         if (noInduk.isNotEmpty && keuanganByPasien.containsKey(noInduk)) {
-          // Tambahkan revenue proporsional per kunjungan jika pasien
-          // punya lebih dari 1 kunjungan di periode ini.
-          // Cara sederhana: langsung tambah biaya per rekam_medis.
-          p.totalRevenue += keuanganByPasien[noInduk] ?? 0;
-          // Hapus dari map agar tidak double-count jika pasien
-          // punya lebih dari 1 rekam_medis di periode yang sama.
-          keuanganByPasien.remove(noInduk);
+          final totalBiaya = keuanganByPasien[noInduk] ?? 0;
+          final jumlahKunjungan = pasienVisitInPeriod[noInduk] ?? 1;
+          p.totalRevenue += totalBiaya / jumlahKunjungan;
         }
 
-        // Pasien baru = total kunjungan ALL TIME == 1
-        if (noInduk.isNotEmpty && (pasienVisitCount[noInduk] ?? 0) == 1) {
+        // ── Pasien baru = hanya pernah datang 1x sepanjang waktu (ALL TIME)
+        if (noInduk.isNotEmpty &&
+            (pasienVisitCountAllTime[noInduk] ?? 0) == 1) {
           p.pasienBaruCount += 1;
         }
-
-        // Order selesai (opsional: semua rekam_medis dianggap selesai)
-        p.orderSelesai += 1;
       }
 
-      final list = map.values
-          .where((p) => p.totalOrder > 0 || p.totalRevenue > 0)
-          .toList();
-      list.sort((a, b) => b.totalRevenue.compareTo(a.totalRevenue));
+      // ── 5. Sort & hitung summary
+      final list =
+          map.values
+              .where((p) => p.totalOrder > 0 || p.totalRevenue > 0)
+              .toList()
+            ..sort((a, b) => b.totalRevenue.compareTo(a.totalRevenue));
 
       final totalPend = list.fold<double>(0, (s, p) => s + p.totalRevenue);
       final totalOrd = list.fold<int>(0, (s, p) => s + p.totalOrder);
@@ -225,8 +245,8 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
         _avgOnTimeRate = avgOnTime;
         _isLoading = false;
       });
-    } catch (e) {
-      debugPrint('ERROR fetch kinerja pegawai: $e');
+    } catch (e, stack) {
+      debugPrint('ERROR fetch kinerja pegawai: $e\n$stack');
       setState(() => _isLoading = false);
     }
   }

@@ -216,8 +216,10 @@ class SettingScreen extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              FirebaseAuth.instance.currentUser?.displayName ??
-                                  'User',
+                              (FirebaseAuth.instance.currentUser?.displayName ??
+                                      'User')
+                                  .split('|')[0]
+                                  .trim(),
                               style: TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
@@ -458,8 +460,7 @@ class SettingScreen extends StatelessWidget {
                         context: context,
                         icon: Icons.info_outline,
                         title: "Tentang Aplikasi",
-                        subtitle:
-                            "Versi ${AppConfig.appVersion} (${AppConfig.buildNumber}) - Klinik Ku",
+                        subtitle: "Versi ${AppConfig.appVersion} - Klinik Ku",
                         onTap: () {
                           Navigator.push(
                             context,

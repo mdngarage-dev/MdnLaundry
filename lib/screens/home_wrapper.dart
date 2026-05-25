@@ -19,16 +19,6 @@ class _HomeWrapperState extends State<HomeWrapper> {
     const SettingScreen(),
   ];
 
-  // ✅ initState di sini — setelah _screens, sebelum build
-  @override
-  void initState() {
-    super.initState();
-    // Cek otomatis: jika app tidak dibuka > 24 jam → logout
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      checkAutoLogout(context);
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(

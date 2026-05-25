@@ -62,6 +62,9 @@ dependencies:
   custom_refresh_indicator: ^4.0.1
   fl_chart: ^0.66.0
   package_info_plus: ^8.0.0
+  firebase_messaging: ^15.0.0
+  audioplayers: ^6.0.0
+  overlay_support: ^2.1.0
 
 
 dev_dependencies:
@@ -91,7 +94,8 @@ flutter:
       fonts:
         - asset: assets/font/BubbbleGum-Black.otf   
   assets:
-    - assets/images/       
+    - assets/images/
+    - assets/sounds/notif.mpeg       
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg

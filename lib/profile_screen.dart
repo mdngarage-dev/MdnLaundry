@@ -14,51 +14,6 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final user = FirebaseAuth.instance.currentUser;
 
-  int totalPasienDidaftar = 0;
-  int totalInputMedis = 0;
-  bool isLoadingStats = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _fetchStatsFromFirestore();
-  }
-
-  Future<void> _fetchStatsFromFirestore() async {
-    try {
-      String rawDisplayName = user?.displayName ?? "";
-      String adminName = rawDisplayName.split('|')[0].trim();
-      if (adminName.isEmpty) return;
-
-      // ✅ Fetch rekam_medis berdasarkan admin_pemeriksa
-      final rekamSnap = await FirebaseFirestore.instance
-          .collection('rekam_medis')
-          .where('admin_pemeriksa', isEqualTo: adminName)
-          .get();
-
-      // ✅ Input medis = jumlah dokumen rekam_medis oleh admin ini
-      int jumlahInputMedis = rekamSnap.docs.length;
-
-      // ✅ Pasien didaftar = jumlah NIP unik di rekam_medis oleh admin ini
-      Set<String> nipUnik = {};
-      for (var doc in rekamSnap.docs) {
-        String nip = doc.data()['nomer_induk_pasien'] ?? "";
-        if (nip.isNotEmpty) nipUnik.add(nip);
-      }
-
-      if (mounted) {
-        setState(() {
-          totalPasienDidaftar = nipUnik.length;
-          totalInputMedis = jumlahInputMedis;
-          isLoadingStats = false;
-        });
-      }
-    } catch (e) {
-      debugPrint("Error Ambil Data Firestore: $e");
-      if (mounted) setState(() => isLoadingStats = false);
-    }
-  }
-
   Future<File?> _loadLocalProfileImage() async {
     try {
       final directory = await getApplicationDocumentsDirectory();
@@ -66,45 +21,46 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final file = File(imagePath);
       if (await file.exists()) return file;
     } catch (e) {
-      print("Gagal memuat gambar di settings: $e");
+      debugPrint("Gagal memuat gambar di settings: $e");
     }
     return null;
   }
 
+  /// Nilai persis yang tersimpan di Firestore field [admin_pemeriksa].
+  /// Berdasarkan data Firestore, nilainya adalah displayName PENUH
+  /// termasuk NIP — contoh: "Rd Hilman|AdmMc-042".
+  /// Jangan di-split karena itulah yang dipakai saat menyimpan rekam_medis.
+  String get _adminName {
+    return user?.displayName ?? "";
+  }
+
   @override
   Widget build(BuildContext context) {
-    String rawDisplayName = user?.displayName ?? "Nama Tidak Diatur|AdmMc-005";
-    List<String> namaDanNip = rawDisplayName.split('|');
-    String namaAdmin = namaDanNip[0];
-    String nipAdmin = namaDanNip.length > 1 ? namaDanNip[1] : "AdmMc-005";
+    final rawDisplayName = user?.displayName ?? "Nama Tidak Diatur|AdmMc-005";
+    final namaDanNip = rawDisplayName.split('|');
+    final namaAdmin = namaDanNip[0].trim();
+    final nipAdmin = namaDanNip.length > 1 ? namaDanNip[1].trim() : "AdmMc-005";
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: _buildAppBar(context),
-
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),
         child: Column(
           children: [
-            // --- FOTO PROFIL (LOCK SINKRON KE SETTINGS & READ-ONLY) ---
+            // ── Foto profil ────────────────────────────────────────────
             Center(
               child: FutureBuilder<File?>(
-                future:
-                    _loadLocalProfileImage(), // Samakan pemanggilan fungsi dengan halaman setting
+                future: _loadLocalProfileImage(),
                 builder: (context, snapshot) {
                   final localImageFile = snapshot.data;
-
                   return CircleAvatar(
                     radius: 60,
                     backgroundColor: Theme.of(context).primaryColor,
                     backgroundImage: localImageFile != null
-                        ? FileImage(
-                            localImageFile,
-                          ) // ✅ Gunakan FileImage jika file lokal ditemukan
+                        ? FileImage(localImageFile)
                         : (user?.photoURL != null
-                                  ? NetworkImage(
-                                      user!.photoURL!,
-                                    ) // Cadangan jika ada URL dari Firebase
+                                  ? NetworkImage(user!.photoURL!)
                                   : null)
                               as ImageProvider?,
                     child: localImageFile == null && user?.photoURL == null
@@ -112,7 +68,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             Icons.person,
                             size: 70,
                             color: Colors.white,
-                          ) // Default icon jika kosong
+                          )
                         : null,
                   );
                 },
@@ -120,33 +76,71 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
             const SizedBox(height: 25),
 
-            // --- KARTU PERFORMA KERJA ADMIN (REAL-TIME DATA) ---
-            Row(
-              children: [
-                _buildStatCard(
-                  context,
-                  isLoadingStats ? "..." : totalPasienDidaftar.toString(),
-                  "Pasien Didaftar",
-                  Icons.people,
-                  Theme.of(context).primaryColor,
-                ),
-                const SizedBox(width: 15),
-                _buildStatCard(
-                  context,
-                  isLoadingStats ? "..." : totalInputMedis.toString(),
-                  "Input Medis",
-                  Icons.assignment_turned_in,
-                  Colors.teal,
-                ),
-              ],
+            // ── Stat cards — REAL-TIME via StreamBuilder ───────────────
+            //
+            // Kita stream semua rekam_medis milik admin ini.
+            // • Input Medis  = jumlah dokumen
+            // • Pasien Didaftar = jumlah NIP unik
+            //
+            // CATATAN: pastikan index Firestore untuk
+            //   collection: rekam_medis  field: admin_pemeriksa
+            // sudah dibuat agar query tidak lambat.
+            StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('rekam_medis')
+                  .where('admin_pemeriksa', isEqualTo: _adminName)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                // Hitung nilai dari snapshot
+                int inputMedis = 0;
+                int pasienDidaftar = 0;
+
+                if (snapshot.hasData) {
+                  final docs = snapshot.data!.docs;
+                  inputMedis = docs.length;
+
+                  // Hitung NIP unik di sisi client
+                  final Set<String> nipSet = {};
+                  for (final doc in docs) {
+                    final data = doc.data() as Map<String, dynamic>;
+                    final nip = data['nomer_induk_pasien']?.toString() ?? '';
+                    if (nip.isNotEmpty) nipSet.add(nip);
+                  }
+                  pasienDidaftar = nipSet.length;
+                }
+
+                // Tampilkan loading hanya saat pertama kali (waiting & belum ada data)
+                final isLoading =
+                    snapshot.connectionState == ConnectionState.waiting &&
+                    !snapshot.hasData;
+
+                return Row(
+                  children: [
+                    _buildStatCard(
+                      context,
+                      isLoading ? "..." : pasienDidaftar.toString(),
+                      "Pasien Didaftar",
+                      Icons.people,
+                      Theme.of(context).primaryColor,
+                    ),
+                    const SizedBox(width: 15),
+                    _buildStatCard(
+                      context,
+                      isLoading ? "..." : inputMedis.toString(),
+                      "Input Medis",
+                      Icons.assignment_turned_in,
+                      Colors.teal,
+                    ),
+                  ],
+                );
+              },
             ),
             const SizedBox(height: 25),
 
-            // --- DETAIL INFORMASI PERSONAL ADMIN (READ-ONLY) ---
+            // ── Informasi karyawan ─────────────────────────────────────
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                // 🟢 Tembak langsung ke cardColor tema global Anda
                 color: Theme.of(context).cardColor,
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
@@ -172,27 +166,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                   ),
                   const Divider(height: 20),
-
-                  // 🟢 Menampilkan Nama Lengkap asli dari Firebase Auth
                   _buildProfileField(
                     context,
                     "Nama Lengkap",
                     namaAdmin,
                     Icons.person_outline,
                   ),
-
-                  // 🟢 OTOMATIS: Menampilkan Email asli dari akun Firebase Auth yang sedang login
                   _buildProfileField(
                     context,
                     "Email Sistem",
                     user?.email ?? "Email Tidak Ditemukan",
                     Icons.email_outlined,
                   ),
-
                   _buildProfileField(
                     context,
                     "NIP / ID Petugas",
-                    nipAdmin, // Bisa disesuaikan dinamis jika ada datanya di Sheet/Auth
+                    nipAdmin,
                     Icons.badge_outlined,
                   ),
                   _buildProfileField(
@@ -207,7 +196,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
             const SizedBox(height: 20),
 
-            // ── Tombol Sign Out ───────────────────────────────────────────
+            // ── Tombol Edit Profile ────────────────────────────────────
             SizedBox(
               width: double.infinity,
               height: 55,
@@ -217,9 +206,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     context,
                     MaterialPageRoute(builder: (context) => const ProfilPage()),
                   ).then((_) {
-                    if (mounted) {
-                      setState(() {}); // Tetap nge-refresh pas balik
-                    }
+                    if (mounted) setState(() {});
                   });
                 },
                 icon: const Icon(Icons.edit, color: Colors.white),
@@ -247,6 +234,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  // ─── Widget Helpers ────────────────────────────────────────────
+
   Widget _buildStatCard(
     BuildContext context,
     String value,
@@ -258,7 +247,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: Container(
         padding: const EdgeInsets.all(15),
         decoration: BoxDecoration(
-          // 🟢 Tembak langsung ke cardColor tema global Anda
           color: Theme.of(context).cardColor,
           borderRadius: BorderRadius.circular(15),
         ),
@@ -268,7 +256,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             const SizedBox(height: 8),
             Text(
               value,
-              // 🟢 Tembak langsung ke textTheme.bodyLarge global Anda
               style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
@@ -305,7 +292,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               Text(
                 value,
-                // 🟢 Tembak langsung ke textTheme.bodyLarge global Anda
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                   fontSize: 15,
                   fontWeight: FontWeight.w500,

@@ -29,75 +29,97 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
     _fetchData(selectedDate);
   }
 
+  // ════════════════════════════════════════════════════════════
+  // HELPER: parse date fleksibel (String ATAU Timestamp)
+  // ════════════════════════════════════════════════════════════
+  DateTime? _parseFlexibleDate(dynamic raw) {
+    if (raw == null) return null;
+    if (raw is Timestamp) return raw.toDate();
+    if (raw is String) {
+      if (raw.trim().isEmpty) return null;
+      try {
+        return DateFormat('dd/MM/yyyy HH:mm').parse(raw.trim());
+      } catch (_) {
+        try {
+          return DateFormat('dd/MM/yyyy').parse(raw.trim());
+        } catch (_) {
+          return null;
+        }
+      }
+    }
+    return null;
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // FETCH DATA
+  // ════════════════════════════════════════════════════════════
   Future<void> _fetchData(DateTime date) async {
     setState(() => _isLoading = true);
 
     try {
       final DateTime hariIni = DateTime(date.year, date.month, date.day);
-      final DateFormat fmt = DateFormat("dd/MM/yyyy HH:mm");
 
-      // ── Fetch keuangan ──
-      final keuanganSnap = await FirebaseFirestore.instance
-          .collection('keuangan')
-          .get();
+      // Fetch keuangan & pengeluaran paralel
+      final results = await Future.wait([
+        FirebaseFirestore.instance.collection('keuangan').get(),
+        FirebaseFirestore.instance.collection('pengeluaran').get(),
+      ]);
 
+      final keuanganSnap = results[0];
+      final pengeluaranSnap = results[1];
+
+      // ── Loop keuangan ──
       double omzet = 0;
       double masuk = 0;
       List<Map<String, dynamic>> transaksi = [];
 
       for (var doc in keuanganSnap.docs) {
         final data = doc.data();
-        final String waktuStr = data['waktu_transaksi'] ?? "";
-        if (waktuStr.isEmpty) continue;
 
-        try {
-          DateTime tgl = fmt.parse(waktuStr);
-          DateTime tglHari = DateTime(tgl.year, tgl.month, tgl.day);
-          if (tglHari != hariIni) continue;
+        // ✅ FIX: pakai _parseFlexibleDate — handle String & Timestamp
+        final DateTime? tgl = _parseFlexibleDate(data['waktu_transaksi']);
+        if (tgl == null) continue;
 
-          double biaya = (data['biaya'] ?? 0).toDouble();
-          String status = data['status_bayar'] ?? "";
-          String nip = data['nomer_induk_pasien'] ?? "-";
+        final DateTime tglHari = DateTime(tgl.year, tgl.month, tgl.day);
+        if (tglHari != hariIni) continue;
 
-          omzet += biaya;
-          if (status != "Belum Lunas") masuk += biaya;
+        final double biaya = (data['biaya'] ?? 0).toDouble();
+        final String status = (data['status_bayar'] ?? '').toString();
+        final String nip = (data['nomer_induk_pasien'] ?? '-')
+            .toString()
+            .trim();
 
-          transaksi.add({
-            'nip': nip,
-            'biaya': biaya,
-            'status': status,
-            'waktu': waktuStr,
-          });
-        } catch (_) {}
+        omzet += biaya;
+        if (status != 'Belum Lunas') masuk += biaya;
+
+        transaksi.add({
+          'nip': nip,
+          'biaya': biaya,
+          'status': status,
+          'waktu': DateFormat('dd/MM/yyyy HH:mm').format(tgl),
+        });
       }
 
-      // ── Fetch pengeluaran ──
-      final pengeluaranSnap = await FirebaseFirestore.instance
-          .collection('pengeluaran')
-          .get();
-
+      // ── Loop pengeluaran ──
       double totalPengeluaran = 0;
       List<Map<String, dynamic>> listPengeluaran = [];
 
       for (var doc in pengeluaranSnap.docs) {
         final data = doc.data();
-        DateTime? tglDoc;
 
-        final rawTgl = data['tanggal'];
-        if (rawTgl is Timestamp) {
-          tglDoc = rawTgl.toDate();
-        } else if (rawTgl is String && rawTgl.isNotEmpty) {
-          try {
-            tglDoc = fmt.parse(rawTgl);
-          } catch (_) {}
-        }
-
+        // ✅ FIX: pakai _parseFlexibleDate — handle String & Timestamp
+        final DateTime? tglDoc = _parseFlexibleDate(data['tanggal']);
         if (tglDoc == null) continue;
-        DateTime tglHari = DateTime(tglDoc.year, tglDoc.month, tglDoc.day);
+
+        final DateTime tglHari = DateTime(
+          tglDoc.year,
+          tglDoc.month,
+          tglDoc.day,
+        );
         if (tglHari != hariIni) continue;
 
-        double nominal = (data['nominal'] ?? 0).toDouble();
-        String keterangan = data['keterangan'] ?? "-";
+        final double nominal = (data['nominal'] ?? 0).toDouble();
+        final String keterangan = (data['keterangan'] ?? '-').toString();
         totalPengeluaran += nominal;
 
         listPengeluaran.add({
@@ -107,25 +129,26 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
         });
       }
 
-      // ── Fetch nama pasien ──
+      // ── Fetch nama pasien (batch by NIP) ──
       final Set<String> nipSet = transaksi
           .map((e) => e['nip'] as String)
+          .where((nip) => nip != '-' && nip.isNotEmpty)
           .toSet();
+
       final Map<String, String> nipToNama = {};
 
-      for (String nip in nipSet) {
-        if (nip == "-" || nip.isEmpty) continue;
-        try {
-          final pasienSnap = await FirebaseFirestore.instance
-              .collection('pasien')
-              .where('nomer_induk_pasien', isEqualTo: nip)
-              .limit(1)
-              .get();
-          if (pasienSnap.docs.isNotEmpty) {
-            nipToNama[nip] =
-                pasienSnap.docs.first.data()['nama_lengkap'] ?? nip;
+      // Fetch semua pasien sekaligus, lalu filter di client
+      if (nipSet.isNotEmpty) {
+        final pasienSnap = await FirebaseFirestore.instance
+            .collection('pasien')
+            .get();
+        for (var doc in pasienSnap.docs) {
+          final d = doc.data();
+          final nip = (d['nomer_induk_pasien'] ?? '').toString().trim();
+          if (nipSet.contains(nip)) {
+            nipToNama[nip] = (d['nama_lengkap'] ?? nip).toString();
           }
-        } catch (_) {}
+        }
       }
 
       for (var t in transaksi) {
@@ -144,12 +167,15 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
         _pengeluaranHari = listPengeluaran;
         _isLoading = false;
       });
-    } catch (e) {
-      debugPrint("ERROR fetchData harian: $e");
+    } catch (e, stack) {
+      debugPrint('ERROR fetchData harian: $e\n$stack');
       setState(() => _isLoading = false);
     }
   }
 
+  // ════════════════════════════════════════════════════════════
+  // HELPERS
+  // ════════════════════════════════════════════════════════════
   String _formatRp(double val) => NumberFormat.currency(
     locale: 'id_ID',
     symbol: 'Rp ',
@@ -164,10 +190,10 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
     );
     final d = DateTime(date.year, date.month, date.day);
     if (d == today) {
-      return "Hari Ini - ${DateFormat('d MMM yyyy', 'id').format(date)}";
+      return 'Hari Ini - ${DateFormat('d MMM yyyy', 'id').format(date)}';
     }
     if (d == today.subtract(const Duration(days: 1))) {
-      return "Kemarin - ${DateFormat('d MMM yyyy', 'id').format(date)}";
+      return 'Kemarin - ${DateFormat('d MMM yyyy', 'id').format(date)}';
     }
     return DateFormat('EEEE, d MMM yyyy', 'id').format(date);
   }
@@ -179,6 +205,9 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
     if (range != null) _fetchData(range.start);
   }
 
+  // ════════════════════════════════════════════════════════════
+  // BUILD
+  // ════════════════════════════════════════════════════════════
   @override
   Widget build(BuildContext context) {
     final cardColor = Theme.of(context).cardColor;
@@ -200,22 +229,22 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
                   children: [
                     _buildDatePicker(),
                     const SizedBox(height: 20),
-                    _buildSectionLabel("LAPORAN HARIAN", bodySmall),
+                    _buildSectionLabel('LAPORAN HARIAN', bodySmall),
                     const SizedBox(height: 12),
                     _buildSummaryGrid(cardColor, bodyLarge, bodySmall),
                     const SizedBox(height: 20),
-                    _buildSectionLabel("LAPORAN KEUANGAN", bodySmall),
+                    _buildSectionLabel('LAPORAN KEUANGAN', bodySmall),
                     const SizedBox(height: 12),
                     _buildDetailKeuangan(cardColor, bodyLarge, bodySmall),
                     if (_transaksiHari.isNotEmpty) ...[
                       const SizedBox(height: 20),
-                      _buildSectionLabel("TRANSAKSI HARI INI", bodySmall),
+                      _buildSectionLabel('TRANSAKSI HARI INI', bodySmall),
                       const SizedBox(height: 12),
                       _buildTransaksiList(cardColor, bodyLarge, bodySmall),
                     ],
                     if (_pengeluaranHari.isNotEmpty) ...[
                       const SizedBox(height: 20),
-                      _buildSectionLabel("PENGELUARAN HARI INI", bodySmall),
+                      _buildSectionLabel('PENGELUARAN HARI INI', bodySmall),
                       const SizedBox(height: 12),
                       _buildPengeluaranList(cardColor, bodyLarge, bodySmall),
                     ],
@@ -248,7 +277,7 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
         ),
         child: AppBar(
           title: const Text(
-            "Laporan Harian",
+            'Laporan Harian',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
           ),
           backgroundColor: kPrimary,
@@ -264,14 +293,16 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  title: const Text("Info Laporan Harian"),
+                  title: const Text('Info Laporan Harian'),
                   content: const Text(
-                    "Laporan ini menampilkan ringkasan transaksi, pemasukan, dan pengeluaran pada tanggal yang dipilih.\n\nTarik ke bawah untuk refresh data.",
+                    'Laporan ini menampilkan ringkasan transaksi, pemasukan, '
+                    'dan pengeluaran pada tanggal yang dipilih.\n\n'
+                    'Tarik ke bawah untuk refresh data.',
                   ),
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.pop(context),
-                      child: const Text("Mengerti"),
+                      child: const Text('Mengerti'),
                     ),
                   ],
                 ),
@@ -344,7 +375,7 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
   ) {
     final items = [
       _CardData(
-        "Total Omzet",
+        'Total Omzet',
         _formatRp(_totalOmzet),
         Icons.account_balance_wallet_outlined,
         const Color(0xffE0F2FE),
@@ -352,7 +383,7 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
         const Color(0xff0284C7),
       ),
       _CardData(
-        "Uang Masuk",
+        'Uang Masuk',
         _formatRp(_uangMasuk),
         Icons.trending_up_rounded,
         const Color(0xffDCFCE7),
@@ -360,7 +391,7 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
         const Color(0xff16A34A),
       ),
       _CardData(
-        "Pengeluaran",
+        'Pengeluaran',
         _formatRp(_pengeluaran),
         Icons.trending_down_rounded,
         const Color(0xffFEE2E2),
@@ -368,7 +399,7 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
         const Color(0xffDC2626),
       ),
       _CardData(
-        "Laba/Rugi",
+        'Laba/Rugi',
         _formatRp(_labaRugi),
         Icons.bar_chart_rounded,
         const Color(0xffDCFCE7),
@@ -461,7 +492,7 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
               ),
               const SizedBox(width: 12),
               Text(
-                "Detail Keuangan",
+                'Detail Keuangan',
                 style: bodyLarge?.copyWith(
                   fontSize: 15,
                   fontWeight: FontWeight.bold,
@@ -470,13 +501,13 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
             ],
           ),
           const SizedBox(height: 16),
-          _detailRow("Omzet", _formatRp(_totalOmzet), bodySmall),
-          _detailRow("Uang Masuk Nota", _formatRp(_uangMasukNota), bodySmall),
-          _detailRow("Total Uang Masuk", _formatRp(_uangMasuk), bodySmall),
-          _detailRow("Pendapatan Jasa", _formatRp(_pendapatanJasa), bodySmall),
+          _detailRow('Omzet', _formatRp(_totalOmzet), bodySmall),
+          _detailRow('Uang Masuk Nota', _formatRp(_uangMasukNota), bodySmall),
+          _detailRow('Total Uang Masuk', _formatRp(_uangMasuk), bodySmall),
+          _detailRow('Pendapatan Jasa', _formatRp(_pendapatanJasa), bodySmall),
           const Divider(height: 20, thickness: 1),
           _detailRow(
-            "Total Pendapatan",
+            'Total Pendapatan',
             _formatRp(_uangMasuk),
             bodySmall,
             isTotal: true,
@@ -534,8 +565,9 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
         children: _transaksiHari.asMap().entries.map((entry) {
           final i = entry.key;
           final t = entry.value;
-          final bool lunas = (t['status'] ?? "").toLowerCase() != "belum lunas";
-          final String nama = t['nama'] ?? t['nip'] ?? "-";
+          final bool lunas =
+              (t['status'] ?? '').toString().toLowerCase() != 'belum lunas';
+          final String nama = t['nama'] ?? t['nip'] ?? '-';
           final double biaya = (t['biaya'] ?? 0).toDouble();
 
           return Column(
@@ -580,7 +612,7 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
                             ),
                           ),
                           Text(
-                            t['waktu'] ?? "-",
+                            t['waktu'] ?? '-',
                             style: bodySmall?.copyWith(fontSize: 11),
                           ),
                         ],
@@ -612,7 +644,7 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Text(
-                            lunas ? "Lunas" : "Belum Lunas",
+                            lunas ? 'Lunas' : 'Belum Lunas',
                             style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.w600,
@@ -649,8 +681,8 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
         children: _pengeluaranHari.asMap().entries.map((entry) {
           final i = entry.key;
           final p = entry.value;
-          final String ket = p['keterangan'] ?? "-";
-          final double nominal = (p['nominal'] ?? 0).toDouble();
+          final String ket = p['keterangan'] ?? '-';
+          final double nom = (p['nominal'] ?? 0).toDouble();
           final DateTime? tgl = p['tanggal'];
 
           return Column(
@@ -697,7 +729,7 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
                       ),
                     ),
                     Text(
-                      _formatRp(nominal),
+                      _formatRp(nom),
                       style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.bold,

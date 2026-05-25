@@ -61,7 +61,7 @@ class TentangAplikasiPage extends StatelessWidget {
 
             // --- VERSI ---
             Text(
-              "Versi ${AppConfig.appVersion} (${AppConfig.buildNumber})",
+              "Versi ${AppConfig.appVersion}",
               style: theme.textTheme.bodyLarge?.copyWith(
                 fontSize: 14,
                 fontWeight: FontWeight.w500,

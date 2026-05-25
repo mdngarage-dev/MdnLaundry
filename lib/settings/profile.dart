@@ -28,7 +28,7 @@ class _ProfilPageState extends State<ProfilPage> {
     super.initState();
     _currentUser = FirebaseAuth.instance.currentUser;
     _namaController = TextEditingController(
-      text: _currentUser?.displayName ?? '',
+      text: (_currentUser?.displayName ?? '').split('|')[0].trim(),
     );
     _emailController = TextEditingController(text: _currentUser?.email ?? '');
     _loadSavedProfileImage();

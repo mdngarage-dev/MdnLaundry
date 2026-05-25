@@ -140,32 +140,36 @@ Future<void> saveLastActiveTime() async {
   await prefs.setInt(_kLastActiveKey, DateTime.now().millisecondsSinceEpoch);
 }
 
-/// Panggil di initState() HomeWrapper.
 /// Jika lebih dari 24 jam tidak aktif → logout otomatis → kembali ke GetStartedScreen.
 Future<void> checkAutoLogout(BuildContext context) async {
-  if (FirebaseAuth.instance.currentUser == null) return;
+  // 1. Pastikan user memang sedang login di Firebase
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) return;
 
   final prefs = await SharedPreferences.getInstance();
   final lastActiveMs = prefs.getInt(_kLastActiveKey);
 
+  final now = DateTime.now();
+
   if (lastActiveMs == null) {
-    // Belum ada timestamp → sesi baru, simpan sekarang
-    await saveLastActiveTime();
+    // Jika tidak ada timestamp lama (misal: baru update app),
+    // jangan langsung di-logout, tapi amankan dengan simpan waktu sekarang.
+    await prefs.setInt(_kLastActiveKey, now.millisecondsSinceEpoch);
     return;
   }
 
   final lastActive = DateTime.fromMillisecondsSinceEpoch(lastActiveMs);
-  final elapsed = DateTime.now().difference(lastActive);
+  final elapsed = now.difference(lastActive);
 
+  // Cek apakah sudah lewat 24 jam
   if (elapsed >= _kAutoLogoutDuration) {
-    // Lebih dari 24 jam → paksa logout
+    // Paksa logout karena sudah lewat 24 jam tidak aktif
     await FirebaseAuth.instance.signOut();
 
-    final p = await SharedPreferences.getInstance();
-    await p.remove('saved_email');
-    await p.remove('saved_password');
-    await p.setBool('remember_me', false);
-    await p.remove(_kLastActiveKey);
+    await prefs.remove('saved_email');
+    await prefs.remove('saved_password');
+    await prefs.setBool('remember_me', false);
+    await prefs.remove(_kLastActiveKey);
 
     if (context.mounted) {
       Navigator.of(context).pushAndRemoveUntil(
@@ -174,7 +178,8 @@ Future<void> checkAutoLogout(BuildContext context) async {
       );
     }
   } else {
-    // Masih aktif → perbarui timestamp
-    await saveLastActiveTime();
+    // PENTING: Jika aplikasi hanya ditutup lalu dibuka lagi (masih di bawah 24 jam),
+    // Perbarui waktu aktifnya agar durasi 24 jam dihitung dari aktivitas terakhir!
+    await prefs.setInt(_kLastActiveKey, now.millisecondsSinceEpoch);
   }
 }

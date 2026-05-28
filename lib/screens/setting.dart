@@ -87,8 +87,9 @@ class SettingScreen extends StatelessWidget {
       await prefs.remove('saved_email');
       await prefs.remove('saved_password');
       await prefs.setBool('remember_me', false);
-      // ✅ FIX AUTO-LOGOUT: Hapus timestamp saat logout manual
+      await prefs.setBool('auto_relogin', false);
       await prefs.remove('last_active_timestamp');
+      await prefs.remove('auth_uid');
 
       if (context.mounted) {
         Navigator.of(context).pushAndRemoveUntil(

@@ -1,0 +1,439 @@
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:mdncare_project/screens/screens.dart';
+import 'dart:math';
+
+class AuthWrapper extends StatefulWidget {
+  const AuthWrapper({super.key});
+
+  @override
+  State<AuthWrapper> createState() => _AuthWrapperState();
+}
+
+class _AuthWrapperState extends State<AuthWrapper> {
+  Widget _child = const _SplashScreen();
+
+  @override
+  void initState() {
+    super.initState();
+    _initAuth();
+  }
+
+  Future<void> _initAuth() async {
+    debugPrint('[AUTH] Mulai _initAuth');
+
+    User? user;
+    try {
+      user = await FirebaseAuth.instance
+          .authStateChanges()
+          .firstWhere((u) => u != null)
+          .timeout(const Duration(seconds: 8));
+      debugPrint('[AUTH] Firebase restore berhasil: ${user?.uid}');
+    } catch (_) {
+      debugPrint('[AUTH] Firebase timeout — coba auto re-login');
+      user = null;
+    }
+
+    if (user != null) {
+      if (mounted) setState(() => _child = const HomeWrapper());
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final savedEmail = prefs.getString('saved_email') ?? '';
+    final savedPassword = prefs.getString('saved_password') ?? '';
+
+    debugPrint('[AUTH] savedEmail: $savedEmail');
+    debugPrint('[AUTH] savedPassword kosong: ${savedPassword.isEmpty}');
+
+    if (savedEmail.isNotEmpty && savedPassword.isNotEmpty) {
+      debugPrint('[AUTH] Coba email/password re-login...');
+      try {
+        final cred = await FirebaseAuth.instance
+            .signInWithEmailAndPassword(
+              email: savedEmail,
+              password: savedPassword,
+            )
+            .timeout(const Duration(seconds: 10));
+        if (cred.user != null) {
+          debugPrint('[AUTH] Email re-login berhasil!');
+          if (mounted) setState(() => _child = const HomeWrapper());
+          return;
+        }
+      } catch (e) {
+        debugPrint('[AUTH] Email re-login gagal: $e');
+      }
+    }
+
+    debugPrint('[AUTH] Coba Google silent sign in...');
+    try {
+      final googleSignIn = GoogleSignIn();
+      final googleUser = await googleSignIn.signInSilently().timeout(
+        const Duration(seconds: 10),
+      );
+
+      if (googleUser != null) {
+        final googleAuth = await googleUser.authentication;
+        final credential = GoogleAuthProvider.credential(
+          accessToken: googleAuth.accessToken,
+          idToken: googleAuth.idToken,
+        );
+        await FirebaseAuth.instance.signInWithCredential(credential);
+        debugPrint('[AUTH] Google silent login berhasil!');
+        if (mounted) setState(() => _child = const HomeWrapper());
+        return;
+      } else {
+        debugPrint('[AUTH] Google silent login: tidak ada akun tersimpan');
+      }
+    } catch (e) {
+      debugPrint('[AUTH] Google silent login error: $e');
+    }
+
+    debugPrint('[AUTH] Semua gagal → GetStartedScreen');
+    if (mounted) setState(() => _child = const GetStartedScreen());
+  }
+
+  @override
+  Widget build(BuildContext context) => _child;
+}
+
+// ─── SPLASH SCREEN ──────────────────────────────────────────────────────────
+
+class _SplashScreen extends StatefulWidget {
+  const _SplashScreen();
+
+  @override
+  State<_SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<_SplashScreen>
+    with TickerProviderStateMixin {
+  late AnimationController _particleCtrl;
+  late AnimationController _pulseCtrl;
+  late AnimationController _fadeCtrl;
+  late Animation<double> _pulseAnim;
+  late Animation<double> _fadeAnim;
+
+  final List<_Particle> _particles = [];
+  bool _showLogo = false;
+  bool _showText = false;
+
+  @override
+  void initState() {
+    super.initState();
+
+    final rng = Random();
+    for (int i = 0; i < 35; i++) {
+      final angle = rng.nextDouble() * pi * 2;
+      final dist = 80.0 + rng.nextDouble() * 180;
+      _particles.add(
+        _Particle(
+          startX: cos(angle) * dist,
+          startY: sin(angle) * dist,
+          endX: (rng.nextDouble() - 0.5) * 50,
+          endY: (rng.nextDouble() - 0.5) * 50,
+          size: 4 + rng.nextDouble() * 8,
+          color: [
+            const Color(0xFFF472B6),
+            const Color(0xFF22C55E),
+            const Color(0xFF0D9488),
+            const Color(0xFF10B981),
+            const Color(0xFF6EE7B7),
+          ][rng.nextInt(5)],
+          delay: rng.nextDouble() * 0.4,
+          isCircle: rng.nextBool(),
+        ),
+      );
+    }
+
+    _particleCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2500),
+    );
+
+    _pulseCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    );
+    _pulseAnim = Tween<double>(
+      begin: 1.0,
+      end: 1.14,
+    ).animate(CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut));
+
+    _fadeCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+    _fadeAnim = CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeOut);
+
+    _runSequence();
+  }
+
+  Future<void> _runSequence() async {
+    while (mounted) {
+      // 1. Reset state
+      if (mounted) {
+        setState(() {
+          _showLogo = false;
+          _showText = false;
+        });
+      }
+
+      // 2. Partikel scatter
+      _particleCtrl.reset();
+      await _particleCtrl.animateTo(0.5, curve: Curves.easeIn);
+
+      if (!mounted) return;
+
+      // 3. Logo muncul, partikel hilang
+      setState(() => _showLogo = true);
+      await _particleCtrl.animateTo(1.0, curve: Curves.easeOut);
+
+      if (!mounted) return;
+
+      // 4. Teks fade in
+      _fadeCtrl.reset();
+      _fadeCtrl.forward();
+      setState(() => _showText = true);
+
+      // 5. Denyut 3x
+      for (int i = 0; i < 3; i++) {
+        if (!mounted) return;
+        _pulseCtrl.reset();
+        await _pulseCtrl.forward();
+        if (!mounted) return;
+        await _pulseCtrl.reverse();
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+
+      // 6. Tahan sebentar lalu ulangi
+      await Future.delayed(const Duration(milliseconds: 700));
+    }
+  }
+
+  @override
+  void dispose() {
+    _particleCtrl.dispose();
+    _pulseCtrl.dispose();
+    _fadeCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFEFF6F5),
+      body: AnimatedBuilder(
+        animation: Listenable.merge([_particleCtrl, _pulseAnim, _fadeAnim]),
+        builder: (context, child) {
+          return Stack(
+            alignment: Alignment.center,
+            children: [
+              // ── Partikel background ───────────────────────────────────
+              CustomPaint(
+                size: Size.infinite,
+                painter: _ParticlePainter(
+                  particles: _particles,
+                  progress: _particleCtrl.value,
+                  showLogo: _showLogo,
+                ),
+              ),
+
+              // ── Konten tengah ─────────────────────────────────────────
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Logo dengan pulse
+                  Transform.scale(
+                    scale: _showLogo ? _pulseAnim.value : 0.0,
+                    child: Image.asset(
+                      'assets/icon.png',
+                      width: 110,
+                      height: 110,
+                    ),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // Nama app
+                  FadeTransition(
+                    opacity: _fadeAnim,
+                    child: const Text(
+                      'Madeena Care',
+                      style: TextStyle(
+                        fontFamily: 'BubbbleGum',
+                        fontSize: 30,
+                        color: Color(0xFF0D9488),
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 6),
+
+                  // Tagline
+                  FadeTransition(
+                    opacity: _fadeAnim,
+                    child: const Text(
+                      'Sistem Rekam Medis Digital',
+                      style: TextStyle(
+                        fontFamily: 'Pastrami',
+                        fontSize: 13,
+                        color: Color(0xFF64B5AE),
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 40),
+
+                  // Bouncing dots
+                  FadeTransition(
+                    opacity: _fadeAnim,
+                    child: const _BouncingDots(),
+                  ),
+                ],
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ─── PARTICLE MODEL ──────────────────────────────────────────────────────────
+
+class _Particle {
+  final double startX, startY, endX, endY, size, delay;
+  final Color color;
+  final bool isCircle;
+
+  _Particle({
+    required this.startX,
+    required this.startY,
+    required this.endX,
+    required this.endY,
+    required this.size,
+    required this.color,
+    required this.delay,
+    required this.isCircle,
+  });
+}
+
+// ─── PARTICLE PAINTER ────────────────────────────────────────────────────────
+
+class _ParticlePainter extends CustomPainter {
+  final List<_Particle> particles;
+  final double progress;
+  final bool showLogo;
+
+  _ParticlePainter({
+    required this.particles,
+    required this.progress,
+    required this.showLogo,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+
+    for (final p in particles) {
+      final t = ((progress - p.delay) / 0.6).clamp(0.0, 1.0);
+      final et = Curves.easeInOut.transform(t);
+      final alpha = showLogo ? (1.0 - et).clamp(0.0, 1.0) : et.clamp(0.0, 1.0);
+
+      if (alpha <= 0.01) continue;
+
+      final px = cx + p.startX * (1 - et) + p.endX * et;
+      final py = cy + p.startY * (1 - et) + p.endY * et;
+
+      final paint = Paint()
+        ..color = p.color.withOpacity(alpha * 0.85)
+        ..style = PaintingStyle.fill;
+
+      if (p.isCircle) {
+        canvas.drawCircle(Offset(px, py), p.size / 2, paint);
+      } else {
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromCenter(
+              center: Offset(px, py),
+              width: p.size,
+              height: p.size,
+            ),
+            const Radius.circular(2),
+          ),
+          paint,
+        );
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_ParticlePainter old) => true;
+}
+
+// ─── BOUNCING DOTS ───────────────────────────────────────────────────────────
+
+class _BouncingDots extends StatefulWidget {
+  const _BouncingDots();
+
+  @override
+  State<_BouncingDots> createState() => _BouncingDotsState();
+}
+
+class _BouncingDotsState extends State<_BouncingDots>
+    with TickerProviderStateMixin {
+  final List<AnimationController> _ctrls = [];
+
+  @override
+  void initState() {
+    super.initState();
+    for (int i = 0; i < 3; i++) {
+      final c = AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 500),
+      );
+      _ctrls.add(c);
+      Future.delayed(Duration(milliseconds: i * 150), () {
+        if (mounted) c.repeat(reverse: true);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final c in _ctrls) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(3, (i) {
+        return AnimatedBuilder(
+          animation: _ctrls[i],
+          builder: (_, __) => Transform.translate(
+            offset: Offset(0, -8 * _ctrls[i].value),
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: Color(0xFF0D9488).withOpacity(0.6 + i * 0.13),
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+        );
+      }),
+    );
+  }
+}

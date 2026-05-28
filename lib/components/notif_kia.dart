@@ -1,18 +1,54 @@
-// ─── notif_kia.dart (FIXED) ──────────────────────────────────────────────────
-// Fix 1: try-catch menyeluruh agar emulator tidak crash / blank putih
-// Fix 2: onMessageOpenedApp → navigasi ke NotifikasiScreen
-// Fix 3: getInitialMessage → handle klik notif saat app dari killed state
-// ─────────────────────────────────────────────────────────────────────────────
-
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:overlay_support/overlay_support.dart';
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
 import '../screens/screens.dart';
 
-// Navigator key global — daftarkan ini di MaterialApp (lihat main.dart di bawah)
+// ─── Navigator key global ────────────────────────────────────────────────────
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
+// ─── Local notifications plugin ──────────────────────────────────────────────
+final FlutterLocalNotificationsPlugin flutterLocalNotif =
+    FlutterLocalNotificationsPlugin();
+
+// ─── Channel Android ─────────────────────────────────────────────────────────
+const _androidChannel = AndroidNotificationChannel(
+  'kia_channel_id',
+  'Notifikasi KIA',
+  description: 'Pengingat jadwal KB/KIA',
+  importance: Importance.max,
+);
+
+// ─── Helper tampilkan local notif ────────────────────────────────────────────
+Future<void> _showLocalNotif(RemoteMessage message) async {
+  final androidDetails = AndroidNotificationDetails(
+    _androidChannel.id,
+    _androidChannel.name,
+    channelDescription: _androidChannel.description,
+    importance: Importance.max,
+    priority: Priority.high,
+    channelShowBadge: true,
+  );
+
+  await flutterLocalNotif.show(
+    message.hashCode,
+    message.notification?.title ?? 'Notifikasi',
+    message.notification?.body ?? '',
+    NotificationDetails(android: androidDetails),
+    payload: '/notifikasi',
+  );
+}
+
+// ─── Background handler — WAJIB top-level function ───────────────────────────
+@pragma('vm:entry-point')
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp();
+  await _showLocalNotif(message);
+}
+
+// ─── Service utama ───────────────────────────────────────────────────────────
 class NotifKiaService {
   final FirebaseMessaging _fcm = FirebaseMessaging.instance;
   final AudioPlayer _audioPlayer = AudioPlayer();
@@ -21,14 +57,36 @@ class NotifKiaService {
     debugPrint("▶ Inisialisasi notifikasi FCM...");
 
     try {
-      // ── 1. Minta izin ─────────────────────────────────────────────────────
+      // ── 1. Setup flutter_local_notifications ──────────────────────────────
+      const initSettings = InitializationSettings(
+        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        iOS: DarwinInitializationSettings(),
+      );
+
+      await flutterLocalNotif.initialize(
+        initSettings,
+        onDidReceiveNotificationResponse: (details) {
+          debugPrint('🔔 Tap notif: ${details.payload}');
+          if (details.payload == '/notifikasi') {
+            _navigateToNotifikasi();
+          }
+        },
+      );
+
+      // Buat channel Android (wajib Android 8+)
+      await flutterLocalNotif
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >()
+          ?.createNotificationChannel(_androidChannel);
+
+      // ── 2. Minta izin ─────────────────────────────────────────────────────
       NotificationSettings settings = await _fcm
           .requestPermission(alert: true, badge: true, sound: true)
           .timeout(
-            const Duration(seconds: 5), // Emulator kadang hang di sini
+            const Duration(seconds: 5),
             onTimeout: () {
               debugPrint("⚠ requestPermission timeout — skip FCM");
-              // Return dummy settings agar tidak crash
               return const NotificationSettings(
                 authorizationStatus: AuthorizationStatus.denied,
                 alert: AppleNotificationSetting.disabled,
@@ -55,21 +113,18 @@ class NotifKiaService {
         return;
       }
 
-      // ── 2. Token (opsional, untuk debug) ──────────────────────────────────
+      // ── 3. Token ──────────────────────────────────────────────────────────
       try {
-        String? token = await _fcm.getToken().timeout(
+        final token = await _fcm.getToken().timeout(
           const Duration(seconds: 5),
-          onTimeout: () {
-            debugPrint("⚠ getToken timeout");
-            return null;
-          },
+          onTimeout: () => null,
         );
         debugPrint("📱 FCM Token: $token");
       } catch (e) {
-        debugPrint("⚠ getToken error (emulator?): $e");
+        debugPrint("⚠ getToken error: $e");
       }
 
-      // ── 3. Subscribe topik ────────────────────────────────────────────────
+      // ── 4. Subscribe topik ────────────────────────────────────────────────
       try {
         await _fcm
             .subscribeToTopic('admin_klinik')
@@ -79,27 +134,30 @@ class NotifKiaService {
         debugPrint("⚠ subscribeToTopic error: $e");
       }
 
-      // ── 4. Foreground: app terbuka, notif masuk ───────────────────────────
+      // ── 5. Foreground: tampilkan overlay + local notif ────────────────────
       FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
         debugPrint("📨 FCM Foreground: ${message.notification?.title}");
 
-        // Putar suara notif
         try {
           await _audioPlayer.play(AssetSource('sounds/notif.mp3'));
         } catch (e) {
           debugPrint("⚠ Gagal putar suara: $e");
         }
 
-        // Tampilkan overlay banner
+        // Tampilkan local notif (supaya konsisten dengan background)
+        try {
+          await _showLocalNotif(message);
+        } catch (e) {
+          debugPrint("⚠ Local notif error: $e");
+        }
+
+        // Overlay banner saat app terbuka
         try {
           showOverlayNotification(
             (context) => GestureDetector(
-              // ✅ Klik banner → ke NotifikasiScreen
               onTap: () {
                 OverlaySupportEntry.of(context)?.dismiss();
-                navigatorKey.currentState?.push(
-                  MaterialPageRoute(builder: (_) => const NotifikasiScreen()),
-                );
+                _navigateToNotifikasi();
               },
               child: Card(
                 margin: const EdgeInsets.symmetric(
@@ -142,15 +200,15 @@ class NotifKiaService {
         }
       });
 
-      // ── 5. Background: user klik notif saat app di background ────────────
+      // ── 6. Background: user klik notif dari status bar ───────────────────
       FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
         debugPrint("📨 onMessageOpenedApp: ${message.notification?.title}");
         _navigateToNotifikasi();
       });
 
-      // ── 6. Terminated: user klik notif saat app mati (killed) ────────────
+      // ── 7. Terminated: app mati, user klik notif ─────────────────────────
       try {
-        RemoteMessage? initialMessage = await _fcm.getInitialMessage().timeout(
+        final initialMessage = await _fcm.getInitialMessage().timeout(
           const Duration(seconds: 3),
           onTimeout: () => null,
         );
@@ -158,7 +216,6 @@ class NotifKiaService {
           debugPrint(
             "📨 getInitialMessage: ${initialMessage.notification?.title}",
           );
-          // Delay sedikit agar navigator sudah siap
           Future.delayed(const Duration(milliseconds: 800), () {
             _navigateToNotifikasi();
           });
@@ -167,17 +224,14 @@ class NotifKiaService {
         debugPrint("⚠ getInitialMessage error: $e");
       }
     } catch (e, stack) {
-      // ✅ Catch-all: apapun errornya, app tetap jalan normal
-      debugPrint("⚠ FCM inisialisasi error (diabaikan): $e");
-      debugPrint("$stack");
+      debugPrint("⚠ FCM inisialisasi error: $e\n$stack");
     }
   }
 
-  /// Navigasi ke NotifikasiScreen via navigatorKey global
   void _navigateToNotifikasi() {
     navigatorKey.currentState?.pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const NotifikasiScreen()),
-      (route) => route.isFirst, // tetap bisa back ke HomeWrapper
+      (route) => route.isFirst,
     );
   }
 }

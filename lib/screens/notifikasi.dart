@@ -232,8 +232,7 @@ Terima kasih 🙏''';
       appBar: _buildAppBar(context),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: kPrimary))
-          : RefreshIndicator(
-              color: kPrimary,
+          : GlobalRefresh(
               onRefresh: _loadNotifikasi,
               child: _listPasien.isEmpty
                   ? _buildEmptyState()

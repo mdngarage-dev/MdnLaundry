@@ -144,10 +144,10 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
 
   // ─── FUNGSI UTAMA: SIMPAN KE FIREBASE + BACKUP TO SHEETS ─────
   Future<void> _submitData() async {
+    if (_isSubmitting) return; // ✅ Cegah double submit
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isSubmitting = true);
 
-    // Hitung tgl_kembali di sini sebelum masuk try
     final String tglKembali = _hitungTglKembali();
 
     try {
@@ -164,7 +164,7 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
       String nipBaru = "";
 
       if (kIsWeb) {
-        // ✅ WEB: Apps Script via GET
+        // WEB: Apps Script generate NIP + tulis Firestore
         final uri = Uri.parse(baseAppScriptUrl).replace(
           queryParameters: {
             'action': 'registerPatient',
@@ -180,7 +180,8 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
             'biaya': _biayaController.text.replaceAll('.', '').trim(),
             'hp': hpFinal,
             'admin': adminFinal,
-            'tgl_kembali': tglKembali, // ← TAMBAHAN
+            'tgl_kembali': tglKembali,
+            // Tidak ada source → Apps Script akan tulis ke Firestore
           },
         );
 
@@ -199,17 +200,19 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
           throw Exception("HTTP ${response.statusCode}");
         }
       } else {
-        // ✅ ANDROID/iOS: Firestore + backup Sheets
+        // ANDROID/iOS: Flutter tulis ke Firestore, Apps Script hanya backup Sheets
         final firestore = FirebaseFirestore.instance;
 
-        final pasienSnapshot = await firestore
-            .collection('pasien')
-            .get()
-            .timeout(const Duration(seconds: 15));
+        // ✅ Generate NIP pakai transaction agar tidak race condition
+        final counterRef = firestore.collection('counters').doc('pasien');
+        nipBaru = await firestore.runTransaction<String>((tx) async {
+          final snap = await tx.get(counterRef);
+          final int next = (snap.data()?['last'] ?? 0) + 1;
+          tx.set(counterRef, {'last': next});
+          return "MC-${next.toString().padLeft(3, '0')}";
+        });
 
-        nipBaru =
-            "MC-${(pasienSnapshot.docs.length + 1).toString().padLeft(3, '0')}";
-
+        // ✅ Tulis ke Firestore — satu-satunya sumber kebenaran untuk Android
         await firestore.collection('pasien').add({
           'nomer_induk_pasien': nipBaru,
           'nama_lengkap': namaFinal,
@@ -220,7 +223,8 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
           'waktu_daftar': FieldValue.serverTimestamp(),
         });
 
-        await firestore.collection('rekam_medis').add({
+        // ✅ tgl_kembali hanya simpan kalau KIA
+        final Map<String, dynamic> rekamData = {
           'nomer_induk_pasien': nipBaru,
           'layanan': layananFinal,
           'diagnosa': diagnosaFinal,
@@ -229,8 +233,11 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
           'tinggi_badan': double.tryParse(_tinggiController.text.trim()) ?? 0.0,
           'admin_pemeriksa': adminFinal,
           'waktu_kunjungan': FieldValue.serverTimestamp(),
-          'tgl_kembali': tglKembali, // ← TAMBAHAN: simpan ke Firestore
-        });
+        };
+        if (tglKembali.isNotEmpty) {
+          rekamData['tgl_kembali'] = tglKembali; // ✅ hanya kalau KIA
+        }
+        await firestore.collection('rekam_medis').add(rekamData);
 
         await firestore.collection('keuangan').add({
           'nomer_induk_pasien': nipBaru,
@@ -242,12 +249,14 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
           'waktu_transaksi': FieldValue.serverTimestamp(),
         });
 
-        // Backup Sheets di background
+        // ✅ Backup ke Sheets — kirim source + nip agar Apps Script TIDAK tulis Firestore lagi
         http
             .get(
               Uri.parse(baseAppScriptUrl).replace(
                 queryParameters: {
                   'action': 'registerPatient',
+                  'source': 'android_backup', // ✅ flag penting
+                  'nip': nipBaru, // ✅ kirim NIP dari Flutter
                   'nama': namaFinal,
                   'layan': layananFinal,
                   'jk': jkFinal,
@@ -260,7 +269,7 @@ class _AddPatientScreenState extends State<AddPatientScreen> {
                   'biaya': _biayaController.text.replaceAll('.', '').trim(),
                   'hp': hpFinal,
                   'admin': adminFinal,
-                  'tgl_kembali': tglKembali, // ← TAMBAHAN
+                  'tgl_kembali': tglKembali,
                 },
               ),
             )

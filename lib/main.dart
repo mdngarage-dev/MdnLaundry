@@ -1,9 +1,4 @@
-// ─── main.dart (FIXED) ───────────────────────────────────────────────────────
-// Fix 1: FCM inisialisasi TIDAK lagi await sebelum runApp
-//         → runApp() jalan duluan, FCM init di background
-// Fix 2: navigatorKey didaftarkan ke MaterialApp
-// ─────────────────────────────────────────────────────────────────────────────
-
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
@@ -11,7 +6,9 @@ import 'screens/screens.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
 import 'package:mdncare_project/components/notif_kia.dart';
-import 'package:overlay_support/overlay_support.dart'; // ← pastikan ini ada
+import 'package:overlay_support/overlay_support.dart';
+import 'package:mdncare_project/screens/auth_wrapper.dart'; // ← import AuthWrapper
+import 'package:firebase_messaging/firebase_messaging.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -38,15 +35,34 @@ void main() async {
       }
     }
   } catch (e) {
-    debugPrint("Firebase init error: $e");
+    debugPrint("Inisialisasi Error di Main: $e");
   }
 
-  await FirebaseAuth.instance.setPersistence(Persistence.LOCAL);
+  try {
+    debugPrint('[FIREBASE] apps: ${Firebase.apps.length}');
+    debugPrint(
+      '[FIREBASE] currentUser langsung: ${FirebaseAuth.instance.currentUser?.uid}',
+    );
 
-  // ✅ FIX UTAMA: FCM init TIDAK di-await sebelum runApp
-  // Ini supaya blank putih hilang — FCM init jalan di background
-  // setelah app sudah muncul
+    // Coba paksa refresh
+    final u = FirebaseAuth.instance.currentUser;
+    if (u != null) {
+      final token = await u.getIdToken(true);
+      debugPrint('[FIREBASE] token refresh OK: ${token?.substring(0, 20)}...');
+    } else {
+      debugPrint('[FIREBASE] currentUser null di main — coba tunggu...');
+      // Tunggu 5 detik dan cek lagi
+      await Future.delayed(const Duration(seconds: 5));
+      debugPrint(
+        '[FIREBASE] currentUser setelah 5 detik: ${FirebaseAuth.instance.currentUser?.uid}',
+      );
+    }
+  } catch (e) {
+    debugPrint('[FIREBASE] Error: $e');
+  }
+
   NotifKiaService().inisialisasiNotifikasi(); // tanpa await
+  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
   runApp(
     ChangeNotifierProvider(
@@ -63,48 +79,27 @@ class MadeenaCareApp extends StatelessWidget {
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
 
-    // ✅ Bungkus dengan OverlaySupport agar overlay notif bisa tampil
     return OverlaySupport.global(
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         title: 'Madeena Care',
 
-        // ✅ navigatorKey didaftarkan di sini
         navigatorKey: navigatorKey,
 
         themeMode: themeProvider.themeMode,
         theme: lightTheme(),
         darkTheme: darkTheme(),
 
-        home: StreamBuilder<User?>(
-          stream: FirebaseAuth.instance.authStateChanges(),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Scaffold(
-                body: Center(child: CircularProgressIndicator()),
-              );
-            }
-            if (snapshot.hasData && snapshot.data != null) {
-              final user = snapshot.data!;
-              // ✅ Cek emailVerified — kalau belum, paksa sign out & ke GetStarted
-              if (!user.emailVerified) {
-                // Sign out async tapi tidak perlu await di sini
-                FirebaseAuth.instance.signOut();
-                return const GetStartedScreen();
-              }
-              return const HomeWrapper();
-            }
-            return const GetStartedScreen();
-          },
-        ),
+        // ✅ DIGANTI: dari StreamBuilder langsung → AuthWrapper
+        // AuthWrapper menangani race condition Firebase Auth restore
+        home: const AuthWrapper(),
 
         routes: {
           '/signup': (context) => const SignUpScreen(),
           '/login': (context) => const SignInScreen(),
           '/home': (context) => const HomeWrapper(),
           '/profile': (context) => const ProfileScreen(),
-          '/notifikasi': (context) =>
-              const NotifikasiScreen(), // ✅ tambah route
+          '/notifikasi': (context) => const NotifikasiScreen(),
         },
       ),
     );

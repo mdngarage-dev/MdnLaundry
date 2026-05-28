@@ -470,7 +470,7 @@ class _AnalisisPelangganPageState extends State<AnalisisPelangganPage> {
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: _buildAppBar(context),
-      body: RefreshIndicator(
+      body: GlobalRefresh(
         onRefresh: _fetchData,
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())

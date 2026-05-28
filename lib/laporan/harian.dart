@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
 import '../screens/screens.dart';
 
 class LaporanHarianPage extends StatefulWidget {
@@ -26,32 +27,62 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
   @override
   void initState() {
     super.initState();
+    debugPrint('DateTime.now() = ${DateTime.now()}');
     _fetchData(selectedDate);
   }
 
   // ════════════════════════════════════════════════════════════
   // HELPER: parse date fleksibel (String ATAU Timestamp)
+  // FIX: Tambah lebih banyak format fallback & trim karakter tersembunyi
   // ════════════════════════════════════════════════════════════
   DateTime? _parseFlexibleDate(dynamic raw) {
     if (raw == null) return null;
+
+    // Handle Timestamp dari Firestore
     if (raw is Timestamp) return raw.toDate();
+
+    // Handle int (milliseconds epoch)
+    if (raw is int) return DateTime.fromMillisecondsSinceEpoch(raw);
+
     if (raw is String) {
-      if (raw.trim().isEmpty) return null;
-      try {
-        return DateFormat('dd/MM/yyyy HH:mm').parse(raw.trim());
-      } catch (_) {
+      final s = raw.trim();
+      if (s.isEmpty) return null;
+
+      // Coba berbagai format secara berurutan
+      final formats = [
+        'dd/MM/yyyy HH:mm',
+        'dd/MM/yyyy H:mm',
+        'dd/MM/yyyy HH:mm:ss',
+        'dd/MM/yyyy',
+        'yyyy-MM-dd HH:mm:ss',
+        'yyyy-MM-dd HH:mm',
+        'yyyy-MM-dd',
+        'MM/dd/yyyy HH:mm',
+        'MM/dd/yyyy',
+        'd/M/yyyy HH:mm',
+        'd/M/yyyy',
+      ];
+
+      for (final fmt in formats) {
         try {
-          return DateFormat('dd/MM/yyyy').parse(raw.trim());
+          return DateFormat(fmt).parseStrict(s);
         } catch (_) {
-          return null;
+          // lanjut ke format berikutnya
         }
       }
+
+      // Fallback: DateTime.parse (ISO 8601)
+      try {
+        return DateTime.parse(s);
+      } catch (_) {}
     }
+
     return null;
   }
 
   // ════════════════════════════════════════════════════════════
   // FETCH DATA
+  // FIX: Perbaiki field name, tambah debug log, handle null dengan aman
   // ════════════════════════════════════════════════════════════
   Future<void> _fetchData(DateTime date) async {
     setState(() => _isLoading = true);
@@ -68,6 +99,9 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
       final keuanganSnap = results[0];
       final pengeluaranSnap = results[1];
 
+      debugPrint('Total keuangan docs: ${keuanganSnap.docs.length}');
+      debugPrint('Total pengeluaran docs: ${pengeluaranSnap.docs.length}');
+
       // ── Loop keuangan ──
       double omzet = 0;
       double masuk = 0;
@@ -76,21 +110,39 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
       for (var doc in keuanganSnap.docs) {
         final data = doc.data();
 
-        // ✅ FIX: pakai _parseFlexibleDate — handle String & Timestamp
-        final DateTime? tgl = _parseFlexibleDate(data['waktu_transaksi']);
-        if (tgl == null) continue;
+        // FIX: debug setiap dokumen untuk lihat struktur data
+        debugPrint(
+          'Keuangan doc ${doc.id}: waktu_transaksi=${data['waktu_transaksi']}, biaya=${data['biaya']}',
+        );
+
+        final dynamic rawWaktu = data['waktu_transaksi'];
+        final DateTime? tgl = _parseFlexibleDate(rawWaktu);
+
+        if (tgl == null) {
+          debugPrint('  -> SKIP: gagal parse waktu_transaksi: $rawWaktu');
+          continue;
+        }
 
         final DateTime tglHari = DateTime(tgl.year, tgl.month, tgl.day);
+        debugPrint(
+          '  -> tglHari=$tglHari, hariIni=$hariIni, match=${tglHari == hariIni}',
+        );
+
         if (tglHari != hariIni) continue;
 
-        final double biaya = (data['biaya'] ?? 0).toDouble();
-        final String status = (data['status_bayar'] ?? '').toString();
+        // FIX: handle berbagai tipe data untuk biaya (int, double, String)
+        final double biaya = _parseDouble(data['biaya']);
+        // FIX: field name konsisten dengan Firestore
+        final String status = (data['status_bayar'] ?? '').toString().trim();
         final String nip = (data['nomer_induk_pasien'] ?? '-')
             .toString()
             .trim();
 
         omzet += biaya;
-        if (status != 'Belum Lunas') masuk += biaya;
+        // FIX: logika status — hitung masuk jika BUKAN "Belum Lunas"
+        if (status.toLowerCase() != 'belum lunas') {
+          masuk += biaya;
+        }
 
         transaksi.add({
           'nip': nip,
@@ -100,6 +152,10 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
         });
       }
 
+      debugPrint(
+        'Transaksi hari ini: ${transaksi.length}, omzet=$omzet, masuk=$masuk',
+      );
+
       // ── Loop pengeluaran ──
       double totalPengeluaran = 0;
       List<Map<String, dynamic>> listPengeluaran = [];
@@ -107,9 +163,15 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
       for (var doc in pengeluaranSnap.docs) {
         final data = doc.data();
 
-        // ✅ FIX: pakai _parseFlexibleDate — handle String & Timestamp
+        debugPrint(
+          'Pengeluaran doc ${doc.id}: tanggal=${data['tanggal']}, nominal=${data['nominal']}',
+        );
+
         final DateTime? tglDoc = _parseFlexibleDate(data['tanggal']);
-        if (tglDoc == null) continue;
+        if (tglDoc == null) {
+          debugPrint('  -> SKIP: gagal parse tanggal');
+          continue;
+        }
 
         final DateTime tglHari = DateTime(
           tglDoc.year,
@@ -118,7 +180,7 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
         );
         if (tglHari != hariIni) continue;
 
-        final double nominal = (data['nominal'] ?? 0).toDouble();
+        final double nominal = _parseDouble(data['nominal']);
         final String keterangan = (data['keterangan'] ?? '-').toString();
         totalPengeluaran += nominal;
 
@@ -137,17 +199,25 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
 
       final Map<String, String> nipToNama = {};
 
-      // Fetch semua pasien sekaligus, lalu filter di client
       if (nipSet.isNotEmpty) {
-        final pasienSnap = await FirebaseFirestore.instance
-            .collection('pasien')
-            .get();
-        for (var doc in pasienSnap.docs) {
-          final d = doc.data();
-          final nip = (d['nomer_induk_pasien'] ?? '').toString().trim();
-          if (nipSet.contains(nip)) {
-            nipToNama[nip] = (d['nama_lengkap'] ?? nip).toString();
+        try {
+          final pasienSnap = await FirebaseFirestore.instance
+              .collection('pasien')
+              .get();
+          for (var doc in pasienSnap.docs) {
+            final d = doc.data();
+            // FIX: cek kedua kemungkinan field name NIP di collection pasien
+            final nip =
+                (d['nomer_induk_pasien'] ?? d['nomor_induk_pasien'] ?? '')
+                    .toString()
+                    .trim();
+            if (nipSet.contains(nip)) {
+              nipToNama[nip] = (d['nama_lengkap'] ?? d['nama'] ?? nip)
+                  .toString();
+            }
           }
+        } catch (e) {
+          debugPrint('Error fetch pasien: $e');
         }
       }
 
@@ -171,6 +241,18 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
       debugPrint('ERROR fetchData harian: $e\n$stack');
       setState(() => _isLoading = false);
     }
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // FIX BARU: helper parse double dari berbagai tipe Firestore
+  // Firestore bisa return int, double, atau String untuk field angka
+  // ════════════════════════════════════════════════════════════
+  double _parseDouble(dynamic val) {
+    if (val == null) return 0.0;
+    if (val is double) return val;
+    if (val is int) return val.toDouble();
+    if (val is String) return double.tryParse(val.trim()) ?? 0.0;
+    return 0.0;
   }
 
   // ════════════════════════════════════════════════════════════
@@ -199,10 +281,13 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
   }
 
   Future<void> _pickDate() async {
-    final DateTimeRange? range = await CalendarHelper.showFullDatePicker(
-      context,
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: selectedDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2060),
     );
-    if (range != null) _fetchData(range.start);
+    if (picked != null) _fetchData(picked);
   }
 
   // ════════════════════════════════════════════════════════════
@@ -219,7 +304,7 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
       appBar: _buildAppBar(context),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
+          : GlobalRefresh(
               onRefresh: () => _fetchData(selectedDate),
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
@@ -568,7 +653,7 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
           final bool lunas =
               (t['status'] ?? '').toString().toLowerCase() != 'belum lunas';
           final String nama = t['nama'] ?? t['nip'] ?? '-';
-          final double biaya = (t['biaya'] ?? 0).toDouble();
+          final double biaya = _parseDouble(t['biaya']);
 
           return Column(
             children: [
@@ -682,7 +767,7 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
           final i = entry.key;
           final p = entry.value;
           final String ket = p['keterangan'] ?? '-';
-          final double nom = (p['nominal'] ?? 0).toDouble();
+          final double nom = _parseDouble(p['nominal']);
           final DateTime? tgl = p['tanggal'];
 
           return Column(

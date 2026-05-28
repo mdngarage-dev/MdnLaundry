@@ -191,9 +191,12 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
         final hari = DateTime(tgl.year, tgl.month, tgl.day);
         if (hari.isBefore(start) || hari.isAfter(end)) continue;
 
-        final String namaPegawai = (data['admin_pemeriksa'] ?? '')
+        final String rawPegawai = (data['admin_pemeriksa'] ?? '')
             .toString()
             .trim();
+        final String namaPegawai = rawPegawai.contains('|')
+            ? rawPegawai.split('|').first.trim()
+            : rawPegawai;
         if (namaPegawai.isEmpty) continue;
 
         final String noInduk = (data['nomer_induk_pasien'] ?? '')
@@ -515,7 +518,7 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: _buildAppBar(context),
-      body: RefreshIndicator(
+      body: GlobalRefresh(
         onRefresh: _fetchData,
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())

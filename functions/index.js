@@ -11,7 +11,7 @@ admin.initializeApp();
 
 exports.notifHarianKB = functions
   .region("asia-southeast1") // Singapore — paling dekat, support scheduled functions
-  .pubsub.schedule("0 1 * * *") // 01:00 UTC = 08:00 WIB
+  .pubsub.schedule("0 8 * * *") // 01:00 UTC = 08:00 WIB
   .timeZone("Asia/Jakarta")
   .onRun(async (context) => {
     const db = admin.firestore();
@@ -103,7 +103,7 @@ exports.notifHarianKB = functions
         const waktuStr = _labelWaktu(selisih);
 
         judulNotif = "⏰ Pengingat Jadwal KB";
-        bodyNotif = `${nama} jadwal kontrol KB ${waktuStr} (${_fmtTampil(tglKembali)})`;
+        bodyNotif = `Pasien ${nama} jadwal kontrol KB ${waktuStr} (${_fmtTampil(tglKembali)})`;
       } else {
         const namaList = listPasien
           .slice(0, 3)

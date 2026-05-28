@@ -14,7 +14,7 @@ class _SignInScreenState extends State<SignInScreen> {
   final _passwordController = TextEditingController();
   bool _isLoggingIn = false;
   bool _isGoogleLoading = false;
-  bool _remember = false;
+  bool _remember = true;
   bool _obscurePass = true;
 
   @override
@@ -44,6 +44,7 @@ class _SignInScreenState extends State<SignInScreen> {
       await prefs.remove('saved_email');
       await prefs.remove('saved_password');
       await prefs.setBool('remember_me', false);
+      await prefs.setBool('auto_relogin', true);
     }
   }
 
@@ -75,6 +76,8 @@ class _SignInScreenState extends State<SignInScreen> {
           // ✅ Email sudah diverifikasi → boleh masuk
           await _saveCredentials();
           await saveLastActiveTime();
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('auth_uid', user.uid);
           if (mounted) {
             Navigator.of(context).pushAndRemoveUntil(
               MaterialPageRoute(builder: (_) => const HomeWrapper()),
@@ -133,6 +136,9 @@ class _SignInScreenState extends State<SignInScreen> {
 
       await FirebaseAuth.instance.signInWithCredential(credential);
       await saveLastActiveTime();
+      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('auth_uid', uid);
 
       if (mounted) {
         Navigator.of(context).pushAndRemoveUntil(

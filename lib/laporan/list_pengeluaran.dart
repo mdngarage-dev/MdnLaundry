@@ -601,11 +601,11 @@ class _ListPengeluaranPageState extends State<ListPengeluaranPage> {
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
       ),
-      body: RefreshIndicator(
-        onRefresh: _fetchData,
-        child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : Column(
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : GlobalRefresh(
+              onRefresh: _fetchData,
+              child: Column(
                 children: [
                   // ── Filter bar ──
                   Padding(
@@ -941,7 +941,7 @@ class _ListPengeluaranPageState extends State<ListPengeluaranPage> {
                   ),
                 ],
               ),
-      ),
+            ),
     );
   }
 

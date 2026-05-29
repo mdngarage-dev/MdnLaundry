@@ -24,32 +24,35 @@ class _AuthWrapperState extends State<AuthWrapper> {
   Future<void> _initAuth() async {
     debugPrint('[AUTH] Mulai _initAuth');
 
+    // Jalankan auth dan splash timer BERSAMAAN
+    final results = await Future.wait([
+      _doAuth(), // logic auth
+      Future.delayed(const Duration(seconds: 3)), // minimum splash 3 detik
+    ]);
+
+    final destination = results[0] as Widget;
+    if (mounted) setState(() => _child = destination);
+  }
+
+  // Pindahkan semua logic auth ke fungsi terpisah
+  Future<Widget> _doAuth() async {
     User? user;
     try {
       user = await FirebaseAuth.instance
           .authStateChanges()
           .firstWhere((u) => u != null)
           .timeout(const Duration(seconds: 8));
-      debugPrint('[AUTH] Firebase restore berhasil: ${user?.uid}');
     } catch (_) {
-      debugPrint('[AUTH] Firebase timeout — coba auto re-login');
       user = null;
     }
 
-    if (user != null) {
-      if (mounted) setState(() => _child = const HomeWrapper());
-      return;
-    }
+    if (user != null) return const HomeWrapper();
 
     final prefs = await SharedPreferences.getInstance();
     final savedEmail = prefs.getString('saved_email') ?? '';
     final savedPassword = prefs.getString('saved_password') ?? '';
 
-    debugPrint('[AUTH] savedEmail: $savedEmail');
-    debugPrint('[AUTH] savedPassword kosong: ${savedPassword.isEmpty}');
-
     if (savedEmail.isNotEmpty && savedPassword.isNotEmpty) {
-      debugPrint('[AUTH] Coba email/password re-login...');
       try {
         final cred = await FirebaseAuth.instance
             .signInWithEmailAndPassword(
@@ -57,23 +60,17 @@ class _AuthWrapperState extends State<AuthWrapper> {
               password: savedPassword,
             )
             .timeout(const Duration(seconds: 10));
-        if (cred.user != null) {
-          debugPrint('[AUTH] Email re-login berhasil!');
-          if (mounted) setState(() => _child = const HomeWrapper());
-          return;
-        }
+        if (cred.user != null) return const HomeWrapper();
       } catch (e) {
         debugPrint('[AUTH] Email re-login gagal: $e');
       }
     }
 
-    debugPrint('[AUTH] Coba Google silent sign in...');
     try {
       final googleSignIn = GoogleSignIn();
       final googleUser = await googleSignIn.signInSilently().timeout(
         const Duration(seconds: 10),
       );
-
       if (googleUser != null) {
         final googleAuth = await googleUser.authentication;
         final credential = GoogleAuthProvider.credential(
@@ -81,18 +78,13 @@ class _AuthWrapperState extends State<AuthWrapper> {
           idToken: googleAuth.idToken,
         );
         await FirebaseAuth.instance.signInWithCredential(credential);
-        debugPrint('[AUTH] Google silent login berhasil!');
-        if (mounted) setState(() => _child = const HomeWrapper());
-        return;
-      } else {
-        debugPrint('[AUTH] Google silent login: tidak ada akun tersimpan');
+        return const HomeWrapper();
       }
     } catch (e) {
       debugPrint('[AUTH] Google silent login error: $e');
     }
 
-    debugPrint('[AUTH] Semua gagal → GetStartedScreen');
-    if (mounted) setState(() => _child = const GetStartedScreen());
+    return const GetStartedScreen();
   }
 
   @override
@@ -172,45 +164,45 @@ class _SplashScreenState extends State<_SplashScreen>
   }
 
   Future<void> _runSequence() async {
-    while (mounted) {
-      // 1. Reset state
-      if (mounted) {
-        setState(() {
-          _showLogo = false;
-          _showText = false;
-        });
-      }
-
-      // 2. Partikel scatter
-      _particleCtrl.reset();
-      await _particleCtrl.animateTo(0.5, curve: Curves.easeIn);
-
-      if (!mounted) return;
-
-      // 3. Logo muncul, partikel hilang
-      setState(() => _showLogo = true);
-      await _particleCtrl.animateTo(1.0, curve: Curves.easeOut);
-
-      if (!mounted) return;
-
-      // 4. Teks fade in
-      _fadeCtrl.reset();
-      _fadeCtrl.forward();
-      setState(() => _showText = true);
-
-      // 5. Denyut 3x
-      for (int i = 0; i < 3; i++) {
-        if (!mounted) return;
-        _pulseCtrl.reset();
-        await _pulseCtrl.forward();
-        if (!mounted) return;
-        await _pulseCtrl.reverse();
-        await Future.delayed(const Duration(milliseconds: 100));
-      }
-
-      // 6. Tahan sebentar lalu ulangi
-      await Future.delayed(const Duration(milliseconds: 700));
+    debugPrint('[SPLASH] _runSequence START');
+    if (mounted) {
+      setState(() {
+        _showLogo = false;
+        _showText = false;
+      });
     }
+
+    debugPrint('[SPLASH] sebelum particleCtrl');
+    _particleCtrl.reset();
+    await _particleCtrl.animateTo(0.5, curve: Curves.easeIn);
+    debugPrint('[SPLASH] setelah animateTo 0.5');
+    if (!mounted) return;
+
+    debugPrint('[SPLASH] set showLogo true');
+    setState(() => _showLogo = true);
+    debugPrint('[SPLASH] _showLogo = true');
+    await _particleCtrl.animateTo(1.0, curve: Curves.easeOut);
+    debugPrint('[SPLASH] setelah animateTo 1.0');
+    if (!mounted) return;
+
+    // 4. Teks fade in
+    _fadeCtrl.reset();
+    _fadeCtrl.forward();
+    setState(() => _showText = true);
+
+    // 5. Denyut 3x
+    for (int i = 0; i < 3; i++) {
+      if (!mounted) return;
+      _pulseCtrl.reset();
+      await _pulseCtrl.forward();
+      if (!mounted) return;
+      await _pulseCtrl.reverse();
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+
+    // 6. Tahan sebentar lalu STOP — TIDAK looping lagi
+    await Future.delayed(const Duration(milliseconds: 700));
+    // Selesai. AuthWrapper yang akan ganti layar.
   }
 
   @override
@@ -246,12 +238,20 @@ class _SplashScreenState extends State<_SplashScreen>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   // Logo dengan pulse
-                  Transform.scale(
-                    scale: _showLogo ? _pulseAnim.value : 0.0,
-                    child: Image.asset(
-                      'assets/icon.png',
-                      width: 110,
-                      height: 110,
+                  AnimatedOpacity(
+                    opacity: _showLogo ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 400),
+                    child: AnimatedBuilder(
+                      animation: _pulseAnim,
+                      builder: (context, child) => Transform.scale(
+                        scale: _pulseAnim.value == 0.0 ? 1.0 : _pulseAnim.value,
+                        child: child,
+                      ),
+                      child: Image.asset(
+                        'assets/icon.png',
+                        width: 110,
+                        height: 110,
+                      ),
                     ),
                   ),
 

@@ -5,6 +5,7 @@ import 'package:overlay_support/overlay_support.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import '../screens/screens.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 // ─── Navigator key global ────────────────────────────────────────────────────
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -15,7 +16,7 @@ final FlutterLocalNotificationsPlugin flutterLocalNotif =
 
 // ─── Channel Android ─────────────────────────────────────────────────────────
 const _androidChannel = AndroidNotificationChannel(
-  'kia_channel_id',
+  'kb_reminder',
   'Notifikasi KIA',
   description: 'Pengingat jadwal KB/KIA',
   importance: Importance.max,
@@ -55,11 +56,27 @@ class NotifKiaService {
 
   Future<void> inisialisasiNotifikasi() async {
     debugPrint("▶ Inisialisasi notifikasi FCM...");
-
+    await FirebaseMessaging.instance
+        .setForegroundNotificationPresentationOptions(
+          alert: false,
+          badge: false,
+          sound: false,
+        );
     try {
+      if (await Permission.notification.isDenied) {
+        final result = await Permission.notification.request();
+        debugPrint("📋 Permission result: $result");
+        if (result.isDenied || result.isPermanentlyDenied) {
+          debugPrint("⚠ Izin notifikasi ditolak permanen");
+          await openAppSettings(); // buka settings langsung
+          return;
+        }
+      }
       // ── 1. Setup flutter_local_notifications ──────────────────────────────
       const initSettings = InitializationSettings(
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        android: AndroidInitializationSettings(
+          '@android:drawable/ic_dialog_info',
+        ),
         iOS: DarwinInitializationSettings(),
       );
 
@@ -106,7 +123,9 @@ class NotifKiaService {
           );
 
       debugPrint("✅ Status izin: ${settings.authorizationStatus}");
-
+      if (settings.authorizationStatus == AuthorizationStatus.denied) {
+        debugPrint("⚠ Izin denied — arahkan user ke settings");
+      }
       if (settings.authorizationStatus != AuthorizationStatus.authorized &&
           settings.authorizationStatus != AuthorizationStatus.provisional) {
         debugPrint("⚠ Izin notifikasi ditolak — FCM tidak aktif");

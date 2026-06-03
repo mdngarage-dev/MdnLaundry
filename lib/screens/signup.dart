@@ -95,7 +95,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
         if (mounted) {
           Navigator.pushReplacementNamed(
             context,
-            '/signin',
+            '/login',
           ); // atau '/login' sesuai route kamu
         }
       }

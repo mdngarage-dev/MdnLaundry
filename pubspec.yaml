@@ -33,20 +33,20 @@ dependencies:
 
   # Library pendukung
   http: ^1.2.0
-  csv: ^6.0.0
-  google_fonts: ^6.2.1
+  csv: ^8.0.0
+  google_fonts: ^8.1.0
   cupertino_icons: ^1.0.8
   shared_preferences: ^2.5.5
 
   # Firebase (versi selaras)
-  firebase_core: ^3.6.0        # ← naikan dari ^3.0.0
-  firebase_auth: ^5.3.0        # ← naikan dari ^5.0.0
-  firebase_storage: ^12.3.0    # ← naikan dari ^12.0.0
-  cloud_firestore: ^5.6.12     # ← tetap
+  firebase_core: ^4.10.0        # ← naikan dari ^3.0.0
+  firebase_auth: ^6.5.2        # ← naikan dari ^5.0.0
+  firebase_storage: ^13.4.2    # ← naikan dari ^12.0.0
+  cloud_firestore: ^6.5.0     # ← tetap
 
   # Library lain
   image_picker: ^1.1.0
-  mobile_scanner: ^5.1.0
+  mobile_scanner: ^7.2.0
   google_mlkit_barcode_scanning: ^0.14.2
   url_launcher: ^6.2.0
   intl: ^0.20.2
@@ -54,25 +54,25 @@ dependencies:
   curved_navigation_bar: ^1.0.6
   blue_thermal_printer: ^1.2.3
   screenshot: ^3.0.0
-  share_plus: ^10.0.0
+  share_plus: ^13.1.0
   path_provider: ^2.1.3
   path: ^1.9.0
   provider: ^6.1.5+1
-  google_sign_in: ^6.2.0
+  google_sign_in: ^6.2.1
   custom_refresh_indicator: ^4.0.1
-  fl_chart: ^0.66.0
-  package_info_plus: ^8.0.0
-  firebase_messaging: ^15.0.0
+  fl_chart: ^1.2.0
+  package_info_plus: ^10.1.0
+  firebase_messaging: ^16.3.0
   audioplayers: ^6.0.0
   overlay_support: ^2.1.0
-  flutter_local_notifications: ^17.2.2
-  permission_handler: ^11.3.1
+  flutter_local_notifications: ^18.0.1
+  permission_handler: ^12.0.3
 
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_launcher_icons: ^0.13.1
+  flutter_launcher_icons: ^0.14.4
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
   # activated in the `analysis_options.yaml` file located at the root of your

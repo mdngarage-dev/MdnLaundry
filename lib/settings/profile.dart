@@ -118,7 +118,9 @@ class _ProfilPageState extends State<ProfilPage> {
             password: passwordLama,
           );
           await _currentUser!.reauthenticateWithCredential(credential);
-          await _currentUser!.updateEmail(_emailController.text.trim());
+          await _currentUser!.verifyBeforeUpdateEmail(
+            _emailController.text.trim(),
+          );
         }
 
         await _currentUser!.reload();

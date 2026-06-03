@@ -67,21 +67,28 @@ class _AuthWrapperState extends State<AuthWrapper> {
     }
 
     try {
-      final googleSignIn = GoogleSignIn();
+      // 1. Ganti GoogleSignIn() menjadi GoogleSignIn.standard()
+      final googleSignIn = GoogleSignIn.standard();
+
       final googleUser = await googleSignIn.signInSilently().timeout(
         const Duration(seconds: 10),
       );
+
       if (googleUser != null) {
         final googleAuth = await googleUser.authentication;
+
+        // 2. Pastikan properti token diakses dari objek yang tepat
         final credential = GoogleAuthProvider.credential(
           accessToken: googleAuth.accessToken,
           idToken: googleAuth.idToken,
         );
+
         await FirebaseAuth.instance.signInWithCredential(credential);
         return const HomeWrapper();
       }
     } catch (e) {
-      debugPrint('[AUTH] Google silent login error: $e');
+      // Jangan lupa handle error-nya di sini jika diperlukan
+      print('Error saat sign in silently: $e');
     }
 
     return const GetStartedScreen();

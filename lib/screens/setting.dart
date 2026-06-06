@@ -5,9 +5,14 @@ import 'screens.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 
-class SettingScreen extends StatelessWidget {
+class SettingScreen extends StatefulWidget {
   const SettingScreen({super.key});
 
+  @override
+  State<SettingScreen> createState() => _SettingScreenState();
+}
+
+class _SettingScreenState extends State<SettingScreen> {
   Widget _buildGroupedMenuItem({
     required BuildContext context,
     required IconData icon,
@@ -20,22 +25,16 @@ class SettingScreen extends StatelessWidget {
       leading: Container(
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          // ✅ THEME: Warna background icon mengikuti tema
           color: Theme.of(context).primaryColor.withOpacity(0.08),
           borderRadius: BorderRadius.circular(10),
         ),
-        child: Icon(
-          icon,
-          // ✅ THEME: Warna icon mengikuti primaryColor tema
-          color: Theme.of(context).primaryColor,
-        ),
+        child: Icon(icon, color: Theme.of(context).primaryColor),
       ),
       title: Text(
         title,
         style: TextStyle(
           fontWeight: FontWeight.bold,
           fontSize: 15,
-          // ✅ THEME: Warna teks judul mengikuti tema
           color: Theme.of(context).textTheme.bodyLarge?.color,
         ),
       ),
@@ -43,15 +42,10 @@ class SettingScreen extends StatelessWidget {
         subtitle,
         style: TextStyle(
           fontSize: 12,
-          // ✅ THEME: Warna subtitle mengikuti tema
           color: Theme.of(context).textTheme.bodyMedium?.color,
         ),
       ),
-      trailing: Icon(
-        Icons.chevron_right,
-        // ✅ THEME: Warna chevron mengikuti tema
-        color: Theme.of(context).hintColor,
-      ),
+      trailing: Icon(Icons.chevron_right, color: Theme.of(context).hintColor),
       onTap: onTap,
     );
   }
@@ -60,7 +54,6 @@ class SettingScreen extends StatelessWidget {
     return Divider(
       height: 1,
       thickness: 1,
-      // ✅ THEME: Warna divider mengikuti tema
       color: Theme.of(context).dividerColor.withOpacity(0.5),
       indent: 56,
       endIndent: 16,
@@ -74,7 +67,7 @@ class SettingScreen extends StatelessWidget {
       final file = File(imagePath);
       if (await file.exists()) return file;
     } catch (e) {
-      print("Gagal memuat gambar di settings: $e");
+      debugPrint("Gagal memuat gambar di settings: $e");
     }
     return null;
   }
@@ -109,17 +102,13 @@ class SettingScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // ✅ THEME: Latar belakang mengikuti tema global
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-
       appBar: AppBar(
-        // ✅ THEME: Menggunakan appBarTheme global (warna, elevasi, shape sudah di tema)
         title: const Text(
           "Settings",
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
-        // ✅ THEME: Warna AppBar mengikuti appBarTheme.backgroundColor
         backgroundColor:
             Theme.of(context).appBarTheme.backgroundColor ??
             Theme.of(context).primaryColor,
@@ -132,7 +121,6 @@ class SettingScreen extends StatelessWidget {
           ),
         ),
       ),
-
       body: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20.0),
         child: SingleChildScrollView(
@@ -141,7 +129,7 @@ class SettingScreen extends StatelessWidget {
             children: [
               const SizedBox(height: 20),
 
-              // ── Card Profil Utama ─────────────────────────────────────────
+              // ── Card Profil Utama ───────────────────────────────────────
               InkWell(
                 onTap: () {
                   Navigator.push(
@@ -149,20 +137,16 @@ class SettingScreen extends StatelessWidget {
                     MaterialPageRoute(
                       builder: (context) => const ProfileScreen(),
                     ),
-                  );
+                  ).then((_) => setState(() {}));
                 },
-                borderRadius: BorderRadius.circular(
-                  20,
-                ), // Disamakan dengan radius Container agar efek klik tidak luber
+                borderRadius: BorderRadius.circular(20),
                 child: Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    // ✅ THEME: Warna card mengikuti tema
                     color: Theme.of(context).cardColor,
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                      // ✅ THEME: Warna border mengikuti dividerColor tema
                       color: Theme.of(context).dividerColor.withOpacity(0.5),
                     ),
                     boxShadow: [
@@ -185,7 +169,6 @@ class SettingScreen extends StatelessWidget {
                           final localImageFile = snapshot.data;
                           return CircleAvatar(
                             radius: 30,
-                            // ✅ THEME: Background avatar mengikuti primaryColor
                             backgroundColor: Theme.of(
                               context,
                             ).primaryColor.withOpacity(0.1),
@@ -201,7 +184,6 @@ class SettingScreen extends StatelessWidget {
                                             'User')[0]
                                         .toUpperCase(),
                                     style: TextStyle(
-                                      // ✅ THEME: Warna teks inisial mengikuti primaryColor
                                       color: Theme.of(context).primaryColor,
                                       fontSize: 24,
                                       fontWeight: FontWeight.bold,
@@ -224,7 +206,6 @@ class SettingScreen extends StatelessWidget {
                               style: TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
-                                // ✅ THEME: Warna nama mengikuti tema
                                 color: Theme.of(
                                   context,
                                 ).textTheme.bodyLarge?.color,
@@ -237,18 +218,16 @@ class SettingScreen extends StatelessWidget {
                                 vertical: 4,
                               ),
                               decoration: BoxDecoration(
-                                // ✅ THEME: Warna badge mengikuti primaryColor
                                 color: Theme.of(
                                   context,
                                 ).primaryColor.withOpacity(0.1),
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Text(
-                                "Super Admin",
+                                getUserRole(),
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.w600,
-                                  // ✅ THEME: Warna teks badge mengikuti primaryColor
                                   color: Theme.of(context).primaryColor,
                                 ),
                               ),
@@ -265,17 +244,15 @@ class SettingScreen extends StatelessWidget {
               Text(
                 "Akun & Keamanan",
                 style: TextStyle(
-                  // ✅ THEME: Warna label section mengikuti tema
                   color: Theme.of(context).textTheme.bodyMedium?.color,
                   fontWeight: FontWeight.bold,
                 ),
               ),
               const SizedBox(height: 12),
 
-              // ── Grup Menu ─────────────────────────────────────────────────
+              // ── Grup Menu ───────────────────────────────────────────────
               Container(
                 decoration: BoxDecoration(
-                  // ✅ THEME: Warna card grup menu mengikuti tema
                   color: Theme.of(context).cardColor,
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
@@ -286,6 +263,7 @@ class SettingScreen extends StatelessWidget {
                   borderRadius: BorderRadius.circular(20),
                   child: Column(
                     children: [
+                      // ── Akun & Keamanan ────────────────────────────────
                       _buildGroupedMenuItem(
                         context: context,
                         icon: Icons.person_outline,
@@ -297,26 +275,28 @@ class SettingScreen extends StatelessWidget {
                             MaterialPageRoute(
                               builder: (context) => const ProfilPage(),
                             ),
-                          ).then((_) {
-                            (context as Element).markNeedsBuild();
-                          });
+                          ).then((_) => setState(() {}));
                         },
                       ),
+
+                      // ── Outlet Setting ─
                       _buildDivider(context),
                       _buildGroupedMenuItem(
                         context: context,
                         icon: Icons.store_outlined,
-                        title: "Kelola Outlet",
-                        subtitle: "Nama, Alamat, No. HP, dan Logo Outlet",
+                        title: "Outlet Setting",
+                        subtitle: "Printer, Layanan, Informasi Outlet",
                         onTap: () {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => const OutletPage(),
+                              builder: (context) => const OutletSettingScreen(),
                             ),
                           );
                         },
                       ),
+
+                      // ── Ganti Password ─────────────────────────────────
                       _buildDivider(context),
                       _buildGroupedMenuItem(
                         context: context,
@@ -332,6 +312,8 @@ class SettingScreen extends StatelessWidget {
                           );
                         },
                       ),
+
+                      // ── Mode Warna ─────────────────────────────────────
                       _buildDivider(context),
                       _buildGroupedMenuItem(
                         context: context,
@@ -346,7 +328,6 @@ class SettingScreen extends StatelessWidget {
                                 top: Radius.circular(20),
                               ),
                             ),
-                            // ✅ THEME: BottomSheet mengikuti warna card tema
                             backgroundColor: Theme.of(context).cardColor,
                             builder: (context) {
                               final themeProvider = Provider.of<ThemeProvider>(
@@ -372,7 +353,6 @@ class SettingScreen extends StatelessWidget {
                                         style: TextStyle(
                                           fontSize: 18,
                                           fontWeight: FontWeight.bold,
-                                          // ✅ THEME: Warna judul bottomsheet mengikuti tema
                                           color: Theme.of(
                                             context,
                                           ).textTheme.bodyLarge?.color,
@@ -456,12 +436,14 @@ class SettingScreen extends StatelessWidget {
                           );
                         },
                       ),
+
+                      // ── Tentang Aplikasi ───────────────────────────────
                       _buildDivider(context),
                       _buildGroupedMenuItem(
                         context: context,
                         icon: Icons.info_outline,
                         title: "Tentang Aplikasi",
-                        subtitle: "Versi ${AppConfig.appVersion} - Klinik Ku",
+                        subtitle: "Versi ${AppConfig.appVersion} - Laundry Ku",
                         onTap: () {
                           Navigator.push(
                             context,
@@ -478,7 +460,7 @@ class SettingScreen extends StatelessWidget {
 
               const SizedBox(height: 20),
 
-              // ── Tombol Sign Out ───────────────────────────────────────────
+              // ── Tombol Sign Out ─────────────────────────────────────────
               SizedBox(
                 width: double.infinity,
                 height: 55,
@@ -515,7 +497,6 @@ class SettingScreen extends StatelessWidget {
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          // ✅ THEME: Warna dialog mengikuti cardColor tema
           backgroundColor: Theme.of(context).cardColor,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(15),
@@ -527,7 +508,7 @@ class SettingScreen extends StatelessWidget {
             ),
           ),
           content: Text(
-            "Apakah Anda yakin ingin keluar dari ${OutletSettings.namaKlinik}?",
+            "Apakah Anda yakin ingin keluar dari ${OutletSettings.namaMadeenalaundry}?",
             style: TextStyle(
               color: Theme.of(context).textTheme.bodyMedium?.color,
             ),

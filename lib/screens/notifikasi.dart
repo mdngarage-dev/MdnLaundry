@@ -1,16 +1,111 @@
-// ─── notifikasi.dart ────────────────────────────────────────────────────────
-// Halaman notifikasi pasien KB/KIA yang akan jatuh tempo dalam 3 hari ke depan.
-// - Terintegrasi langsung dengan Firestore collection 'rekam_medis' & 'pasien'
-// - Notif hilang otomatis jika sudah lewat > 1 hari dari tgl_kembali
-// - Tombol "Ingatkan" kirim pesan WhatsApp dengan isi dinamis (X hari lagi / hari ini / terlambat)
-// - Empty state jika tidak ada pasien yang jatuh tempo
-
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'screens.dart'; // kPrimary & konstanta lain sudah ada di sini
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'screens.dart';
 
+// ─── Model notifikasi yang disimpan lokal ────────────────────────────────────
+class NotifItem {
+  final String id;
+  final String judul;
+  final String isi;
+  final DateTime waktu;
+  bool sudahDibaca;
+
+  NotifItem({
+    required this.id,
+    required this.judul,
+    required this.isi,
+    required this.waktu,
+    this.sudahDibaca = false,
+  });
+
+  factory NotifItem.fromJson(Map<String, dynamic> json) => NotifItem(
+    id: json['id'] ?? '',
+    judul: json['judul'] ?? '',
+    isi: json['isi'] ?? '',
+    waktu: DateTime.tryParse(json['waktu'] ?? '') ?? DateTime.now(),
+    sudahDibaca: json['sudahDibaca'] ?? false,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'judul': judul,
+    'isi': isi,
+    'waktu': waktu.toIso8601String(),
+    'sudahDibaca': sudahDibaca,
+  };
+}
+
+// ─── Helper SharedPreferences (bisa dipanggil dari notif_kia.dart) ───────────
+class NotifStorage {
+  static const _key = 'notif_history';
+  static const _maxItem = 50; // maksimal 50 notif tersimpan
+
+  /// Simpan notif baru ke SharedPreferences
+  static Future<void> simpan(NotifItem item) async {
+    final prefs = await SharedPreferences.getInstance();
+    final list = await ambilSemua();
+
+    // Hindari duplikat berdasarkan id
+    list.removeWhere((n) => n.id == item.id);
+
+    // Tambah di depan (terbaru duluan)
+    list.insert(0, item);
+
+    // Batasi jumlah
+    final trimmed = list.take(_maxItem).toList();
+
+    final encoded = jsonEncode(trimmed.map((n) => n.toJson()).toList());
+    await prefs.setString(_key, encoded);
+  }
+
+  /// Ambil semua notif dari SharedPreferences
+  static Future<List<NotifItem>> ambilSemua() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_key);
+    if (raw == null || raw.isEmpty) return [];
+    try {
+      final List<dynamic> decoded = jsonDecode(raw);
+      return decoded.map((e) => NotifItem.fromJson(e)).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Hapus satu notif berdasarkan id
+  static Future<void> hapus(String id) async {
+    final prefs = await SharedPreferences.getInstance();
+    final list = await ambilSemua();
+    list.removeWhere((n) => n.id == id);
+    final encoded = jsonEncode(list.map((n) => n.toJson()).toList());
+    await prefs.setString(_key, encoded);
+  }
+
+  /// Hapus semua notif
+  static Future<void> hapusSemua() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_key);
+  }
+
+  /// Tandai semua sudah dibaca
+  static Future<void> tandaiSemuaDibaca() async {
+    final prefs = await SharedPreferences.getInstance();
+    final list = await ambilSemua();
+    for (final n in list) {
+      n.sudahDibaca = true;
+    }
+    final encoded = jsonEncode(list.map((n) => n.toJson()).toList());
+    await prefs.setString(_key, encoded);
+  }
+
+  /// Hitung jumlah notif belum dibaca
+  static Future<int> jumlahBelumDibaca() async {
+    final list = await ambilSemua();
+    return list.where((n) => !n.sudahDibaca).length;
+  }
+}
+
+// ─── Screen ──────────────────────────────────────────────────────────────────
 class NotifikasiScreen extends StatefulWidget {
   const NotifikasiScreen({super.key});
 
@@ -20,209 +115,60 @@ class NotifikasiScreen extends StatefulWidget {
 
 class _NotifikasiScreenState extends State<NotifikasiScreen> {
   bool _isLoading = true;
-  List<_PasienJatuhTempo> _listPasien = [];
+  List<NotifItem> _listNotif = [];
 
   @override
   void initState() {
     super.initState();
-    _loadNotifikasi();
+    _loadNotif();
   }
 
-  /// Ambil semua rekam_medis yang punya tgl_kembali,
-  /// filter yang jatuh tempo dalam -1 s/d +3 hari dari sekarang,
-  /// lalu join nama & nomor HP dari collection 'pasien'.
-  Future<void> _loadNotifikasi() async {
+  Future<void> _loadNotif() async {
     if (!mounted) return;
     setState(() => _isLoading = true);
 
-    try {
-      final firestore = FirebaseFirestore.instance;
-      final now = DateTime.now();
-      final hariIni = DateTime(now.year, now.month, now.day);
+    final list = await NotifStorage.ambilSemua();
 
-      // Batas filter: kemarin (batas bawah, hari H-1 masih tampil)
-      // dan 3 hari ke depan (batas atas)
-      final batasAwal = hariIni.subtract(const Duration(days: 1));
-      final batasAkhir = hariIni.add(const Duration(days: 3));
+    // Tandai semua dibaca saat screen dibuka
+    await NotifStorage.tandaiSemuaDibaca();
 
-      // Ambil rekam medis dengan tgl_kembali yang tidak kosong
-      // Karena Firestore tidak bisa filter string date langsung,
-      // kita ambil semua yang punya tgl_kembali lalu filter di client
-      final snap = await firestore
-          .collection('rekam_medis')
-          .where('tgl_kembali', isNotEqualTo: '')
-          .orderBy('tgl_kembali')
-          .get();
+    if (!mounted) return;
+    setState(() {
+      _listNotif = list;
+      _isLoading = false;
+    });
+  }
 
-      // Dedup: per NIP hanya ambil rekam medis terbaru
-      final Map<String, QueryDocumentSnapshot> latestPerNip = {};
-      for (final doc in snap.docs) {
-        final data = doc.data() as Map<String, dynamic>;
-        final nip = data['nomer_induk_pasien']?.toString() ?? '';
-        if (nip.isEmpty) continue;
-        final tglStr = data['tgl_kembali']?.toString().trim() ?? '';
-        if (tglStr.isEmpty) continue;
+  Future<void> _hapusItem(NotifItem item) async {
+    await NotifStorage.hapus(item.id);
+    if (!mounted) return;
+    setState(() => _listNotif.removeWhere((n) => n.id == item.id));
+  }
 
-        // Parse tgl_kembali format "dd-MM-yyyy"
-        DateTime? tglKembali;
-        try {
-          tglKembali = DateFormat('dd-MM-yyyy').parse(tglStr);
-        } catch (_) {
-          try {
-            tglKembali = DateFormat('dd-MMM-yyyy', 'id_ID').parse(tglStr);
-          } catch (_) {
-            continue;
-          }
-        }
-
-        // Filter: hanya tampilkan yang dalam rentang batasAwal ~ batasAkhir
-        if (tglKembali.isBefore(batasAwal) || tglKembali.isAfter(batasAkhir)) {
-          continue;
-        }
-
-        // Simpan hanya rekam medis paling baru per NIP
-        if (!latestPerNip.containsKey(nip)) {
-          latestPerNip[nip] = doc;
-        } else {
-          // Bandingkan waktu_kunjungan untuk ambil yang terbaru
-          final existing =
-              (latestPerNip[nip]!.data()
-                      as Map<String, dynamic>)['waktu_kunjungan']
-                  ?.toString() ??
-              '';
-          final current = data['waktu_kunjungan']?.toString() ?? '';
-          if (current.compareTo(existing) > 0) {
-            latestPerNip[nip] = doc;
-          }
-        }
-      }
-
-      // Untuk setiap NIP, ambil nama & HP dari collection 'pasien'
-      final List<_PasienJatuhTempo> hasil = [];
-      for (final entry in latestPerNip.entries) {
-        final nip = entry.key;
-        final rekamData = entry.value.data() as Map<String, dynamic>;
-
-        final tglStr = rekamData['tgl_kembali'].toString().trim();
-        DateTime tglKembali;
-        try {
-          tglKembali = DateFormat('dd-MM-yyyy').parse(tglStr);
-        } catch (_) {
-          tglKembali = DateFormat('dd-MMM-yyyy', 'id_ID').parse(tglStr);
-        }
-
-        // Ambil data pasien
-        String nama = nip;
-        String hp = '';
-        try {
-          final pasienSnap = await firestore
-              .collection('pasien')
-              .where('nomer_induk_pasien', isEqualTo: nip)
-              .limit(1)
-              .get();
-          if (pasienSnap.docs.isNotEmpty) {
-            final pData = pasienSnap.docs.first.data();
-            nama = pData['nama_lengkap']?.toString() ?? nip;
-            hp = pData['nomer_hp']?.toString() ?? '';
-          }
-        } catch (_) {}
-
-        final selisihHari = tglKembali
-            .difference(DateTime(now.year, now.month, now.day))
-            .inDays;
-
-        hasil.add(
-          _PasienJatuhTempo(
-            nip: nip,
-            nama: nama,
-            hp: hp,
-            tglKembali: tglKembali,
-            selisihHari: selisihHari,
-            layanan: rekamData['layanan']?.toString() ?? 'KIA',
+  Future<void> _hapusSemua() async {
+    final konfirmasi = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Hapus Semua Notifikasi?'),
+        content: const Text('Semua riwayat notifikasi akan dihapus permanen.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Batal'),
           ),
-        );
-      }
-
-      // Urutkan: paling dekat jatuh tempo duluan
-      hasil.sort((a, b) => a.selisihHari.compareTo(b.selisihHari));
-
-      if (!mounted) return;
-      setState(() {
-        _listPasien = hasil;
-        _isLoading = false;
-      });
-    } catch (e) {
-      debugPrint('Error loadNotifikasi: $e');
-      if (!mounted) return;
-      setState(() => _isLoading = false);
-    }
-  }
-
-  /// Kirim pesan WhatsApp pengingat jadwal KB
-  Future<void> _kirimWA(BuildContext context, _PasienJatuhTempo pasien) async {
-    if (pasien.hp.isEmpty) {
-      _showSnack(context, 'Nomor HP pasien tidak tersedia', Colors.orange);
-      return;
-    }
-
-    final tglFormatted = DateFormat(
-      'dd MMMM yyyy',
-      'id_ID',
-    ).format(pasien.tglKembali);
-    String infoWaktu;
-    if (pasien.selisihHari > 0) {
-      infoWaktu = '*${pasien.selisihHari} hari lagi*';
-    } else if (pasien.selisihHari == 0) {
-      infoWaktu = '*hari ini*';
-    } else {
-      infoWaktu = '*${pasien.selisihHari.abs()} hari yang lalu (terlambat!)*';
-    }
-
-    final pesan =
-        '''Halo Bunda *${pasien.nama}*,
-
-Kami dari ${OutletSettings.namaKlinik} mengingatkan bahwa jadwal kontrol KB Anda sudah $infoWaktu.
-
-📅 *Jadwal Kembali:* $tglFormatted
-
-Mohon segera kunjungi ${OutletSettings.namaKlinik} untuk pemeriksaan lanjutan demi menjaga kesehatan Anda.
-
-Terima kasih 🙏''';
-
-    // Bersihkan nomor HP: hapus +62 atau 0 di awal, tambahkan 62
-    String hp = pasien.hp.replaceAll(RegExp(r'\s+|-'), '');
-    if (hp.startsWith('0')) {
-      hp = '62${hp.substring(1)}';
-    } else if (hp.startsWith('+')) {
-      hp = hp.substring(1);
-    }
-
-    final encodedPesan = Uri.encodeComponent(pesan);
-    final waUrl = 'https://wa.me/$hp?text=$encodedPesan';
-
-    try {
-      final uri = Uri.parse(waUrl);
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      } else {
-        if (!context.mounted) return;
-        _showSnack(context, 'Tidak dapat membuka WhatsApp', Colors.red);
-      }
-    } catch (e) {
-      if (!context.mounted) return;
-      _showSnack(context, 'Gagal membuka WhatsApp: $e', Colors.red);
-    }
-  }
-
-  void _showSnack(BuildContext context, String msg, Color color) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        backgroundColor: color,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Hapus', style: TextStyle(color: Colors.red)),
+          ),
+        ],
       ),
     );
+
+    if (konfirmasi != true) return;
+    await NotifStorage.hapusSemua();
+    if (!mounted) return;
+    setState(() => _listNotif.clear());
   }
 
   @override
@@ -233,8 +179,8 @@ Terima kasih 🙏''';
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: kPrimary))
           : GlobalRefresh(
-              onRefresh: _loadNotifikasi,
-              child: _listPasien.isEmpty
+              onRefresh: _loadNotif,
+              child: _listNotif.isEmpty
                   ? _buildEmptyState()
                   : ListView(
                       padding: const EdgeInsets.symmetric(
@@ -244,7 +190,9 @@ Terima kasih 🙏''';
                       children: [
                         _buildInfoBanner(),
                         const SizedBox(height: 12),
-                        ..._listPasien.map((p) => _buildNotifCard(context, p)),
+                        ..._listNotif.map(
+                          (item) => _buildSwipeableCard(context, item),
+                        ),
                         const SizedBox(height: 80),
                       ],
                     ),
@@ -252,7 +200,7 @@ Terima kasih 🙏''';
     );
   }
 
-  /// Banner info kecil di atas list
+  // ── Banner info ─────────────────────────────────────────────────────────────
   Widget _buildInfoBanner() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -263,11 +211,11 @@ Terima kasih 🙏''';
       ),
       child: Row(
         children: [
-          Icon(Icons.info_outline_rounded, color: kPrimary, size: 18),
+          Icon(Icons.swipe_left_rounded, color: kPrimary, size: 18),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'Menampilkan pasien KB/KIA yang jatuh tempo dalam 3 hari ke depan.',
+              'Geser ke kiri untuk menghapus notifikasi.',
               style: Theme.of(
                 context,
               ).textTheme.bodySmall?.copyWith(color: kPrimary, fontSize: 12),
@@ -278,196 +226,172 @@ Terima kasih 🙏''';
     );
   }
 
-  /// Card tiap pasien jatuh tempo
-  Widget _buildNotifCard(BuildContext context, _PasienJatuhTempo pasien) {
+  // ── Card dengan swipe to delete ─────────────────────────────────────────────
+  Widget _buildSwipeableCard(BuildContext context, NotifItem item) {
+    return Dismissible(
+      key: Key(item.id),
+      direction: DismissDirection.endToStart,
+      onDismissed: (_) => _hapusItem(item),
+      background: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: Colors.red.shade400,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        child: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.delete_rounded, color: Colors.white, size: 26),
+            SizedBox(height: 4),
+            Text(
+              'Hapus',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
+      child: _buildNotifCard(context, item),
+    );
+  }
+
+  // ── Card notifikasi ─────────────────────────────────────────────────────────
+  Widget _buildNotifCard(BuildContext context, NotifItem item) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isUnread = !item.sudahDibaca;
 
-    // Tentukan warna & label status
-    Color statusColor;
-    String statusLabel;
-    IconData statusIcon;
-
-    if (pasien.selisihHari < 0) {
-      statusColor = Colors.red;
-      statusLabel = 'Terlambat ${pasien.selisihHari.abs()} hari';
-      statusIcon = Icons.warning_amber_rounded;
-    } else if (pasien.selisihHari == 0) {
-      statusColor = Colors.orange;
-      statusLabel = 'Jatuh Tempo Hari Ini';
-      statusIcon = Icons.today_rounded;
-    } else if (pasien.selisihHari == 1) {
-      statusColor = Colors.amber[700]!;
-      statusLabel = 'Besok Jatuh Tempo';
-      statusIcon = Icons.schedule_rounded;
+    // Format waktu relatif
+    final now = DateTime.now();
+    final selisih = now.difference(item.waktu);
+    String waktuLabel;
+    if (selisih.inMinutes < 1) {
+      waktuLabel = 'Baru saja';
+    } else if (selisih.inMinutes < 60) {
+      waktuLabel = '${selisih.inMinutes} menit lalu';
+    } else if (selisih.inHours < 24) {
+      waktuLabel = '${selisih.inHours} jam lalu';
+    } else if (selisih.inDays == 1) {
+      waktuLabel = 'Kemarin';
     } else {
-      statusColor = kPrimary;
-      statusLabel = '${pasien.selisihHari} Hari Lagi';
-      statusIcon = Icons.event_available_rounded;
+      waktuLabel = DateFormat('dd MMM yyyy', 'id_ID').format(item.waktu);
     }
-
-    final tglFormatted = DateFormat(
-      'dd MMM yyyy',
-      'id_ID',
-    ).format(pasien.tglKembali);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
+        color: isUnread
+            ? kPrimary.withOpacity(isDark ? 0.12 : 0.05)
+            : Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: statusColor.withOpacity(0.3), width: 1.2),
+        border: Border.all(
+          color: isUnread
+              ? kPrimary.withOpacity(0.3)
+              : Colors.grey.withOpacity(0.15),
+          width: 1.2,
+        ),
         boxShadow: [
           BoxShadow(
-            color: statusColor.withOpacity(isDark ? 0.08 : 0.06),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+            color: Colors.black.withOpacity(isDark ? 0.15 : 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
           ),
         ],
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Baris atas: avatar + nama + badge status ──────────────────
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Avatar inisial
-                Container(
-                  width: 46,
-                  height: 46,
-                  decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(13),
-                  ),
-                  child: Center(
-                    child: Text(
-                      pasien.nama.isNotEmpty
-                          ? pasien.nama[0].toUpperCase()
-                          : '?',
-                      style: TextStyle(
-                        color: statusColor,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 20,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            // ── Icon notif ──────────────────────────────────────────────────
+            Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                color: kPrimary.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(13),
+              ),
+              child: Icon(
+                Icons.local_laundry_service_rounded,
+                color: kPrimary,
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 12),
+
+            // ── Konten ──────────────────────────────────────────────────────
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Judul + dot unread
+                  Row(
                     children: [
-                      Text(
-                        pasien.nama,
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15,
+                      Expanded(
+                        child: Text(
+                          item.judul,
+                          style: Theme.of(context).textTheme.bodyLarge
+                              ?.copyWith(
+                                fontWeight: isUnread
+                                    ? FontWeight.bold
+                                    : FontWeight.w600,
+                                fontSize: 14,
+                              ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        pasien.nip,
-                        style: Theme.of(
-                          context,
-                        ).textTheme.bodySmall?.copyWith(fontSize: 12),
-                      ),
+                      if (isUnread)
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: kPrimary,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
                     ],
                   ),
-                ),
-                // Badge status
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
+                  const SizedBox(height: 4),
+
+                  // Isi notif
+                  Text(
+                    item.isi,
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(fontSize: 13, height: 1.4),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: statusColor.withOpacity(0.3)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
+                  const SizedBox(height: 8),
+
+                  // Waktu
+                  Row(
                     children: [
-                      Icon(statusIcon, color: statusColor, size: 13),
+                      Icon(
+                        Icons.access_time_rounded,
+                        size: 12,
+                        color: Theme.of(
+                          context,
+                        ).textTheme.bodySmall?.color?.withOpacity(0.6),
+                      ),
                       const SizedBox(width: 4),
                       Text(
-                        statusLabel,
-                        style: TextStyle(
-                          color: statusColor,
-                          fontWeight: FontWeight.bold,
+                        waktuLabel,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           fontSize: 11,
+                          color: Theme.of(
+                            context,
+                          ).textTheme.bodySmall?.color?.withOpacity(0.6),
                         ),
                       ),
                     ],
                   ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 14),
-            const Divider(height: 1),
-            const SizedBox(height: 12),
-
-            // ── Info detail ───────────────────────────────────────────────
-            Row(
-              children: [
-                _infoChip(
-                  Icons.favorite_outline_rounded,
-                  pasien.layanan,
-                  Colors.pink,
-                ),
-                const SizedBox(width: 8),
-                _infoChip(
-                  Icons.calendar_today_rounded,
-                  tglFormatted,
-                  statusColor,
-                ),
-                const SizedBox(width: 8),
-                if (pasien.hp.isNotEmpty)
-                  _infoChip(
-                    Icons.phone_android_rounded,
-                    pasien.hp,
-                    Colors.green,
-                  ),
-              ],
-            ),
-
-            const SizedBox(height: 14),
-
-            // ── Tombol Ingatkan ───────────────────────────────────────────
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: pasien.hp.isEmpty
-                    ? null
-                    : () => _kirimWA(context, pasien),
-                icon: const Icon(Icons.send_rounded, size: 17),
-                label: Text(
-                  pasien.hp.isEmpty
-                      ? 'Nomor HP Tidak Ada'
-                      : 'Ingatkan via WhatsApp',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
-                  ),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: pasien.hp.isEmpty
-                      ? Colors.grey[300]
-                      : const Color(0xFF25D366),
-                  foregroundColor: Colors.white,
-                  disabledBackgroundColor: Colors.grey[300],
-                  disabledForegroundColor: Colors.grey[600],
-                  padding: const EdgeInsets.symmetric(vertical: 13),
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
+                ],
               ),
             ),
           ],
@@ -476,38 +400,7 @@ Terima kasih 🙏''';
     );
   }
 
-  Widget _infoChip(IconData icon, String label, Color color) {
-    return Flexible(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.08),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 12, color: color),
-            const SizedBox(width: 4),
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: color,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Empty state ketika tidak ada pasien KB yang jatuh tempo
+  // ── Empty state ─────────────────────────────────────────────────────────────
   Widget _buildEmptyState() {
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -532,7 +425,7 @@ Terima kasih 🙏''';
               ),
               const SizedBox(height: 24),
               Text(
-                'Semua Terkontrol! 🎉',
+                'Belum Ada Notifikasi',
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
@@ -540,7 +433,7 @@ Terima kasih 🙏''';
               ),
               const SizedBox(height: 8),
               Text(
-                'Belum ada pasien KB/KIA yang\njatuh tempo dalam 3 hari ke depan.',
+                'Notifikasi estimasi laundry selesai\nakan muncul di sini.',
                 textAlign: TextAlign.center,
                 style: Theme.of(
                   context,
@@ -548,7 +441,7 @@ Terima kasih 🙏''';
               ),
               const SizedBox(height: 32),
               OutlinedButton.icon(
-                onPressed: _loadNotifikasi,
+                onPressed: _loadNotif,
                 icon: const Icon(Icons.refresh_rounded, size: 18),
                 label: const Text('Refresh'),
                 style: OutlinedButton.styleFrom(
@@ -570,6 +463,7 @@ Terima kasih 🙏''';
     );
   }
 
+  // ── AppBar ──────────────────────────────────────────────────────────────────
   PreferredSizeWidget _buildAppBar(BuildContext context) {
     return PreferredSize(
       preferredSize: const Size.fromHeight(kToolbarHeight),
@@ -580,7 +474,7 @@ Terima kasih 🙏''';
         ),
         child: AppBar(
           title: const Text(
-            "Notifikasi Pasien",
+            'Notifikasi',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
           ),
           backgroundColor: kPrimary,
@@ -596,27 +490,19 @@ Terima kasih 🙏''';
                   onPressed: () => Navigator.of(context).pop(),
                 )
               : null,
+          actions: [
+            if (_listNotif.isNotEmpty)
+              IconButton(
+                onPressed: _hapusSemua,
+                icon: const Icon(
+                  Icons.delete_sweep_rounded,
+                  color: Colors.white,
+                ),
+                tooltip: 'Hapus Semua',
+              ),
+          ],
         ),
       ),
     );
   }
-}
-
-// ─── Model data lokal ────────────────────────────────────────────────────────
-class _PasienJatuhTempo {
-  final String nip;
-  final String nama;
-  final String hp;
-  final DateTime tglKembali;
-  final int selisihHari; // negatif = sudah lewat
-  final String layanan;
-
-  const _PasienJatuhTempo({
-    required this.nip,
-    required this.nama,
-    required this.hp,
-    required this.tglKembali,
-    required this.selisihHari,
-    required this.layanan,
-  });
 }

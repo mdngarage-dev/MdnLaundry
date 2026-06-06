@@ -26,20 +26,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return null;
   }
 
-  /// Nilai persis yang tersimpan di Firestore field [admin_pemeriksa].
-  /// Berdasarkan data Firestore, nilainya adalah displayName PENUH
-  /// termasuk NIP — contoh: "Rd Hilman|AdmMc-042".
-  /// Jangan di-split karena itulah yang dipakai saat menyimpan rekam_medis.
   String get _adminName {
     return user?.displayName ?? "";
   }
 
   @override
   Widget build(BuildContext context) {
-    final rawDisplayName = user?.displayName ?? "Nama Tidak Diatur|AdmMc-005";
+    final rawDisplayName = user?.displayName ?? "Nama Tidak Diatur|AdmLnd-005";
     final namaDanNip = rawDisplayName.split('|');
     final namaAdmin = namaDanNip[0].trim();
-    final nipAdmin = namaDanNip.length > 1 ? namaDanNip[1].trim() : "AdmMc-005";
+    final nipAdmin = namaDanNip.length > 1
+        ? namaDanNip[1].trim()
+        : "AdmLnd-005";
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -77,39 +75,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
             const SizedBox(height: 25),
 
             // ── Stat cards — REAL-TIME via StreamBuilder ───────────────
-            //
-            // Kita stream semua rekam_medis milik admin ini.
-            // • Input Medis  = jumlah dokumen
-            // • Pasien Didaftar = jumlah NIP unik
-            //
-            // CATATAN: pastikan index Firestore untuk
-            //   collection: rekam_medis  field: admin_pemeriksa
-            // sudah dibuat agar query tidak lambat.
             StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
-                  .collection('rekam_medis')
-                  .where('admin_pemeriksa', isEqualTo: _adminName)
+                  .collection('order')
+                  .where(
+                    'admin',
+                    isEqualTo: namaAdmin,
+                  ) // pakai nama saja, bukan displayName penuh
                   .snapshots(),
               builder: (context, snapshot) {
-                // Hitung nilai dari snapshot
-                int inputMedis = 0;
-                int pasienDidaftar = 0;
+                int totalDiterima = 0;
+                int totalSelesai = 0;
 
                 if (snapshot.hasData) {
                   final docs = snapshot.data!.docs;
-                  inputMedis = docs.length;
+                  totalDiterima = docs.length;
 
-                  // Hitung NIP unik di sisi client
-                  final Set<String> nipSet = {};
                   for (final doc in docs) {
                     final data = doc.data() as Map<String, dynamic>;
-                    final nip = data['nomer_induk_pasien']?.toString() ?? '';
-                    if (nip.isNotEmpty) nipSet.add(nip);
+                    final status =
+                        data['status']?.toString().toLowerCase() ?? '';
+                    if (status == 'selesai') totalSelesai++;
                   }
-                  pasienDidaftar = nipSet.length;
                 }
 
-                // Tampilkan loading hanya saat pertama kali (waiting & belum ada data)
                 final isLoading =
                     snapshot.connectionState == ConnectionState.waiting &&
                     !snapshot.hasData;
@@ -118,18 +107,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   children: [
                     _buildStatCard(
                       context,
-                      isLoading ? "..." : pasienDidaftar.toString(),
-                      "Pasien Didaftar",
-                      Icons.people,
+                      isLoading ? '...' : totalDiterima.toString(),
+                      'Laundry Diterima',
+                      Icons.local_laundry_service_outlined,
                       Theme.of(context).primaryColor,
                     ),
                     const SizedBox(width: 15),
                     _buildStatCard(
                       context,
-                      isLoading ? "..." : inputMedis.toString(),
-                      "Input Medis",
-                      Icons.assignment_turned_in,
-                      Colors.teal,
+                      isLoading ? '...' : totalSelesai.toString(),
+                      'Laundry Selesai',
+                      Icons.check_circle_outline_rounded,
+                      Theme.of(context).primaryColor,
                     ),
                   ],
                 );
@@ -187,7 +176,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   _buildProfileField(
                     context,
                     "Hak Akses",
-                    "Super Admin",
+                    _getUserRole(),
                     Icons.verified_user_outlined,
                   ),
                 ],
@@ -334,4 +323,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     );
   }
+}
+
+// Helper ambil role dari displayName
+String _getUserRole() {
+  final displayName = FirebaseAuth.instance.currentUser?.displayName ?? '';
+  final parts = displayName.split('|');
+  return parts.length >= 3 ? parts[2] : 'Admin'; // index ke-2 = role
 }

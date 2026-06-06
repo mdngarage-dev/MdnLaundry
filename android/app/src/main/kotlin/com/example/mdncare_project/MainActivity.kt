@@ -1,4 +1,4 @@
-package com.example.mdncare_project
+package com.mdn.laundry
 
 import io.flutter.embedding.android.FlutterActivity
 

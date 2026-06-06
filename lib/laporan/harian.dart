@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:intl/intl.dart';
 import '../screens/screens.dart';
 
 class LaporanHarianPage extends StatefulWidget {
@@ -14,12 +13,13 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
   DateTime selectedDate = DateTime.now();
   bool _isLoading = true;
 
-  double _totalOmzet = 0;
-  double _uangMasuk = 0;
-  double _pengeluaran = 0;
-  double _labaRugi = 0;
-  double _uangMasukNota = 0;
-  double _pendapatanJasa = 0;
+  // ── Ringkasan keuangan ────────────────────────────────────────────────────
+  double _totalOmzet = 0; // Semua harga_total order di hari itu
+  double _uangMasuk = 0; // Yang sudah lunas (bayar penuh)
+  double _uangDP = 0; // Yang statusnya dp
+  double _belumBayar = 0; // Yang belum_bayar
+  double _pengeluaran = 0; // Total pengeluaran
+  double _labaRugi = 0; // (uangMasuk + uangDP) - pengeluaran
 
   List<Map<String, dynamic>> _transaksiHari = [];
   List<Map<String, dynamic>> _pengeluaranHari = [];
@@ -27,157 +27,145 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
   @override
   void initState() {
     super.initState();
-    debugPrint('DateTime.now() = ${DateTime.now()}');
     _fetchData(selectedDate);
   }
 
   // ════════════════════════════════════════════════════════════
-  // HELPER: parse date fleksibel (String ATAU Timestamp)
-  // FIX: Tambah lebih banyak format fallback & trim karakter tersembunyi
+  // PARSE DATE — handle Timestamp Firestore & String fallback
   // ════════════════════════════════════════════════════════════
-  DateTime? _parseFlexibleDate(dynamic raw) {
+  DateTime? _parseDate(dynamic raw) {
     if (raw == null) return null;
-
-    // Handle Timestamp dari Firestore
     if (raw is Timestamp) return raw.toDate();
-
-    // Handle int (milliseconds epoch)
     if (raw is int) return DateTime.fromMillisecondsSinceEpoch(raw);
-
     if (raw is String) {
       final s = raw.trim();
       if (s.isEmpty) return null;
-
-      // Coba berbagai format secara berurutan
       final formats = [
         'dd/MM/yyyy HH:mm',
-        'dd/MM/yyyy H:mm',
-        'dd/MM/yyyy HH:mm:ss',
         'dd/MM/yyyy',
         'yyyy-MM-dd HH:mm:ss',
-        'yyyy-MM-dd HH:mm',
         'yyyy-MM-dd',
-        'MM/dd/yyyy HH:mm',
-        'MM/dd/yyyy',
         'd/M/yyyy HH:mm',
         'd/M/yyyy',
+        'dd-MM-yyyy HH:mm',
+        'dd-MM-yyyy',
       ];
-
       for (final fmt in formats) {
         try {
           return DateFormat(fmt).parseStrict(s);
-        } catch (_) {
-          // lanjut ke format berikutnya
-        }
+        } catch (_) {}
       }
-
-      // Fallback: DateTime.parse (ISO 8601)
       try {
         return DateTime.parse(s);
       } catch (_) {}
     }
-
     return null;
   }
 
+  double _parseDouble(dynamic val) {
+    if (val == null) return 0.0;
+    if (val is double) return val;
+    if (val is int) return val.toDouble();
+    if (val is String) return double.tryParse(val.trim()) ?? 0.0;
+    return 0.0;
+  }
+
   // ════════════════════════════════════════════════════════════
-  // FETCH DATA
-  // FIX: Perbaiki field name, tambah debug log, handle null dengan aman
+  // FETCH DATA — gabungan keuangan + order
   // ════════════════════════════════════════════════════════════
   Future<void> _fetchData(DateTime date) async {
     setState(() => _isLoading = true);
 
     try {
-      final DateTime hariIni = DateTime(date.year, date.month, date.day);
+      final hariIni = DateTime(date.year, date.month, date.day);
 
-      // Fetch keuangan & pengeluaran paralel
+      // Ambil keuangan, order, pengeluaran paralel
       final results = await Future.wait([
         FirebaseFirestore.instance.collection('keuangan').get(),
+        FirebaseFirestore.instance.collection('order').get(),
         FirebaseFirestore.instance.collection('pengeluaran').get(),
       ]);
 
       final keuanganSnap = results[0];
-      final pengeluaranSnap = results[1];
+      final orderSnap = results[1];
+      final pengeluaranSnap = results[2];
 
-      debugPrint('Total keuangan docs: ${keuanganSnap.docs.length}');
-      debugPrint('Total pengeluaran docs: ${pengeluaranSnap.docs.length}');
+      // ── 1. Proses keuangan (pembayaran yg sudah dicatat) ─────────────────
+      // Collection keuangan adalah catatan transaksi bayar dari pelanggan.
+      // status_bayar: 'lunas' | 'dp' | 'belum_bayar'
+      // biaya = jumlah yang dibayar saat transaksi ini
+      // dp_amount = nominal DP (jika status dp)
 
-      // ── Loop keuangan ──
-      double omzet = 0;
-      double masuk = 0;
-      List<Map<String, dynamic>> transaksi = [];
+      double omzetKeuangan = 0;
+      double masukLunas = 0;
+      double masukDP = 0;
+      double belumBayar = 0;
 
-      for (var doc in keuanganSnap.docs) {
-        final data = doc.data();
+      List<Map<String, dynamic>> transaksiList = [];
 
-        // FIX: debug setiap dokumen untuk lihat struktur data
-        debugPrint(
-          'Keuangan doc ${doc.id}: waktu_transaksi=${data['waktu_transaksi']}, biaya=${data['biaya']}',
-        );
-
-        final dynamic rawWaktu = data['waktu_transaksi'];
-        final DateTime? tgl = _parseFlexibleDate(rawWaktu);
-
-        if (tgl == null) {
-          debugPrint('  -> SKIP: gagal parse waktu_transaksi: $rawWaktu');
-          continue;
+      // Map nomor_pelanggan → nama_pelanggan dari order (untuk ditampilkan)
+      final Map<String, String> noPelToNama = {};
+      for (final doc in orderSnap.docs) {
+        final d = doc.data();
+        final noPel = d['nomor_pelanggan']?.toString() ?? '';
+        final nama = d['nama_pelanggan']?.toString() ?? '';
+        if (noPel.isNotEmpty && nama.isNotEmpty) {
+          noPelToNama[noPel] = nama;
         }
+      }
 
-        final DateTime tglHari = DateTime(tgl.year, tgl.month, tgl.day);
-        debugPrint(
-          '  -> tglHari=$tglHari, hariIni=$hariIni, match=${tglHari == hariIni}',
-        );
+      for (final doc in keuanganSnap.docs) {
+        final data = doc.data();
+        final DateTime? tgl = _parseDate(data['waktu_transaksi']);
+        if (tgl == null) continue;
 
+        final tglHari = DateTime(tgl.year, tgl.month, tgl.day);
         if (tglHari != hariIni) continue;
 
-        // FIX: handle berbagai tipe data untuk biaya (int, double, String)
         final double biaya = _parseDouble(data['biaya']);
-        // FIX: field name konsisten dengan Firestore
-        final String status = (data['status_bayar'] ?? '').toString().trim();
-        final String nip = (data['nomer_induk_pasien'] ?? '-')
+        final double dpAmount = _parseDouble(data['dp_amount']);
+        final String status = (data['status_bayar'] ?? '')
             .toString()
-            .trim();
+            .trim()
+            .toLowerCase();
+        final String noPel = (data['nomor_pelanggan'] ?? '-').toString().trim();
 
-        omzet += biaya;
-        // FIX: logika status — hitung masuk jika BUKAN "Belum Lunas"
-        if (status.toLowerCase() != 'belum lunas') {
-          masuk += biaya;
+        omzetKeuangan += biaya;
+
+        switch (status) {
+          case 'lunas':
+            masukLunas += biaya;
+            break;
+          case 'dp':
+            // Yang masuk ke kas adalah sebesar dp_amount, bukan biaya penuh
+            masukDP += dpAmount > 0 ? dpAmount : biaya;
+            break;
+          case 'belum_bayar':
+          default:
+            belumBayar += biaya;
         }
 
-        transaksi.add({
-          'nip': nip,
+        transaksiList.add({
+          'nomor_pelanggan': noPel,
+          'nama': noPelToNama[noPel] ?? noPel,
           'biaya': biaya,
+          'dp_amount': dpAmount,
           'status': status,
-          'waktu': DateFormat('dd/MM/yyyy HH:mm').format(tgl),
+          'waktu': DateFormat('HH:mm').format(tgl),
+          'tanggal': DateFormat('dd/MM/yyyy').format(tgl),
         });
       }
 
-      debugPrint(
-        'Transaksi hari ini: ${transaksi.length}, omzet=$omzet, masuk=$masuk',
-      );
-
-      // ── Loop pengeluaran ──
+      // ── 2. Proses pengeluaran ─────────────────────────────────────────────
       double totalPengeluaran = 0;
       List<Map<String, dynamic>> listPengeluaran = [];
 
-      for (var doc in pengeluaranSnap.docs) {
+      for (final doc in pengeluaranSnap.docs) {
         final data = doc.data();
+        final DateTime? tgl = _parseDate(data['tanggal']);
+        if (tgl == null) continue;
 
-        debugPrint(
-          'Pengeluaran doc ${doc.id}: tanggal=${data['tanggal']}, nominal=${data['nominal']}',
-        );
-
-        final DateTime? tglDoc = _parseFlexibleDate(data['tanggal']);
-        if (tglDoc == null) {
-          debugPrint('  -> SKIP: gagal parse tanggal');
-          continue;
-        }
-
-        final DateTime tglHari = DateTime(
-          tglDoc.year,
-          tglDoc.month,
-          tglDoc.day,
-        );
+        final tglHari = DateTime(tgl.year, tgl.month, tgl.day);
         if (tglHari != hariIni) continue;
 
         final double nominal = _parseDouble(data['nominal']);
@@ -187,53 +175,24 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
         listPengeluaran.add({
           'keterangan': keterangan,
           'nominal': nominal,
-          'tanggal': tglDoc,
+          'tanggal': tgl,
         });
       }
 
-      // ── Fetch nama pasien (batch by NIP) ──
-      final Set<String> nipSet = transaksi
-          .map((e) => e['nip'] as String)
-          .where((nip) => nip != '-' && nip.isNotEmpty)
-          .toSet();
-
-      final Map<String, String> nipToNama = {};
-
-      if (nipSet.isNotEmpty) {
-        try {
-          final pasienSnap = await FirebaseFirestore.instance
-              .collection('pasien')
-              .get();
-          for (var doc in pasienSnap.docs) {
-            final d = doc.data();
-            // FIX: cek kedua kemungkinan field name NIP di collection pasien
-            final nip =
-                (d['nomer_induk_pasien'] ?? d['nomor_induk_pasien'] ?? '')
-                    .toString()
-                    .trim();
-            if (nipSet.contains(nip)) {
-              nipToNama[nip] = (d['nama_lengkap'] ?? d['nama'] ?? nip)
-                  .toString();
-            }
-          }
-        } catch (e) {
-          debugPrint('Error fetch pasien: $e');
-        }
-      }
-
-      for (var t in transaksi) {
-        t['nama'] = nipToNama[t['nip']] ?? t['nip'];
-      }
+      // ── 3. Hitung ringkasan ───────────────────────────────────────────────
+      // Uang yang benar-benar masuk ke kas = lunas + dp_amount
+      final double totalMasukKas = masukLunas + masukDP;
 
       setState(() {
         selectedDate = date;
-        _totalOmzet = omzet;
-        _uangMasuk = masuk;
+        _totalOmzet = omzetKeuangan;
+        _uangMasuk = masukLunas;
+        _uangDP = masukDP;
+        _belumBayar = belumBayar;
         _pengeluaran = totalPengeluaran;
-        _labaRugi = masuk - totalPengeluaran;
-        _uangMasukNota = masuk;
-        _pendapatanJasa = masuk;
-        _transaksiHari = transaksi;
+        // Laba = kas masuk (lunas + dp) - pengeluaran
+        _labaRugi = totalMasukKas - totalPengeluaran;
+        _transaksiHari = transaksiList;
         _pengeluaranHari = listPengeluaran;
         _isLoading = false;
       });
@@ -241,18 +200,6 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
       debugPrint('ERROR fetchData harian: $e\n$stack');
       setState(() => _isLoading = false);
     }
-  }
-
-  // ════════════════════════════════════════════════════════════
-  // FIX BARU: helper parse double dari berbagai tipe Firestore
-  // Firestore bisa return int, double, atau String untuk field angka
-  // ════════════════════════════════════════════════════════════
-  double _parseDouble(dynamic val) {
-    if (val == null) return 0.0;
-    if (val is double) return val;
-    if (val is int) return val.toDouble();
-    if (val is String) return double.tryParse(val.trim()) ?? 0.0;
-    return 0.0;
   }
 
   // ════════════════════════════════════════════════════════════
@@ -290,6 +237,58 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
     if (picked != null) _fetchData(picked);
   }
 
+  Color _statusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'lunas':
+        return const Color(0xff16A34A);
+      case 'dp':
+        return const Color(0xff0284C7);
+      case 'belum_bayar':
+        return const Color(0xffDC2626);
+      default:
+        return Colors.grey;
+    }
+  }
+
+  Color _statusBgColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'lunas':
+        return const Color(0xffDCFCE7);
+      case 'dp':
+        return const Color(0xffE0F2FE);
+      case 'belum_bayar':
+        return const Color(0xffFEE2E2);
+      default:
+        return Colors.grey.shade100;
+    }
+  }
+
+  IconData _statusIcon(String status) {
+    switch (status.toLowerCase()) {
+      case 'lunas':
+        return Icons.check_circle_outline_rounded;
+      case 'dp':
+        return Icons.payments_outlined;
+      case 'belum_bayar':
+        return Icons.hourglass_empty_rounded;
+      default:
+        return Icons.circle_outlined;
+    }
+  }
+
+  String _statusLabel(String status) {
+    switch (status.toLowerCase()) {
+      case 'lunas':
+        return 'Lunas';
+      case 'dp':
+        return 'DP';
+      case 'belum_bayar':
+        return 'Belum Bayar';
+      default:
+        return status;
+    }
+  }
+
   // ════════════════════════════════════════════════════════════
   // BUILD
   // ════════════════════════════════════════════════════════════
@@ -304,7 +303,7 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
       appBar: _buildAppBar(context),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : GlobalRefresh(
+          : RefreshIndicator(
               onRefresh: () => _fetchData(selectedDate),
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
@@ -312,28 +311,44 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Date picker
                     _buildDatePicker(),
                     const SizedBox(height: 20),
-                    _buildSectionLabel('LAPORAN HARIAN', bodySmall),
+
+                    // ── Ringkasan 4 kartu ───────────────────────────────
+                    _buildSectionLabel('RINGKASAN HARI INI', bodySmall),
                     const SizedBox(height: 12),
                     _buildSummaryGrid(cardColor, bodyLarge, bodySmall),
                     const SizedBox(height: 20),
-                    _buildSectionLabel('LAPORAN KEUANGAN', bodySmall),
+
+                    // ── Detail kas masuk ────────────────────────────────
+                    _buildSectionLabel('DETAIL PEMASUKAN', bodySmall),
                     const SizedBox(height: 12),
-                    _buildDetailKeuangan(cardColor, bodyLarge, bodySmall),
-                    if (_transaksiHari.isNotEmpty) ...[
-                      const SizedBox(height: 20),
-                      _buildSectionLabel('TRANSAKSI HARI INI', bodySmall),
-                      const SizedBox(height: 12),
-                      _buildTransaksiList(cardColor, bodyLarge, bodySmall),
-                    ],
+                    _buildDetailPemasukan(cardColor, bodyLarge, bodySmall),
+                    const SizedBox(height: 20),
+
+                    // ── Transaksi ───────────────────────────────────────
+                    _buildSectionLabel(
+                      'TRANSAKSI HARI INI (${_transaksiHari.length})',
+                      bodySmall,
+                    ),
+                    const SizedBox(height: 12),
+                    _transaksiHari.isEmpty
+                        ? _buildEmpty('Belum ada transaksi hari ini')
+                        : _buildTransaksiList(cardColor, bodyLarge, bodySmall),
+
+                    // ── Pengeluaran ─────────────────────────────────────
                     if (_pengeluaranHari.isNotEmpty) ...[
                       const SizedBox(height: 20),
-                      _buildSectionLabel('PENGELUARAN HARI INI', bodySmall),
+                      _buildSectionLabel(
+                        'PENGELUARAN HARI INI (${_pengeluaranHari.length})',
+                        bodySmall,
+                      ),
                       const SizedBox(height: 12),
                       _buildPengeluaranList(cardColor, bodyLarge, bodySmall),
                     ],
-                    const SizedBox(height: 32),
+
+                    const SizedBox(height: 80),
                   ],
                 ),
               ),
@@ -341,17 +356,7 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
     );
   }
 
-  Widget _buildSectionLabel(String text, TextStyle? bodySmall) {
-    return Text(
-      text,
-      style: bodySmall?.copyWith(
-        fontSize: 12,
-        fontWeight: FontWeight.bold,
-        letterSpacing: 1.2,
-      ),
-    );
-  }
-
+  // ─── AppBar ──────────────────────────────────────────────────────────────
   PreferredSizeWidget _buildAppBar(BuildContext context) {
     return PreferredSize(
       preferredSize: const Size.fromHeight(kToolbarHeight),
@@ -380,8 +385,10 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
                   ),
                   title: const Text('Info Laporan Harian'),
                   content: const Text(
-                    'Laporan ini menampilkan ringkasan transaksi, pemasukan, '
-                    'dan pengeluaran pada tanggal yang dipilih.\n\n'
+                    'Total Omzet    = semua biaya yang tercatat hari itu\n'
+                    'Kas Masuk      = lunas + dp_amount (yang benar-benar diterima)\n'
+                    'Belum Bayar    = order yang belum dibayar sama sekali\n'
+                    'Laba/Rugi      = Kas Masuk - Pengeluaran.\n\n'
                     'Tarik ke bawah untuk refresh data.',
                   ),
                   actions: [
@@ -408,6 +415,7 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
     );
   }
 
+  // ─── Date picker ─────────────────────────────────────────────────────────
   Widget _buildDatePicker() {
     return GestureDetector(
       onTap: _pickDate,
@@ -453,11 +461,51 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
     );
   }
 
+  Widget _buildSectionLabel(String text, TextStyle? bodySmall) {
+    return Text(
+      text,
+      style: bodySmall?.copyWith(
+        fontSize: 11,
+        fontWeight: FontWeight.bold,
+        letterSpacing: 1.2,
+      ),
+    );
+  }
+
+  Widget _buildEmpty(String msg) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 28),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Theme.of(context).dividerColor),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            Icons.receipt_long_outlined,
+            size: 40,
+            color: Colors.grey.shade300,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            msg,
+            style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── Summary Grid ─────────────────────────────────────────────────────────
+  // 4 kartu: Total Omzet, Kas Masuk (lunas+dp), Pengeluaran, Laba/Rugi
   Widget _buildSummaryGrid(
     Color cardColor,
     TextStyle? bodyLarge,
     TextStyle? bodySmall,
   ) {
+    final totalKasMasuk = _uangMasuk + _uangDP;
     final items = [
       _CardData(
         'Total Omzet',
@@ -468,8 +516,8 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
         const Color(0xff0284C7),
       ),
       _CardData(
-        'Uang Masuk',
-        _formatRp(_uangMasuk),
+        'Kas Masuk',
+        _formatRp(totalKasMasuk),
         Icons.trending_up_rounded,
         const Color(0xffDCFCE7),
         const Color(0xff16A34A),
@@ -484,11 +532,11 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
         const Color(0xffDC2626),
       ),
       _CardData(
-        'Laba/Rugi',
+        'Laba / Rugi',
         _formatRp(_labaRugi),
         Icons.bar_chart_rounded,
-        const Color(0xffDCFCE7),
-        const Color(0xff16A34A),
+        _labaRugi >= 0 ? const Color(0xffDCFCE7) : const Color(0xffFEE2E2),
+        _labaRugi >= 0 ? const Color(0xff16A34A) : const Color(0xffDC2626),
         _labaRugi >= 0 ? const Color(0xff16A34A) : const Color(0xffDC2626),
       ),
     ];
@@ -500,57 +548,62 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       childAspectRatio: 1.45,
-      children: items.map((c) {
-        return Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: cardColor,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Theme.of(context).dividerColor),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: c.iconBg,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(c.icon, color: c.iconColor, size: 20),
+      children: items
+          .map(
+            (c) => Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: cardColor,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Theme.of(context).dividerColor),
               ),
-              Column(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(c.label, style: bodySmall?.copyWith(fontSize: 11)),
-                  const SizedBox(height: 2),
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      c.value,
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: c.valueColor,
-                      ),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: c.iconBg,
+                      borderRadius: BorderRadius.circular(10),
                     ),
+                    child: Icon(c.icon, color: c.iconColor, size: 20),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(c.label, style: bodySmall?.copyWith(fontSize: 11)),
+                      const SizedBox(height: 2),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          c.value,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: c.valueColor,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ],
-          ),
-        );
-      }).toList(),
+            ),
+          )
+          .toList(),
     );
   }
 
-  Widget _buildDetailKeuangan(
+  // ─── Detail pemasukan ────────────────────────────────────────────────────
+  Widget _buildDetailPemasukan(
     Color cardColor,
     TextStyle? bodyLarge,
     TextStyle? bodySmall,
   ) {
+    final totalKasMasuk = _uangMasuk + _uangDP;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -561,6 +614,7 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Header
           Row(
             children: [
               Container(
@@ -577,7 +631,7 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
               ),
               const SizedBox(width: 12),
               Text(
-                'Detail Keuangan',
+                'Detail Pemasukan',
                 style: bodyLarge?.copyWith(
                   fontSize: 15,
                   fontWeight: FontWeight.bold,
@@ -586,17 +640,63 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
             ],
           ),
           const SizedBox(height: 16),
-          _detailRow('Omzet', _formatRp(_totalOmzet), bodySmall),
-          _detailRow('Uang Masuk Nota', _formatRp(_uangMasukNota), bodySmall),
-          _detailRow('Total Uang Masuk', _formatRp(_uangMasuk), bodySmall),
-          _detailRow('Pendapatan Jasa', _formatRp(_pendapatanJasa), bodySmall),
-          const Divider(height: 20, thickness: 1),
+
+          // Baris-baris
           _detailRow(
-            'Total Pendapatan',
+            'Total Omzet (tagihan)',
+            _formatRp(_totalOmzet),
+            bodySmall,
+          ),
+          const SizedBox(height: 4),
+
+          // Breakdown status
+          _detailRowWithBadge(
+            'Lunas',
             _formatRp(_uangMasuk),
+            bodySmall,
+            badgeColor: const Color(0xff16A34A),
+            badgeBg: const Color(0xffDCFCE7),
+          ),
+          _detailRowWithBadge(
+            'DP Masuk',
+            _formatRp(_uangDP),
+            bodySmall,
+            badgeColor: const Color(0xff0284C7),
+            badgeBg: const Color(0xffE0F2FE),
+          ),
+          _detailRowWithBadge(
+            'Belum Bayar',
+            _formatRp(_belumBayar),
+            bodySmall,
+            badgeColor: const Color(0xffDC2626),
+            badgeBg: const Color(0xffFEE2E2),
+          ),
+
+          const Divider(height: 24, thickness: 1),
+          _detailRow(
+            'Total Kas Masuk',
+            _formatRp(totalKasMasuk),
             bodySmall,
             isTotal: true,
             totalColor: const Color(0xff16A34A),
+          ),
+          const SizedBox(height: 4),
+          _detailRow(
+            'Total Pengeluaran',
+            '- ${_formatRp(_pengeluaran)}',
+            bodySmall,
+            isTotal: false,
+            totalColor: const Color(0xffDC2626),
+          ),
+          const Divider(height: 16, thickness: 0.5),
+          _detailRow(
+            'Laba / Rugi',
+            _formatRp(_labaRugi),
+            bodySmall,
+            isTotal: true,
+            totalColor: _labaRugi >= 0
+                ? const Color(0xff16A34A)
+                : const Color(0xffDC2626),
           ),
         ],
       ),
@@ -611,7 +711,7 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
     Color? totalColor,
   }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -635,6 +735,47 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
     );
   }
 
+  Widget _detailRowWithBadge(
+    String label,
+    String value,
+    TextStyle? bodySmall, {
+    required Color badgeColor,
+    required Color badgeBg,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: badgeBg,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: badgeColor,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const Spacer(),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: badgeColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── Transaksi List ───────────────────────────────────────────────────────
   Widget _buildTransaksiList(
     Color cardColor,
     TextStyle? bodyLarge,
@@ -650,10 +791,20 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
         children: _transaksiHari.asMap().entries.map((entry) {
           final i = entry.key;
           final t = entry.value;
-          final bool lunas =
-              (t['status'] ?? '').toString().toLowerCase() != 'belum lunas';
-          final String nama = t['nama'] ?? t['nip'] ?? '-';
+          final String status = t['status'] ?? 'belum_bayar';
+          final String nama = t['nama'] ?? t['nomor_pelanggan'] ?? '-';
+          final String noPel = t['nomor_pelanggan'] ?? '-';
           final double biaya = _parseDouble(t['biaya']);
+          final double dpAmount = _parseDouble(t['dp_amount']);
+          final sColor = _statusColor(status);
+          final sBg = _statusBgColor(status);
+          final sIcon = _statusIcon(status);
+          final sLabel = _statusLabel(status);
+
+          // Nilai yang ditampilkan: dp = dp_amount, lunas/belum = biaya
+          final double tampil = status == 'dp' && dpAmount > 0
+              ? dpAmount
+              : biaya;
 
           return Column(
             children: [
@@ -666,25 +817,17 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
                 ),
                 child: Row(
                   children: [
+                    // Icon status
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: lunas
-                            ? const Color(0xffDCFCE7)
-                            : const Color(0xffFEF3C7),
+                        color: sBg,
                         shape: BoxShape.circle,
                       ),
-                      child: Icon(
-                        lunas
-                            ? Icons.check_circle_outline_rounded
-                            : Icons.hourglass_empty_rounded,
-                        size: 16,
-                        color: lunas
-                            ? const Color(0xff16A34A)
-                            : const Color(0xffD97706),
-                      ),
+                      child: Icon(sIcon, size: 16, color: sColor),
                     ),
                     const SizedBox(width: 12),
+                    // Nama & waktu
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -696,46 +839,52 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
                               fontWeight: FontWeight.w600,
                             ),
                           ),
+                          const SizedBox(height: 2),
                           Text(
-                            t['waktu'] ?? '-',
-                            style: bodySmall?.copyWith(fontSize: 11),
+                            '$noPel  •  ${t['tanggal'] ?? ''} ${t['waktu'] ?? ''}',
+                            style: bodySmall?.copyWith(fontSize: 10),
                           ),
+                          // Jika DP, tampilkan juga total tagihan
+                          if (status == 'dp' && dpAmount > 0)
+                            Text(
+                              'Total tagihan: ${_formatRp(biaya)}',
+                              style: bodySmall?.copyWith(
+                                fontSize: 10,
+                                color: Colors.grey.shade500,
+                              ),
+                            ),
                         ],
                       ),
                     ),
+                    const SizedBox(width: 8),
+                    // Nominal & badge
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Text(
-                          _formatRp(biaya),
+                          _formatRp(tampil),
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.bold,
-                            color: lunas
-                                ? const Color(0xff16A34A)
-                                : const Color(0xffD97706),
+                            color: sColor,
                           ),
                         ),
+                        const SizedBox(height: 3),
                         Container(
-                          margin: const EdgeInsets.only(top: 3),
                           padding: const EdgeInsets.symmetric(
                             horizontal: 7,
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: lunas
-                                ? const Color(0xffDCFCE7)
-                                : const Color(0xffFEF3C7),
+                            color: sBg,
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Text(
-                            lunas ? 'Lunas' : 'Belum Lunas',
+                            sLabel,
                             style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.w600,
-                              color: lunas
-                                  ? const Color(0xff16A34A)
-                                  : const Color(0xffD97706),
+                              color: sColor,
                             ),
                           ),
                         ),
@@ -751,6 +900,7 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
     );
   }
 
+  // ─── Pengeluaran List ─────────────────────────────────────────────────────
   Widget _buildPengeluaranList(
     Color cardColor,
     TextStyle? bodyLarge,
@@ -832,6 +982,7 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
   }
 }
 
+// ─── Helper model ─────────────────────────────────────────────────────────
 class _CardData {
   final String label, value;
   final IconData icon;

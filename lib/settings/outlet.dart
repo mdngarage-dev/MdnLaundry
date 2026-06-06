@@ -25,8 +25,8 @@ class _OutletPageState extends State<OutletPage> {
   @override
   void initState() {
     super.initState();
-    _namaController.text = OutletSettings.namaKlinik;
-    _phoneController.text = OutletSettings.noHpKlinik;
+    _namaController.text = OutletSettings.namaMadeenalaundry;
+    _phoneController.text = OutletSettings.noHpMadeenalaundry;
     _alamatController.text = OutletSettings.alamat.isNotEmpty
         ? OutletSettings.alamat
         : "Jl. Raya Puncak Km.78";
@@ -62,7 +62,7 @@ class _OutletPageState extends State<OutletPage> {
       });
     } else {
       final appDir = await getApplicationDocumentsDirectory();
-      final fileName = 'logo_klinik${p.extension(picked.path)}';
+      final fileName = 'logo_Madeena Laundry${p.extension(picked.path)}';
       final savedPath = '${appDir.path}/$fileName';
       await File(picked.path).copy(savedPath);
       setState(() {
@@ -95,15 +95,15 @@ class _OutletPageState extends State<OutletPage> {
     if (nama.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("⚠️ Nama klinik tidak boleh kosong"),
+          content: Text("⚠️ Nama Madeena Laundry tidak boleh kosong"),
           backgroundColor: Colors.orange,
         ),
       );
       return;
     }
 
-    OutletSettings.namaKlinik = nama;
-    OutletSettings.noHpKlinik = phone;
+    OutletSettings.namaMadeenalaundry = nama;
+    OutletSettings.noHpMadeenalaundry = phone;
     OutletSettings.alamat = alamat;
 
     if (!kIsWeb) {
@@ -198,7 +198,7 @@ class _OutletPageState extends State<OutletPage> {
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    "Logo Klinik",
+                    "Logo Laundry",
                     style: theme.textTheme.bodyLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                       color: theme.textTheme.bodyLarge?.color?.withOpacity(0.5),
@@ -224,12 +224,12 @@ class _OutletPageState extends State<OutletPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildSectionTitle("Informasi Klinik"),
+                  _buildSectionTitle("Informasi Laundry"),
                   _buildCustomTextField(
-                    label: "Nama Klinik",
+                    label: "Nama Laundry",
                     controller: _namaController,
                     icon: Icons.store,
-                    hint: "Masukkan nama klinik",
+                    hint: "Masukkan nama Laundry",
                     onChanged: (_) => setState(() => _isSaved = false),
                   ),
                   _buildCustomTextField(
@@ -268,7 +268,7 @@ class _OutletPageState extends State<OutletPage> {
                             kIsWeb
                                 ? "Di versi web, logo hanya tersimpan selama sesi ini. "
                                       "Untuk penyimpanan permanen, gunakan aplikasi Android."
-                                : "Nama klinik, nomor HP, dan logo akan tampil "
+                                : "Nama Madeena Laundry, nomor HP, dan logo akan tampil "
                                       "di kartu pasien setelah disimpan.",
                             style: theme.textTheme.bodyLarge?.copyWith(
                               fontSize: 12,

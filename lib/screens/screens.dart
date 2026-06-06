@@ -4,7 +4,7 @@ export 'signup.dart';
 export 'navbar.dart';
 export 'button_bawah.dart';
 export 'theme.dart';
-export 'package:mdncare_project/profile_screen.dart';
+export 'package:mdnlaundry_project/profile_screen.dart';
 export 'package:google_fonts/google_fonts.dart';
 export 'add.dart';
 export 'order.dart';
@@ -31,21 +31,25 @@ export '../settings/about.dart';
 export '../settings/theme_provider.dart';
 export '../laporan/main.dart';
 export '../laporan/form_pengeluaran_page.dart';
+export 'package:mdnlaundry_project/screens/settings/outlet/layanan.dart';
+export 'package:mdnlaundry_project/screens/settings/outlet/daftar_pelanggan.dart';
 
-export 'package:mdncare_project/components/global_refresh.dart';
-export 'package:mdncare_project/laporan/ringkasan.dart';
-export 'package:mdncare_project/laporan/date_range_picker_widget.dart';
+export 'package:mdnlaundry_project/screens/settings/outlet/main.dart';
+export 'package:mdnlaundry_project/screens/settings/outlet/admin.dart';
+
+export 'package:mdnlaundry_project/components/global_refresh.dart';
+export 'package:mdnlaundry_project/laporan/ringkasan.dart';
+export 'package:mdnlaundry_project/laporan/date_range_picker_widget.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
-const String baseAppScriptUrl =
-    'https://script.google.com/macros/s/AKfycbwlbaj4AF1rUAB75P9ytVFlagqD13KrehCt8gU3jzRFgKZMjEukyOG0IypFl4liRwgg/exec';
-
 class OutletSettings {
-  static String namaKlinik = "Rdh project";
-  static String noHpKlinik = "0816829052";
+  static String namaMadeenalaundry = "Rdh project";
+  static String noHpMadeenalaundry = "0816829052";
   static String alamat = "Jl. Raya Puncak Km.78";
   static String logoPath = ""; // path file logo lokal, kosong = icon default
 }
@@ -112,5 +116,38 @@ class DecimalInputFormatter extends TextInputFormatter {
       text: formatted,
       selection: TextSelection.collapsed(offset: formatted.length),
     );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Global Role & Permission Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+String getUserRole() {
+  final displayName = FirebaseAuth.instance.currentUser?.displayName ?? '';
+  final parts = displayName.split('|');
+  return parts.length >= 3 ? parts[2] : 'Admin';
+}
+
+Future<bool> canAccess(String key, {bool ownerOnly = false}) async {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) return false;
+  final role = getUserRole();
+
+  // Khusus Admin saja (Owner tidak tampil)
+  if (ownerOnly) return role == 'Admin';
+
+  // Owner selalu bisa
+  if (role == 'Owner') return true;
+
+  // Admin — cek Firestore
+  try {
+    final doc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .get();
+    return doc.data()?[key] ?? false;
+  } catch (e) {
+    return false;
   }
 }

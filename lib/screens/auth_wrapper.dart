@@ -1,8 +1,7 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:mdncare_project/screens/screens.dart';
+import 'package:mdnlaundry_project/screens/screens.dart';
 import 'dart:math';
 
 class AuthWrapper extends StatefulWidget {
@@ -135,11 +134,11 @@ class _SplashScreenState extends State<_SplashScreen>
           endY: (rng.nextDouble() - 0.5) * 50,
           size: 4 + rng.nextDouble() * 8,
           color: [
-            const Color(0xFFF472B6),
-            const Color(0xFF22C55E),
-            const Color(0xFF0D9488),
-            const Color(0xFF10B981),
-            const Color(0xFF6EE7B7),
+            const Color(0xFF5B8DB8), // biru steel (warna outline logo)
+            const Color(0xFFADD8E6), // biru muda terang
+            const Color(0xFF89B4D4), // biru medium
+            const Color(0xFFBFD9EC), // biru sangat muda
+            const Color(0xFF7BA7C7), // biru slate
           ][rng.nextInt(5)],
           delay: rng.nextDouble() * 0.4,
           isCircle: rng.nextBool(),
@@ -268,11 +267,11 @@ class _SplashScreenState extends State<_SplashScreen>
                   FadeTransition(
                     opacity: _fadeAnim,
                     child: const Text(
-                      'Madeena Care',
+                      'Madeena Laundry',
                       style: TextStyle(
                         fontFamily: 'BubbbleGum',
                         fontSize: 30,
-                        color: Color(0xFF0D9488),
+                        color: Color(0xFF5B9BD5),
                         letterSpacing: 0.5,
                       ),
                     ),
@@ -284,11 +283,11 @@ class _SplashScreenState extends State<_SplashScreen>
                   FadeTransition(
                     opacity: _fadeAnim,
                     child: const Text(
-                      'Sistem Rekam Medis Digital',
+                      'Sistem management laundry Digital',
                       style: TextStyle(
                         fontFamily: 'Pastrami',
                         fontSize: 13,
-                        color: Color(0xFF64B5AE),
+                        color: Color(0xFF5B9BD5),
                         letterSpacing: 1.5,
                       ),
                     ),
@@ -427,14 +426,14 @@ class _BouncingDotsState extends State<_BouncingDots>
       children: List.generate(3, (i) {
         return AnimatedBuilder(
           animation: _ctrls[i],
-          builder: (_, __) => Transform.translate(
+          builder: (_, _) => Transform.translate(
             offset: Offset(0, -8 * _ctrls[i].value),
             child: Container(
               margin: const EdgeInsets.symmetric(horizontal: 4),
               width: 8,
               height: 8,
               decoration: BoxDecoration(
-                color: Color(0xFF0D9488).withOpacity(0.6 + i * 0.13),
+                color: Color(0xFF5B9BD5).withOpacity(0.6 + i * 0.13),
                 shape: BoxShape.circle,
               ),
             ),

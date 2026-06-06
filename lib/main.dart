@@ -1,13 +1,12 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'screens/screens.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
-import 'package:mdncare_project/components/notif_kia.dart';
+import 'package:mdnlaundry_project/components/notif_laundry.dart';
 import 'package:overlay_support/overlay_support.dart';
-import 'package:mdncare_project/screens/auth_wrapper.dart'; // ← import AuthWrapper
+import 'package:mdnlaundry_project/screens/auth_wrapper.dart'; // ← import AuthWrapper
 import 'package:firebase_messaging/firebase_messaging.dart';
 
 void main() async {
@@ -20,13 +19,13 @@ void main() async {
     if (kIsWeb) {
       await Firebase.initializeApp(
         options: const FirebaseOptions(
-          apiKey: "AIzaSyBBXW0pR2cthN56U1EQoKzv87McImw1F2A",
-          authDomain: "madeena-care.firebaseapp.com",
-          projectId: "madeena-care",
-          storageBucket: "madeena-care.firebasestorage.app",
-          messagingSenderId: "630469794839",
-          appId: "1:630469794839:web:37f989c2062dcbc249d052",
-          measurementId: "G-BLQYXXV9K4",
+          apiKey: "AIzaSyAUs_7vHagR7rc24kkGtxoKpTLbSd9-X4w",
+          authDomain: "laundry-ku-id.firebaseapp.com",
+          projectId: "laundry-ku-id",
+          storageBucket: "laundry-ku-id.firebasestorage.app",
+          messagingSenderId: "518877666392",
+          appId: "1:518877666392:web:d4885be99c724e5783fe2d",
+          measurementId: "G-0W7K571RTN",
         ),
       );
     } else {
@@ -61,19 +60,19 @@ void main() async {
     debugPrint('[FIREBASE] Error: $e');
   }
 
-  NotifKiaService().inisialisasiNotifikasi(); // tanpa await
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+  NotifKiaService().inisialisasiNotifikasi();
 
   runApp(
     ChangeNotifierProvider(
       create: (_) => ThemeProvider(),
-      child: const MadeenaCareApp(),
+      child: const MadeenalaundryApp(),
     ),
   );
 }
 
-class MadeenaCareApp extends StatelessWidget {
-  const MadeenaCareApp({super.key});
+class MadeenalaundryApp extends StatelessWidget {
+  const MadeenalaundryApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -82,16 +81,16 @@ class MadeenaCareApp extends StatelessWidget {
     return OverlaySupport.global(
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
-        title: 'Madeena Care',
+        title: 'Madeena Laundry',
 
         navigatorKey: navigatorKey,
-
         themeMode: themeProvider.themeMode,
-        theme: lightTheme(),
-        darkTheme: darkTheme(),
-
-        // ✅ DIGANTI: dari StreamBuilder langsung → AuthWrapper
-        // AuthWrapper menangani race condition Firebase Auth restore
+        theme: lightTheme().copyWith(
+          textTheme: lightTheme().textTheme.apply(fontFamily: 'Pastrami'),
+        ),
+        darkTheme: darkTheme().copyWith(
+          textTheme: darkTheme().textTheme.apply(fontFamily: 'Pastrami'),
+        ),
         home: const AuthWrapper(),
 
         routes: {

@@ -4,7 +4,9 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:overlay_support/overlay_support.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:uuid/uuid.dart';
 import '../screens/screens.dart';
+import '../screens/notifikasi.dart'; // import NotifStorage
 import 'package:permission_handler/permission_handler.dart';
 
 // ─── Navigator key global ────────────────────────────────────────────────────
@@ -16,13 +18,26 @@ final FlutterLocalNotificationsPlugin flutterLocalNotif =
 
 // ─── Channel Android ─────────────────────────────────────────────────────────
 const _androidChannel = AndroidNotificationChannel(
-  'kb_reminder',
-  'Notifikasi KIA',
-  description: 'Pengingat jadwal KB/KIA',
+  'laundry_reminder',
+  'Notifikasi Laundry',
+  description: 'Pengingat estimasi selesai laundry',
   importance: Importance.max,
 );
 
-// ─── Helper tampilkan local notif ────────────────────────────────────────────
+// ─── Helper: simpan notif ke SharedPreferences ───────────────────────────────
+Future<void> _simpanKeHistory(RemoteMessage message) async {
+  const uuid = Uuid();
+  final item = NotifItem(
+    id: message.messageId ?? uuid.v4(),
+    judul: message.notification?.title ?? 'Notifikasi Laundry',
+    isi: message.notification?.body ?? '',
+    waktu: DateTime.now(),
+    sudahDibaca: false,
+  );
+  await NotifStorage.simpan(item);
+}
+
+// ─── Helper: tampilkan local notif ───────────────────────────────────────────
 Future<void> _showLocalNotif(RemoteMessage message) async {
   final androidDetails = AndroidNotificationDetails(
     _androidChannel.id,
@@ -46,6 +61,7 @@ Future<void> _showLocalNotif(RemoteMessage message) async {
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
+  await _simpanKeHistory(message);
   await _showLocalNotif(message);
 }
 
@@ -54,25 +70,31 @@ class NotifKiaService {
   final FirebaseMessaging _fcm = FirebaseMessaging.instance;
   final AudioPlayer _audioPlayer = AudioPlayer();
 
+  static const String _topic = 'admin_Madeena_Laundry';
+
   Future<void> inisialisasiNotifikasi() async {
-    debugPrint("▶ Inisialisasi notifikasi FCM...");
+    debugPrint("▶ Inisialisasi notifikasi FCM Laundry...");
+
     await FirebaseMessaging.instance
         .setForegroundNotificationPresentationOptions(
           alert: false,
           badge: false,
           sound: false,
         );
+
     try {
+      // ── 1. Minta izin notifikasi (Android 13+) ────────────────────────────
       if (await Permission.notification.isDenied) {
         final result = await Permission.notification.request();
         debugPrint("📋 Permission result: $result");
         if (result.isDenied || result.isPermanentlyDenied) {
-          debugPrint("⚠ Izin notifikasi ditolak permanen");
-          await openAppSettings(); // buka settings langsung
+          debugPrint("⚠ Izin notifikasi ditolak — buka settings");
+          await openAppSettings();
           return;
         }
       }
-      // ── 1. Setup flutter_local_notifications ──────────────────────────────
+
+      // ── 2. Setup flutter_local_notifications ──────────────────────────────
       const initSettings = InitializationSettings(
         android: AndroidInitializationSettings(
           '@android:drawable/ic_dialog_info',
@@ -90,15 +112,14 @@ class NotifKiaService {
         },
       );
 
-      // Buat channel Android (wajib Android 8+)
       await flutterLocalNotif
           .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin
           >()
           ?.createNotificationChannel(_androidChannel);
 
-      // ── 2. Minta izin ─────────────────────────────────────────────────────
-      NotificationSettings settings = await _fcm
+      // ── 3. Minta izin FCM ─────────────────────────────────────────────────
+      final settings = await _fcm
           .requestPermission(alert: true, badge: true, sound: true)
           .timeout(
             const Duration(seconds: 5),
@@ -123,16 +144,14 @@ class NotifKiaService {
           );
 
       debugPrint("✅ Status izin: ${settings.authorizationStatus}");
-      if (settings.authorizationStatus == AuthorizationStatus.denied) {
-        debugPrint("⚠ Izin denied — arahkan user ke settings");
-      }
+
       if (settings.authorizationStatus != AuthorizationStatus.authorized &&
           settings.authorizationStatus != AuthorizationStatus.provisional) {
         debugPrint("⚠ Izin notifikasi ditolak — FCM tidak aktif");
         return;
       }
 
-      // ── 3. Token ──────────────────────────────────────────────────────────
+      // ── 4. Token debug ────────────────────────────────────────────────────
       try {
         final token = await _fcm.getToken().timeout(
           const Duration(seconds: 5),
@@ -143,19 +162,23 @@ class NotifKiaService {
         debugPrint("⚠ getToken error: $e");
       }
 
-      // ── 4. Subscribe topik ────────────────────────────────────────────────
+      // ── 5. Subscribe topic ────────────────────────────────────────────────
       try {
-        await _fcm
-            .subscribeToTopic('admin_klinik')
-            .timeout(const Duration(seconds: 5));
-        debugPrint("✅ Subscribe topik: admin_klinik");
+        await _fcm.subscribeToTopic(_topic).timeout(const Duration(seconds: 5));
+        debugPrint("✅ Subscribe topic: $_topic");
       } catch (e) {
         debugPrint("⚠ subscribeToTopic error: $e");
       }
 
-      // ── 5. Foreground: tampilkan overlay + local notif ────────────────────
+      // ── 6. FOREGROUND ─────────────────────────────────────────────────────
       FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
         debugPrint("📨 FCM Foreground: ${message.notification?.title}");
+
+        try {
+          await _simpanKeHistory(message);
+        } catch (e) {
+          debugPrint("⚠ Simpan history error: $e");
+        }
 
         try {
           await _audioPlayer.play(AssetSource('sounds/notif.mp3'));
@@ -163,14 +186,12 @@ class NotifKiaService {
           debugPrint("⚠ Gagal putar suara: $e");
         }
 
-        // Tampilkan local notif (supaya konsisten dengan background)
         try {
           await _showLocalNotif(message);
         } catch (e) {
           debugPrint("⚠ Local notif error: $e");
         }
 
-        // Overlay banner saat app terbuka
         try {
           showOverlayNotification(
             (context) => GestureDetector(
@@ -190,19 +211,21 @@ class NotifKiaService {
                 child: SafeArea(
                   child: ListTile(
                     leading: const Icon(
-                      Icons.notifications_active,
+                      Icons.local_laundry_service_rounded,
                       color: Colors.tealAccent,
                     ),
                     title: Text(
-                      message.notification?.title ?? "Notifikasi",
+                      message.notification?.title ?? 'Notifikasi Laundry',
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                     subtitle: Text(
-                      message.notification?.body ?? "",
+                      message.notification?.body ?? '',
                       style: const TextStyle(color: Colors.white70),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
                     trailing: const Icon(
                       Icons.chevron_right,
@@ -219,13 +242,13 @@ class NotifKiaService {
         }
       });
 
-      // ── 6. Background: user klik notif dari status bar ───────────────────
+      // ── 7. BACKGROUND: tap notif dari status bar ──────────────────────────
       FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
         debugPrint("📨 onMessageOpenedApp: ${message.notification?.title}");
         _navigateToNotifikasi();
       });
 
-      // ── 7. Terminated: app mati, user klik notif ─────────────────────────
+      // ── 8. TERMINATED: app mati, user tap notif ───────────────────────────
       try {
         final initialMessage = await _fcm.getInitialMessage().timeout(
           const Duration(seconds: 3),
@@ -235,6 +258,7 @@ class NotifKiaService {
           debugPrint(
             "📨 getInitialMessage: ${initialMessage.notification?.title}",
           );
+          await _simpanKeHistory(initialMessage);
           Future.delayed(const Duration(milliseconds: 800), () {
             _navigateToNotifikasi();
           });

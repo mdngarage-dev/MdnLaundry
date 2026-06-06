@@ -1,6 +1,6 @@
 {
-    "name": "mdncare_project",
-    "short_name": "mdncare_project",
+    "name": "mdnlaundry_project",
+    "short_name": "mdnlaundry_project",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

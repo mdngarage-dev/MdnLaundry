@@ -1,4 +1,4 @@
-# Madeena Care Project (Klinik System)
+# Madeena Laundry Project (Madeena Laundry System)
 
 Proyek aplikasi Flutter yang terintegrasi dengan Firebase & Cloud Firestore.
 

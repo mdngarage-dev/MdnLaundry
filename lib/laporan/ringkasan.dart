@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'date_range_picker_widget.dart';
-import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../screens/screens.dart';
 
@@ -14,24 +12,23 @@ class RingkasanPage extends StatefulWidget {
 }
 
 class _RingkasanPageState extends State<RingkasanPage> {
+  // Default: full bulan berjalan — tgl 1 s/d hari terakhir bulan ini
   DateTime startDate = DateTime(DateTime.now().year, DateTime.now().month, 1);
   DateTime endDate = DateTime(
     DateTime.now().year,
-    DateTime.now().month,
-    DateTime.now().day,
+    DateTime.now().month + 1, // bulan + 1 hari 0 = hari terakhir bulan ini
+    0,
   );
 
+  // ── Nilai yang ditampilkan ──────────────────────────────────────────────
   String totalOmzet = "0";
   String uangMasuk = "0";
   String piutang = "0";
   String pengeluaran = "0";
   String labaRugi = "0";
   String ppn = "0";
-
-  // ── Rata-rata ──
   String rataHarian = "0";
   String rataBulanan = "0";
-
   String pemasukanNota = "0";
   String pelangganAktif = "0";
   String pelangganBaru = "0";
@@ -41,6 +38,11 @@ class _RingkasanPageState extends State<RingkasanPage> {
   List<Map<String, dynamic>> _dataPiutang = [];
   Map<int, double> chartDataPerHari = {};
 
+  bool _isLoading = false;
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // FORMAT Y LABEL CHART
+  // ──────────────────────────────────────────────────────────────────────────
   String _formatYLabel(double value) {
     if (value == 0) return '0';
     if (value >= 1000000) {
@@ -64,129 +66,65 @@ class _RingkasanPageState extends State<RingkasanPage> {
     fetchFirestoreData(startDate, endDate);
   }
 
-  // ════════════════════════════════════════════════════════════
-  // HELPER: parse date fleksibel (String ATAU Timestamp)
-  // ════════════════════════════════════════════════════════════
-  DateTime? _parseFlexibleDate(dynamic raw) {
-    if (raw == null) return null;
-    if (raw is Timestamp) return raw.toDate();
-    if (raw is String) {
-      if (raw.trim().isEmpty) return null;
-      try {
-        return DateFormat('dd/MM/yyyy HH:mm').parse(raw.trim());
-      } catch (_) {
-        try {
-          return DateFormat('dd/MM/yyyy').parse(raw.trim());
-        } catch (_) {
-          return null;
-        }
-      }
-    }
-    return null;
-  }
-
-  String _formatDateToString(DateTime dt) =>
-      DateFormat('dd/MM/yyyy HH:mm').format(dt);
-
-  // ════════════════════════════════════════════════════════════
-  // FETCH FIRESTORE
-  // ════════════════════════════════════════════════════════════
+  // ──────────────────────────────────────────────────────────────────────────
+  // FETCH — sumber data: ORDER + KEUANGAN + PENGELUARAN + PELANGGAN
+  //
+  // Skema pembayaran:
+  //   lunas      → omzet += harga_total, masuk += harga_total
+  //   dp         → omzet += harga_total, masuk += dp_amount,
+  //                piutang += harga_total - dp_amount
+  //   belum_bayar→ omzet += harga_total, piutang += harga_total
+  //
+  // Pelanggan:
+  //   aktif   = nomor_pelanggan unik yang punya order dalam range
+  //   baru    = pelanggan (collection pelanggan) yang created_at dalam range
+  //   repeat  = nomor_pelanggan yang order > 1x dalam range
+  //   berpiutang = nomor_pelanggan yang punya piutang dalam range
+  // ──────────────────────────────────────────────────────────────────────────
   Future<void> fetchFirestoreData(DateTime start, DateTime end) async {
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+
     try {
+      // ── Fetch paralel ──────────────────────────────────────────────────
       final results = await Future.wait([
-        FirebaseFirestore.instance.collection('keuangan').get(),
+        FirebaseFirestore.instance.collection('order').get(),
         FirebaseFirestore.instance.collection('pengeluaran').get(),
-        FirebaseFirestore.instance.collection('rekam_medis').get(),
-        FirebaseFirestore.instance.collection('pasien').get(),
+        FirebaseFirestore.instance.collection('pelanggan').get(),
       ]);
 
-      final keuanganSnapshot = results[0];
-      final pengeluaranSnapshot = results[1];
-      final rekamSnapshot = results[2];
-      final pasienSnapshot = results[3];
+      final orderSnap = results[0];
+      final pengeluaranSnap = results[1];
+      final pelangganSnap = results[2];
 
-      // ── Map NIP → data pasien ──
-      Map<String, Map<String, String>> dataPasienMap = {};
-      for (var doc in pasienSnapshot.docs) {
-        final data = doc.data();
-        final nip = (data['nomer_induk_pasien'] ?? '').toString().trim();
-        if (nip.isNotEmpty) {
-          dataPasienMap[nip] = {
-            'nama': _resolveNama(data),
-            'no_hp': _resolveNoHp(data),
-          };
-        }
-      }
+      final DateTime startDay = DateTime(start.year, start.month, start.day);
+      final DateTime endDay = DateTime(end.year, end.month, end.day);
 
+      // ── Akumulator ────────────────────────────────────────────────────
       double hitungOmzet = 0;
-      double hitungUangMasuk = 0;
+      double hitungMasuk = 0;
       double hitungPiutang = 0;
       double hitungPengeluaran = 0;
 
       Map<int, double> omzetPerHari = {};
-      Set<String> pasienUnik = {};
-      Set<String> pasienBerpiutang = {};
+      Set<String> nomorAktif = {}; // punya order dalam range
+      Set<String> nomorBerpiutang = {};
+      Map<String, int> orderCountRange =
+          {}; // hitung order per nomor dalam range
+      Map<String, List<DateTime>> allOrderDates =
+          {}; // semua tanggal order per nomor
       List<Map<String, dynamic>> listPiutang = [];
 
-      final DateTime tanggalMulaiHanyaHari = DateTime(
-        start.year,
-        start.month,
-        start.day,
-      );
-      final DateTime tanggalAkhirHanyaHari = DateTime(
-        end.year,
-        end.month,
-        end.day,
-      );
-
-      // ── Loop rekam_medis ──
-      Map<String, List<DateTime>> semuaKunjungan = {};
-      Map<String, Map<String, String>> rekamLayananMap = {};
-
-      for (var doc in rekamSnapshot.docs) {
-        final data = doc.data();
-        final String nip = (data['nomer_induk_pasien'] ?? '').toString().trim();
-        if (nip.isEmpty) continue;
-
-        final DateTime? tglKunjungan = _parseFlexibleDate(
-          data['waktu_kunjungan'],
-        );
-        if (tglKunjungan == null) continue;
-
-        semuaKunjungan.putIfAbsent(nip, () => []).add(tglKunjungan);
-
-        final String layanan = (data['layanan'] as String? ?? '').trim();
-        final String tindakan = (data['tindakan'] as String? ?? '').trim();
-
-        String infoLayanan;
-        if (layanan.isNotEmpty && tindakan.isNotEmpty) {
-          infoLayanan = '$layanan – $tindakan';
-        } else if (layanan.isNotEmpty) {
-          infoLayanan = layanan;
-        } else if (tindakan.isNotEmpty) {
-          infoLayanan = tindakan;
-        } else {
-          infoLayanan = '-';
-        }
-
-        final String tglKey = DateFormat('dd/MM/yyyy').format(tglKunjungan);
-        final String mapKey = '$nip|$tglKey';
-
-        if (rekamLayananMap.containsKey(mapKey)) {
-          final String existing = rekamLayananMap[mapKey]!['layanan'] ?? '-';
-          if (existing != infoLayanan && infoLayanan != '-') {
-            rekamLayananMap[mapKey] = {'layanan': '$existing, $infoLayanan'};
-          }
-        } else {
-          rekamLayananMap[mapKey] = {'layanan': infoLayanan};
-        }
-      }
-
-      // ── Loop keuangan ──
-      for (var doc in keuanganSnapshot.docs) {
+      // ── Loop ORDER ────────────────────────────────────────────────────
+      for (final doc in orderSnap.docs) {
         final data = doc.data();
 
-        final DateTime? tglUtuh = _parseFlexibleDate(data['waktu_transaksi']);
+        // Timestamp waktu_order
+        final dynamic rawWaktu = data['waktu_order'];
+        if (rawWaktu == null) continue;
+        final DateTime? tglUtuh = rawWaktu is Timestamp
+            ? rawWaktu.toDate()
+            : null;
         if (tglUtuh == null) continue;
 
         final DateTime tglHari = DateTime(
@@ -194,212 +132,215 @@ class _RingkasanPageState extends State<RingkasanPage> {
           tglUtuh.month,
           tglUtuh.day,
         );
-        final bool masukRange =
-            !tglHari.isBefore(tanggalMulaiHanyaHari) &&
-            !tglHari.isAfter(tanggalAkhirHanyaHari);
-        if (!masukRange) continue;
+        final bool inRange =
+            !tglHari.isBefore(startDay) && !tglHari.isAfter(endDay);
 
-        final double nominalBiaya = (data['biaya'] ?? 0).toDouble();
-        final String statusBayar = (data['status_bayar'] ?? '').toString();
-        final String noPasien = (data['nomer_induk_pasien'] ?? '')
+        // Field sesuai collection order laundry
+        final String nomorPelanggan = (data['nomor_pelanggan'] ?? '')
             .toString()
             .trim();
-        final String waktuStr = _formatDateToString(tglUtuh);
+        final String nama = (data['nama_pelanggan'] ?? '-').toString().trim();
+        final String noHp = (data['no_hp'] ?? '').toString().trim();
+        final String layanan = (data['layanan_nama'] ?? '-').toString().trim();
+        final String statusBayar = (data['status_bayar'] ?? '')
+            .toString()
+            .toLowerCase()
+            .trim();
 
-        String namaPasien;
-        String noHp;
-        if (noPasien.isNotEmpty && dataPasienMap.containsKey(noPasien)) {
-          namaPasien = dataPasienMap[noPasien]!['nama'] ?? '-';
-          noHp = dataPasienMap[noPasien]!['no_hp'] ?? '';
-        } else {
-          namaPasien = _resolveNamaFromKeuangan(data);
-          noHp = '';
+        // harga_total = grand total seluruh items (sudah dihitung saat save)
+        final double hargaTotal = (data['harga_total'] ?? 0).toDouble();
+        final double dpAmount = (data['dp_amount'] ?? 0).toDouble();
+
+        // ── Identifier unik per ORANG (bukan per struk) ──────────────────
+        // nomor_pelanggan di Firestore = nomor struk (MDNxxxxxxx), unik per transaksi
+        // Gunakan no_hp sebagai identifier orang; fallback ke nama jika no_hp kosong
+        final String idOrang = noHp.isNotEmpty ? noHp : nama;
+
+        // Kumpulkan semua tanggal order per orang (untuk cek pelanggan baru global)
+        if (idOrang.isNotEmpty) {
+          allOrderDates.putIfAbsent(idOrang, () => []).add(tglHari);
         }
 
-        hitungOmzet += nominalBiaya;
+        if (!inRange) continue;
+
+        // ── Keuangan dalam range ──
+        hitungOmzet += hargaTotal;
         omzetPerHari[tglHari.day] =
-            (omzetPerHari[tglHari.day] ?? 0) + nominalBiaya;
+            (omzetPerHari[tglHari.day] ?? 0) + hargaTotal;
 
-        if (statusBayar == 'Belum Lunas') {
-          hitungPiutang += nominalBiaya;
-          if (noPasien.isNotEmpty) pasienBerpiutang.add(noPasien);
-
-          final String tglKeyP = DateFormat('dd/MM/yyyy').format(tglHari);
-          final String rekamKey = '$noPasien|$tglKeyP';
-          final String layananFinal = rekamLayananMap.containsKey(rekamKey)
-              ? (rekamLayananMap[rekamKey]!['layanan'] ?? '-')
-              : '-';
-
-          listPiutang.add({
-            'nama': namaPasien,
-            'nip': noPasien,
-            'layanan': layananFinal,
-            'nominal': nominalBiaya,
-            'waktu': waktuStr,
-            'no_hp': noHp,
-          });
+        if (statusBayar == 'lunas') {
+          hitungMasuk += hargaTotal;
+        } else if (statusBayar == 'dp') {
+          // Masuk = dp yang sudah dibayar
+          // Piutang = sisa (harga_total - dp_amount)
+          hitungMasuk += dpAmount;
+          final double sisa = (hargaTotal - dpAmount).clamp(
+            0.0,
+            double.infinity,
+          );
+          if (sisa > 0) {
+            hitungPiutang += sisa;
+            if (idOrang.isNotEmpty) nomorBerpiutang.add(idOrang);
+            listPiutang.add({
+              'nama': nama.isNotEmpty ? nama : '-',
+              'nip': nomorPelanggan, // tetap tampilkan nomor struk di detail
+              'layanan': layanan,
+              'nominal': sisa, // hanya sisa yang belum dibayar
+              'waktu': DateFormat('dd/MM/yyyy HH:mm').format(tglUtuh),
+              'no_hp': noHp,
+              'dp': dpAmount, // tampil di detail untuk info
+              'total': hargaTotal,
+            });
+          }
         } else {
-          hitungUangMasuk += nominalBiaya;
+          // belum_bayar — seluruh harga_total masuk piutang
+          if (hargaTotal > 0) {
+            hitungPiutang += hargaTotal;
+            if (idOrang.isNotEmpty) nomorBerpiutang.add(idOrang);
+            listPiutang.add({
+              'nama': nama.isNotEmpty ? nama : '-',
+              'nip': nomorPelanggan,
+              'layanan': layanan,
+              'nominal': hargaTotal,
+              'waktu': DateFormat('dd/MM/yyyy HH:mm').format(tglUtuh),
+              'no_hp': noHp,
+              'dp': 0.0,
+              'total': hargaTotal,
+            });
+          }
         }
 
-        if (noPasien.isNotEmpty) pasienUnik.add(noPasien);
+        // ── Pelanggan aktif & repeat dalam range (pakai idOrang) ──
+        if (idOrang.isNotEmpty) {
+          nomorAktif.add(idOrang);
+          orderCountRange[idOrang] = (orderCountRange[idOrang] ?? 0) + 1;
+        }
       }
 
-      // ── Loop pengeluaran ──
-      for (var doc in pengeluaranSnapshot.docs) {
+      // ── Repeat customer = orang (by no_hp/nama) dengan >1 order dalam range ──
+      final Set<String> nomorRepeat = orderCountRange.entries
+          .where((e) => e.value > 1)
+          .map((e) => e.key)
+          .toSet();
+
+      // ── Pelanggan BARU = dari collection PELANGGAN (field created_at) ─────
+      // Juga bisa fallback: orang yang order pertamanya (by idOrang) di range ini
+      int hitungPelangganBaru = 0;
+
+      // Cara 1: dari collection pelanggan (paling akurat)
+      bool adaDataPelanggan = pelangganSnap.docs.isNotEmpty;
+      if (adaDataPelanggan) {
+        for (final doc in pelangganSnap.docs) {
+          final data = doc.data();
+          // Support field created_at (Timestamp) atau waktu_daftar
+          final dynamic rawCreated = data['created_at'] ?? data['waktu_daftar'];
+          if (rawCreated == null) continue;
+          final DateTime? createdDate = rawCreated is Timestamp
+              ? rawCreated.toDate()
+              : null;
+          if (createdDate == null) continue;
+          final DateTime createdDay = DateTime(
+            createdDate.year,
+            createdDate.month,
+            createdDate.day,
+          );
+          if (!createdDay.isBefore(startDay) && !createdDay.isAfter(endDay)) {
+            hitungPelangganBaru++;
+          }
+        }
+      }
+
+      // Cara 2 (fallback jika collection pelanggan kosong):
+      // orang yang order pertamanya (secara global) jatuh dalam range
+      if (!adaDataPelanggan) {
+        for (final entry in allOrderDates.entries) {
+          final sorted = List<DateTime>.from(entry.value)..sort();
+          final firstDay = sorted.first;
+          if (!firstDay.isBefore(startDay) && !firstDay.isAfter(endDay)) {
+            hitungPelangganBaru++;
+          }
+        }
+      }
+
+      // ── Loop PENGELUARAN ──────────────────────────────────────────────
+      for (final doc in pengeluaranSnap.docs) {
         final data = doc.data();
-
-        final DateTime? tglPengeluaran = _parseFlexibleDate(data['tanggal']);
-        if (tglPengeluaran == null) continue;
-
-        final DateTime tglHari = DateTime(
-          tglPengeluaran.year,
-          tglPengeluaran.month,
-          tglPengeluaran.day,
-        );
-        final bool masukRange =
-            !tglHari.isBefore(tanggalMulaiHanyaHari) &&
-            !tglHari.isAfter(tanggalAkhirHanyaHari);
-        if (masukRange) {
+        final dynamic rawTgl = data['tanggal'];
+        if (rawTgl == null) continue;
+        DateTime? tglP;
+        if (rawTgl is Timestamp) {
+          tglP = rawTgl.toDate();
+        } else if (rawTgl is String) {
+          try {
+            tglP = DateFormat('dd/MM/yyyy').parse(rawTgl.trim());
+          } catch (_) {}
+        }
+        if (tglP == null) continue;
+        final DateTime tglHari = DateTime(tglP.year, tglP.month, tglP.day);
+        if (!tglHari.isBefore(startDay) && !tglHari.isAfter(endDay)) {
           hitungPengeluaran += (data['nominal'] ?? 0).toDouble();
         }
       }
 
-      // ── Hitung pelanggan ──
-      final DateTime batas4Bulan = tanggalAkhirHanyaHari.subtract(
-        const Duration(days: 120),
-      );
-      final DateTime batas1Bulan = tanggalAkhirHanyaHari.subtract(
-        const Duration(days: 30),
-      );
-
-      Set<String> pelangganAktifSet = {};
-      Set<String> pasienBaru = {};
-      Set<String> pasienRepeat = {};
-
-      for (var entry in semuaKunjungan.entries) {
-        final String nip = entry.key;
-        final List<DateTime> kunjungan = entry.value
-          ..sort((a, b) => a.compareTo(b));
-
-        final DateTime tglPertama = DateTime(
-          kunjungan.first.year,
-          kunjungan.first.month,
-          kunjungan.first.day,
-        );
-        final DateTime tglTerakhir = DateTime(
-          kunjungan.last.year,
-          kunjungan.last.month,
-          kunjungan.last.day,
-        );
-
-        final bool isAktif = !tglTerakhir.isBefore(batas4Bulan);
-        if (isAktif) pelangganAktifSet.add(nip);
-
-        final bool isBaru = !tglPertama.isBefore(batas1Bulan);
-        if (isBaru) pasienBaru.add(nip);
-
-        if (kunjungan.length > 1 && isAktif) pasienRepeat.add(nip);
-      }
-
-      // ── Hitung rata-rata ──
-      // Harian: omzet periode dibagi jumlah hari dalam range
-      final int jumlahHariRange =
-          tanggalAkhirHanyaHari.difference(tanggalMulaiHanyaHari).inDays + 1;
-      final double hitungRataHarian = jumlahHariRange > 0
-          ? hitungOmzet / jumlahHariRange
-          : 0;
-
-      // Bulanan: ambil data 12 bulan terakhir dari endDate, bagi 12
-      // Caranya: hitung rata-rata per bulan dari data yang sudah ada
-      // Kita gunakan hitungOmzet / jumlah bulan dalam range (min 1)
+      // ── Rata-rata ─────────────────────────────────────────────────────
+      final int jumlahHari = endDay.difference(startDay).inDays + 1;
       final int jumlahBulan =
           ((end.year - start.year) * 12 + (end.month - start.month)) + 1;
-      final double hitungRataBulanan = jumlahBulan > 0
+      final double rataH = jumlahHari > 0 ? hitungOmzet / jumlahHari : 0;
+      final double rataB = jumlahBulan > 0
           ? hitungOmzet / jumlahBulan
           : hitungOmzet;
 
+      // PPh 2.5% dari omzet dikurangi piutang
+      final double dasarPph = hitungOmzet - hitungPiutang;
+
+      final currency = NumberFormat.currency(
+        locale: 'id_ID',
+        symbol: 'Rp ',
+        decimalDigits: 0,
+      );
+
+      if (!mounted) return;
       setState(() {
         startDate = start;
         endDate = end;
 
-        final currency = NumberFormat.currency(
-          locale: 'id_ID',
-          symbol: 'Rp ',
-          decimalDigits: 0,
-        );
-
         totalOmzet = currency.format(hitungOmzet);
-        uangMasuk = currency.format(hitungUangMasuk);
+        uangMasuk = currency.format(hitungMasuk);
         piutang = currency.format(hitungPiutang);
         pengeluaran = currency.format(hitungPengeluaran);
-        labaRugi = currency.format(hitungUangMasuk - hitungPengeluaran);
-        pemasukanNota = currency.format(hitungUangMasuk);
-
-        final double dasarPph = hitungOmzet - hitungPiutang;
+        labaRugi = currency.format(hitungMasuk - hitungPengeluaran);
+        pemasukanNota = currency.format(hitungMasuk);
         ppn = currency.format(dasarPph * 0.025);
+        rataHarian = currency.format(rataH);
+        rataBulanan = currency.format(rataB);
 
-        rataHarian = currency.format(hitungRataHarian);
-        rataBulanan = currency.format(hitungRataBulanan);
-
-        pelangganAktif = pelangganAktifSet.length.toString();
-        pelangganBaru = pasienBaru.length.toString();
-        repeatCustomer = pasienRepeat.length.toString();
-        berpiutang = pasienBerpiutang.length.toString();
+        // ── Statistik pelanggan ──
+        pelangganAktif = nomorAktif.length.toString();
+        pelangganBaru = hitungPelangganBaru.toString();
+        repeatCustomer = nomorRepeat.length.toString();
+        berpiutang = nomorBerpiutang.length.toString();
 
         chartDataPerHari = omzetPerHari;
         _dataPiutang = listPiutang;
+        _isLoading = false;
       });
     } catch (e, stack) {
-      debugPrint('LOG ERROR: Terjadi kesalahan sistem utama: $e\n$stack');
+      debugPrint('ERROR RingkasanPage: $e\n$stack');
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  // ════════════════════════════════════════════════════════════
-  // HELPERS nama & HP
-  // ════════════════════════════════════════════════════════════
-  String _resolveNama(Map<String, dynamic> data) {
-    for (final key in ['nama_lengkap', 'nama', 'nama_pasien', 'name']) {
-      final val = data[key];
-      if (val is String && val.trim().isNotEmpty) return val.trim();
-    }
-    return '-';
-  }
-
-  String _resolveNamaFromKeuangan(Map<String, dynamic> data) {
-    for (final key in ['nama_lengkap', 'nama_pasien', 'nama', 'name']) {
-      final val = data[key];
-      if (val is String && val.trim().isNotEmpty) return val.trim();
-    }
-    return '-';
-  }
-
-  String _resolveNoHp(Map<String, dynamic> data) {
-    for (final key in [
-      'nomer_hp',
-      'no_hp',
-      'no_telp',
-      'telepon',
-      'phone',
-      'nomor_hp',
-      'hp',
-    ]) {
-      final val = data[key];
-      if (val is String && val.trim().isNotEmpty) return val.trim();
-    }
-    return '';
-  }
-
-  // ════════════════════════════════════════════════════════════
-  // KIRIM TAGIHAN VIA WHATSAPP
-  // ════════════════════════════════════════════════════════════
+  // ──────────────────────────────────────────────────────────────────────────
+  // KIRIM TAGIHAN WA
+  // ──────────────────────────────────────────────────────────────────────────
   Future<void> _kirimTagihanWA(Map<String, dynamic> item) async {
     final noHp = (item['no_hp'] as String? ?? '').trim();
     if (noHp.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Nomor HP pasien tidak tersedia'),
+            content: Text('Nomor HP tidak tersedia'),
             backgroundColor: Colors.red,
           ),
         );
@@ -412,57 +353,51 @@ class _RingkasanPageState extends State<RingkasanPage> {
       symbol: 'Rp ',
       decimalDigits: 0,
     );
-
     final nama = item['nama'] ?? '-';
     final nip = item['nip'] ?? '-';
     final layanan = item['layanan'] ?? '-';
     final nominal = currency.format(item['nominal'] ?? 0);
+    final total = currency.format(item['total'] ?? 0);
+    final dp = (item['dp'] as double? ?? 0) > 0
+        ? '\nDP Terbayar : ${currency.format(item['dp'])}'
+        : '';
     final waktu = item['waktu'] ?? '-';
 
     final pesan =
         'Halo $nama,\n\n'
-        'Kami dari Klinik ingin menginformasikan bahwa Anda masih memiliki tagihan yang belum dilunasi.\n\n'
+        'Kami dari ${OutletSettings.namaMadeenalaundry} ingin menginformasikan '
+        'bahwa Anda masih memiliki tagihan yang belum dilunasi.\n\n'
         '📋 *Detail Tagihan*\n'
-        'Nama      : $nama\n'
-        'No. Pasien: $nip\n'
-        'Layanan   : $layanan\n'
-        'Tanggal   : $waktu\n'
-        'Nominal   : *$nominal*\n\n'
-        'Mohon segera melakukan pembayaran. Terima kasih atas kepercayaan Anda.\n\n'
-        '_Salam,_\n'
-        '_Tim Klinik_';
+        'Nama        : $nama\n'
+        'No. Order   : $nip\n'
+        'Layanan     : $layanan\n'
+        'Tanggal     : $waktu\n'
+        'Total       : *$total*$dp\n'
+        'Sisa Tagihan: *$nominal*\n\n'
+        'Mohon segera melakukan pembayaran. Terima kasih 🙏\n\n'
+        '_Salam,_\n_${OutletSettings.namaMadeenalaundry}_';
 
-    String normalizedHp = noHp.replaceAll(RegExp(r'\s+|-'), '');
-    if (normalizedHp.startsWith('0')) {
-      normalizedHp = '62${normalizedHp.substring(1)}';
-    } else if (!normalizedHp.startsWith('62')) {
-      normalizedHp = '62$normalizedHp';
-    }
+    String hp = noHp.replaceAll(RegExp(r'\s+|-'), '');
+    if (hp.startsWith('0')) {
+      hp = '62${hp.substring(1)}';
+    } else if (!hp.startsWith('62'))
+      hp = '62$hp';
 
     final uri = Uri.parse(
-      'https://wa.me/$normalizedHp?text=${Uri.encodeComponent(pesan)}',
+      'https://wa.me/$hp?text=${Uri.encodeComponent(pesan)}',
     );
     try {
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Tidak dapat membuka WhatsApp'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
       }
     } catch (e) {
-      debugPrint('LOG ERROR: WhatsApp launch: $e');
+      debugPrint('WA launch error: $e');
     }
   }
 
-  // ════════════════════════════════════════════════════════════
-  // DETAIL PIUTANG
-  // ════════════════════════════════════════════════════════════
+  // ──────────────────────────────────────────────────────────────────────────
+  // DETAIL PIUTANG BOTTOM SHEET
+  // ──────────────────────────────────────────────────────────────────────────
   void _showDetailPiutang() {
     final currency = NumberFormat.currency(
       locale: 'id_ID',
@@ -546,14 +481,14 @@ class _RingkasanPageState extends State<RingkasanPage> {
                     ? Center(
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(
+                          children: const [
+                            Icon(
                               Icons.check_circle_outline_rounded,
                               size: 48,
                               color: Color(0xff16A34A),
                             ),
-                            const SizedBox(height: 8),
-                            const Text(
+                            SizedBox(height: 8),
+                            Text(
                               'Tidak ada piutang di periode ini',
                               style: TextStyle(fontWeight: FontWeight.w500),
                             ),
@@ -563,13 +498,17 @@ class _RingkasanPageState extends State<RingkasanPage> {
                     : ListView.separated(
                         controller: controller,
                         itemCount: _dataPiutang.length,
-                        separatorBuilder: (_, __) => Divider(
+                        separatorBuilder: (_, _) => Divider(
                           color: Theme.of(context).dividerColor,
                           height: 1,
                         ),
                         itemBuilder: (_, i) {
                           final item = _dataPiutang[i];
                           final noHp = (item['no_hp'] as String? ?? '');
+                          final dp = (item['dp'] as double? ?? 0);
+                          final total = (item['total'] as double? ?? 0);
+                          final sisa = (item['nominal'] as double? ?? 0);
+
                           return Padding(
                             padding: const EdgeInsets.symmetric(vertical: 10),
                             child: Row(
@@ -594,8 +533,8 @@ class _RingkasanPageState extends State<RingkasanPage> {
                                         CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        (item['nama']?.toString().isNotEmpty ==
-                                                true)
+                                        item['nama']?.toString().isNotEmpty ==
+                                                true
                                             ? item['nama']
                                             : '-',
                                         style: const TextStyle(
@@ -605,7 +544,8 @@ class _RingkasanPageState extends State<RingkasanPage> {
                                       ),
                                       const SizedBox(height: 2),
                                       Text(
-                                        '${item['nip'] ?? '-'}  •  ${noHp.isNotEmpty ? noHp : 'No HP tidak ada'}',
+                                        '${item['nip'] ?? '-'}  •  '
+                                        '${noHp.isNotEmpty ? noHp : 'No HP tidak ada'}',
                                         style: Theme.of(context)
                                             .textTheme
                                             .bodySmall
@@ -630,14 +570,81 @@ class _RingkasanPageState extends State<RingkasanPage> {
                                             .bodySmall
                                             ?.copyWith(fontSize: 11),
                                       ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        currency.format(item['nominal'] ?? 0),
-                                        style: const TextStyle(
-                                          color: Color(0xffD97706),
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 14,
+                                      const SizedBox(height: 6),
+                                      // Breakdown harga
+                                      if (dp > 0) ...[
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Text(
+                                              'Total',
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall
+                                                  ?.copyWith(fontSize: 12),
+                                            ),
+                                            Text(
+                                              currency.format(total),
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall
+                                                  ?.copyWith(
+                                                    fontSize: 12,
+                                                    decoration: TextDecoration
+                                                        .lineThrough,
+                                                    color: Colors.grey,
+                                                  ),
+                                            ),
+                                          ],
                                         ),
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Text(
+                                              'DP Terbayar',
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall
+                                                  ?.copyWith(
+                                                    fontSize: 12,
+                                                    color: const Color(
+                                                      0xffD97706,
+                                                    ),
+                                                  ),
+                                            ),
+                                            Text(
+                                              currency.format(dp),
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                color: Color(0xffD97706),
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          const Text(
+                                            'Sisa Tagihan',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                          Text(
+                                            currency.format(sisa),
+                                            style: const TextStyle(
+                                              color: Color(0xffD97706),
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 14,
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                       const SizedBox(height: 8),
                                       SizedBox(
@@ -645,9 +652,11 @@ class _RingkasanPageState extends State<RingkasanPage> {
                                         child: OutlinedButton.icon(
                                           onPressed: () =>
                                               _kirimTagihanWA(item),
-                                          icon: const Icon(
+                                          icon: Icon(
                                             Icons.send_rounded,
-                                            color: Color(0xff25D366),
+                                            color: noHp.isNotEmpty
+                                                ? const Color(0xff25D366)
+                                                : Colors.grey,
                                             size: 18,
                                           ),
                                           label: Text(
@@ -694,9 +703,9 @@ class _RingkasanPageState extends State<RingkasanPage> {
     );
   }
 
-  // ════════════════════════════════════════════════════════════
-  // HELPERS chart & periode
-  // ════════════════════════════════════════════════════════════
+  // ──────────────────────────────────────────────────────────────────────────
+  // CHART HELPERS
+  // ──────────────────────────────────────────────────────────────────────────
   String _formatPeriodeText() {
     const bulan = [
       'Jan',
@@ -715,7 +724,7 @@ class _RingkasanPageState extends State<RingkasanPage> {
     if (startDate.month == endDate.month && startDate.year == endDate.year) {
       return '${bulan[startDate.month - 1]} ${startDate.year}';
     }
-    return '${startDate.day} ${bulan[startDate.month - 1]} - '
+    return '${startDate.day} ${bulan[startDate.month - 1]} – '
         '${endDate.day} ${bulan[endDate.month - 1]} ${endDate.year}';
   }
 
@@ -750,9 +759,9 @@ class _RingkasanPageState extends State<RingkasanPage> {
     return 100000;
   }
 
-  // ════════════════════════════════════════════════════════════
+  // ──────────────────────────────────────────────────────────────────────────
   // BUILD
-  // ════════════════════════════════════════════════════════════
+  // ──────────────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     final cardColor = Theme.of(context).cardColor;
@@ -761,201 +770,285 @@ class _RingkasanPageState extends State<RingkasanPage> {
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: _buildAppBar(context),
-      // ── GlobalRefresh wraps the scrollable body ──
       body: GlobalRefresh(
         onRefresh: () => fetchFirestoreData(startDate, endDate),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildPeriodeSelector(cardColor, bodyLarge),
-              const SizedBox(height: 16),
-              _buildChartSection(cardColor),
-              const SizedBox(height: 24),
-              Text(
-                'Rincian Laporan',
-                style:
-                    bodyLarge?.copyWith(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ) ??
-                    const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 16),
-              // ── Card Total Omzet ──
-              _buildReportCard(
-                cardColor: cardColor,
-                bodyLarge: bodyLarge,
-                icon: Icons.receipt_long_rounded,
-                iconColor: const Color(0xff0284C7),
-                iconBgColor: const Color(0xffE0F2FE),
-                title: 'Total Omzet',
-                subtitle: 'Semua nota yang dibuat di periode ini',
-                value: totalOmzet,
-                valueColor: bodyLarge?.color ?? const Color(0xff1E293B),
-              ),
-              // ── Card Rata-rata Harian & Bulanan ──
-              _buildRataRataRow(cardColor: cardColor, bodyLarge: bodyLarge),
-              const SizedBox(height: 12),
-              _buildReportCard(
-                cardColor: cardColor,
-                bodyLarge: bodyLarge,
-                icon: Icons.account_balance_wallet_rounded,
-                iconColor: const Color(0xff16A34A),
-                iconBgColor: const Color(0xffDCFCE7),
-                title: 'Uang Masuk',
-                subtitle: 'Uang yang aktual diterima di periode ini',
-                value: uangMasuk,
-                valueColor: bodyLarge?.color ?? const Color(0xff1E293B),
-              ),
-              _buildReportCard(
-                cardColor: cardColor,
-                bodyLarge: bodyLarge,
-                icon: Icons.hourglass_empty_rounded,
-                iconColor: const Color(0xffD97706),
-                iconBgColor: const Color(0xffFEF3C7),
-                title: 'Piutang',
-                subtitle: 'Layanan periode ini yang belum dibayar',
-                value: piutang,
-                valueColor: bodyLarge?.color ?? const Color(0xff1E293B),
-                hasDetail: true,
-                onDetailTap: _showDetailPiutang,
-              ),
-              _buildReportCard(
-                cardColor: cardColor,
-                bodyLarge: bodyLarge,
-                icon: Icons.upload_rounded,
-                iconColor: const Color(0xffDC2626),
-                iconBgColor: const Color(0xffFEE2E2),
-                title: 'Pengeluaran',
-                subtitle: 'Total biaya operasional & pengeluaran lain',
-                value: pengeluaran,
-                valueColor: bodyLarge?.color ?? const Color(0xff1E293B),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const FormPengeluaranPage(),
-                  ),
-                ),
-              ),
-              _buildReportCard(
-                cardColor: cardColor,
-                bodyLarge: bodyLarge,
-                icon: Icons.stars_rounded,
-                iconColor: const Color(0xff15803D),
-                iconBgColor: const Color(0xffE2F0D9),
-                title: 'Laba / Rugi',
-                subtitle: 'Total uang masuk yang sudah dikurangi pengeluaran',
-                value: labaRugi,
-                valueColor: const Color(0xff16A34A),
-              ),
-              const SizedBox(height: 8),
-              _buildDetailSection(
-                cardColor: cardColor,
-                bodyLarge: bodyLarge,
-                title: 'DETAIL UANG MASUK',
-                accentColor: const Color(0xff0284C7),
-                items: [
-                  _buildDetailRow(
-                    'Pemasukan Nota',
-                    pemasukanNota,
-                    bodyLarge: bodyLarge,
-                  ),
-                  const Divider(height: 24, thickness: 1),
-                  _buildDetailRow(
-                    'Total Uang Masuk',
-                    uangMasuk,
-                    isTotal: true,
-                    totalColor: const Color(0xff16A34A),
-                    bodyLarge: bodyLarge,
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'PPh 2,5%',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                                color: Theme.of(
-                                  context,
-                                ).textTheme.bodyMedium?.color,
-                              ),
-                            ),
-                            Text(
-                              'dari Omzet dikurangi Piutang',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: Theme.of(
-                                  context,
-                                ).textTheme.bodySmall?.color,
-                              ),
-                            ),
-                          ],
-                        ),
-                        Text(
-                          ppn,
-                          style: const TextStyle(
-                            fontSize: 14,
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator(color: kPrimary))
+            : SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildPeriodeSelector(cardColor, bodyLarge),
+                    const SizedBox(height: 16),
+                    _buildChartSection(cardColor),
+                    const SizedBox(height: 24),
+                    Text(
+                      'Rincian Laporan',
+                      style:
+                          bodyLarge?.copyWith(
+                            fontSize: 18,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xffDC2626),
+                          ) ??
+                          const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Total Omzet
+                    _buildReportCard(
+                      cardColor: cardColor,
+                      bodyLarge: bodyLarge,
+                      icon: Icons.receipt_long_rounded,
+                      iconColor: const Color(0xff0284C7),
+                      iconBgColor: const Color(0xffE0F2FE),
+                      title: 'Total Omzet',
+                      subtitle: 'Semua order yang dibuat di periode ini',
+                      value: totalOmzet,
+                      valueColor: bodyLarge?.color ?? const Color(0xff1E293B),
+                    ),
+
+                    // Rata-rata harian & bulanan
+                    _buildRataRataRow(
+                      cardColor: cardColor,
+                      bodyLarge: bodyLarge,
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Uang Masuk
+                    _buildReportCard(
+                      cardColor: cardColor,
+                      bodyLarge: bodyLarge,
+                      icon: Icons.account_balance_wallet_rounded,
+                      iconColor: const Color(0xff16A34A),
+                      iconBgColor: const Color(0xffDCFCE7),
+                      title: 'Uang Masuk',
+                      subtitle: 'Uang aktual diterima (lunas + DP)',
+                      value: uangMasuk,
+                      valueColor: bodyLarge?.color ?? const Color(0xff1E293B),
+                    ),
+
+                    // Piutang
+                    _buildReportCard(
+                      cardColor: cardColor,
+                      bodyLarge: bodyLarge,
+                      icon: Icons.hourglass_empty_rounded,
+                      iconColor: const Color(0xffD97706),
+                      iconBgColor: const Color(0xffFEF3C7),
+                      title: 'Piutang',
+                      subtitle: 'Sisa tagihan yang belum dibayar',
+                      value: piutang,
+                      valueColor: bodyLarge?.color ?? const Color(0xff1E293B),
+                      hasDetail: true,
+                      onDetailTap: _showDetailPiutang,
+                    ),
+
+                    // Pengeluaran
+                    _buildReportCard(
+                      cardColor: cardColor,
+                      bodyLarge: bodyLarge,
+                      icon: Icons.upload_rounded,
+                      iconColor: const Color(0xffDC2626),
+                      iconBgColor: const Color(0xffFEE2E2),
+                      title: 'Pengeluaran',
+                      subtitle: 'Total biaya operasional & pengeluaran lain',
+                      value: pengeluaran,
+                      valueColor: bodyLarge?.color ?? const Color(0xff1E293B),
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const FormPengeluaranPage(),
+                        ),
+                      ),
+                    ),
+
+                    // Laba / Rugi
+                    _buildReportCard(
+                      cardColor: cardColor,
+                      bodyLarge: bodyLarge,
+                      icon: Icons.stars_rounded,
+                      iconColor: const Color(0xff15803D),
+                      iconBgColor: const Color(0xffE2F0D9),
+                      title: 'Laba / Rugi',
+                      subtitle: 'Uang masuk dikurangi pengeluaran',
+                      value: labaRugi,
+                      valueColor: const Color(0xff16A34A),
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    // Detail Uang Masuk
+                    _buildDetailSection(
+                      cardColor: cardColor,
+                      bodyLarge: bodyLarge,
+                      title: 'DETAIL UANG MASUK',
+                      accentColor: const Color(0xff0284C7),
+                      items: [
+                        _buildDetailRow(
+                          'Pemasukan Order',
+                          pemasukanNota,
+                          bodyLarge: bodyLarge,
+                        ),
+                        const Divider(height: 24, thickness: 1),
+                        _buildDetailRow(
+                          'Total Uang Masuk',
+                          uangMasuk,
+                          isTotal: true,
+                          totalColor: const Color(0xff16A34A),
+                          bodyLarge: bodyLarge,
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'PPh 2,5%',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: Theme.of(
+                                        context,
+                                      ).textTheme.bodyMedium?.color,
+                                    ),
+                                  ),
+                                  Text(
+                                    'dari Omzet dikurangi Piutang',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Theme.of(
+                                        context,
+                                      ).textTheme.bodySmall?.color,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Text(
+                                ppn,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xffDC2626),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
                     ),
-                  ),
-                ],
+
+                    const SizedBox(height: 16),
+
+                    // Detail Pelanggan
+                    _buildDetailSection(
+                      cardColor: cardColor,
+                      bodyLarge: bodyLarge,
+                      title: 'PELANGGAN',
+                      accentColor: const Color(0xff0284C7),
+                      items: [
+                        _buildDetailRow(
+                          'Total Pelanggan Aktif',
+                          pelangganAktif,
+                          isBoldValue: true,
+                          bodyLarge: bodyLarge,
+                        ),
+                        _buildDetailRow(
+                          'Pelanggan Baru',
+                          pelangganBaru,
+                          isBoldValue: true,
+                          bodyLarge: bodyLarge,
+                        ),
+                        _buildDetailRow(
+                          'Repeat Customer',
+                          repeatCustomer,
+                          isBoldValue: true,
+                          bodyLarge: bodyLarge,
+                        ),
+                        _buildDetailRow(
+                          'Berpiutang',
+                          berpiutang,
+                          isBoldValue: true,
+                          bodyLarge: bodyLarge,
+                        ),
+                        const SizedBox(height: 8),
+                        // Keterangan statistik pelanggan
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.primary.withOpacity(0.06),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _keteranganRow(
+                                'Aktif',
+                                'Punya ≥1 order dalam periode ini',
+                              ),
+                              _keteranganRow(
+                                'Baru',
+                                'Terdaftar di collection pelanggan dalam periode ini',
+                              ),
+                              _keteranganRow(
+                                'Repeat',
+                                'Punya >1 order dalam periode ini',
+                              ),
+                              _keteranganRow(
+                                'Berpiutang',
+                                'Masih punya tagihan belum lunas',
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 24),
+                  ],
+                ),
               ),
-              const SizedBox(height: 16),
-              _buildDetailSection(
-                cardColor: cardColor,
-                bodyLarge: bodyLarge,
-                title: 'PELANGGAN',
-                accentColor: const Color(0xff0284C7),
-                items: [
-                  _buildDetailRow(
-                    'Total Pelanggan Aktif',
-                    pelangganAktif,
-                    isBoldValue: true,
-                    bodyLarge: bodyLarge,
-                  ),
-                  _buildDetailRow(
-                    'Pelanggan Baru',
-                    pelangganBaru,
-                    isBoldValue: true,
-                    bodyLarge: bodyLarge,
-                  ),
-                  _buildDetailRow(
-                    'Repeat Customer',
-                    repeatCustomer,
-                    isBoldValue: true,
-                    bodyLarge: bodyLarge,
-                  ),
-                  _buildDetailRow(
-                    'Berpiutang',
-                    berpiutang,
-                    isBoldValue: true,
-                    bodyLarge: bodyLarge,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-            ],
-          ),
-        ),
       ),
     );
   }
 
-  // ════════════════════════════════════════════════════════════
-  // WIDGET: Dua card rata-rata sejajar
-  // ════════════════════════════════════════════════════════════
+  Widget _keteranganRow(String label, String ket) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '• $label: ',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              ket,
+              style: TextStyle(
+                fontSize: 11,
+                color: Theme.of(context).textTheme.bodySmall?.color,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // WIDGET HELPERS
+  // ──────────────────────────────────────────────────────────────────────────
   Widget _buildRataRataRow({
     required Color cardColor,
     required TextStyle? bodyLarge,
@@ -963,132 +1056,77 @@ class _RingkasanPageState extends State<RingkasanPage> {
     final primaryColor = Theme.of(context).primaryColor;
     final primaryLight = primaryColor.withOpacity(0.08);
 
-    return Row(
-      children: [
-        // ── Rata-rata Harian ──
-        Expanded(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-            decoration: BoxDecoration(
-              color: primaryLight,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: primaryColor.withOpacity(0.18)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.calendar_today_rounded,
+    Widget card(IconData icon, String label, String value, String sub) {
+      return Expanded(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          decoration: BoxDecoration(
+            color: primaryLight,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: primaryColor.withOpacity(0.18)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, color: primaryColor, size: 16),
+                  const SizedBox(width: 6),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
                       color: primaryColor,
-                      size: 16,
                     ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Rata² Harian',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: primaryColor,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  rataHarian,
-                  style:
-                      bodyLarge?.copyWith(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).textTheme.bodyLarge?.color,
-                      ) ??
-                      const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                      ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'per hari dalam periode',
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: Theme.of(context).textTheme.bodySmall?.color,
                   ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                value,
+                style:
+                    bodyLarge?.copyWith(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ) ??
+                    const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                sub,
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Theme.of(context).textTheme.bodySmall?.color,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
+      );
+    }
+
+    return Row(
+      children: [
+        card(
+          Icons.calendar_today_rounded,
+          'Rata² Harian',
+          rataHarian,
+          'per hari dalam periode',
+        ),
         const SizedBox(width: 12),
-        // ── Rata-rata Bulanan ──
-        Expanded(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-            decoration: BoxDecoration(
-              color: primaryLight,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: primaryColor.withOpacity(0.18)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.calendar_month_rounded,
-                      color: primaryColor,
-                      size: 16,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Rata² Bulanan',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: primaryColor,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  rataBulanan,
-                  style:
-                      bodyLarge?.copyWith(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).textTheme.bodyLarge?.color,
-                      ) ??
-                      const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                      ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'per bulan dalam periode',
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: Theme.of(context).textTheme.bodySmall?.color,
-                  ),
-                ),
-              ],
-            ),
-          ),
+        card(
+          Icons.calendar_month_rounded,
+          'Rata² Bulanan',
+          rataBulanan,
+          'per bulan dalam periode',
         ),
       ],
     );
   }
 
-  // ════════════════════════════════════════════════════════════
-  // WIDGETS lama (tidak diubah)
-  // ════════════════════════════════════════════════════════════
   Widget _buildPeriodeSelector(Color cardColor, TextStyle? bodyLarge) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -1124,14 +1162,12 @@ class _RingkasanPageState extends State<RingkasanPage> {
           const Spacer(),
           ElevatedButton(
             onPressed: () async {
-              final DateTimeRange? pickedRange =
+              final DateTimeRange? picked =
                   await CalendarHelper.showFullDatePicker(context);
-              if (pickedRange != null) {
-                fetchFirestoreData(pickedRange.start, pickedRange.end);
-              }
+              if (picked != null) fetchFirestoreData(picked.start, picked.end);
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xff007AFF),
+              backgroundColor: kPrimary,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8),
               ),
@@ -1147,7 +1183,6 @@ class _RingkasanPageState extends State<RingkasanPage> {
   Widget _buildChartSection(Color cardColor) {
     final spots = _buildChartSpots();
     final maxY = _getChartMaxY();
-
     return Container(
       height: 220,
       padding: const EdgeInsets.only(right: 16, top: 16, bottom: 8),
@@ -1160,7 +1195,7 @@ class _RingkasanPageState extends State<RingkasanPage> {
           gridData: FlGridData(
             show: true,
             drawVerticalLine: false,
-            getDrawingHorizontalLine: (value) =>
+            getDrawingHorizontalLine: (v) =>
                 FlLine(color: Theme.of(context).dividerColor, strokeWidth: 1),
           ),
           titlesData: FlTitlesData(
@@ -1443,7 +1478,7 @@ class _RingkasanPageState extends State<RingkasanPage> {
         ),
         child: AppBar(
           title: const Text(
-            'Ringkasan Klinik',
+            'Ringkasan',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
           ),
           backgroundColor: kPrimary,

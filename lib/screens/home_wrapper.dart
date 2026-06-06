@@ -14,7 +14,7 @@ class _HomeWrapperState extends State<HomeWrapper> {
   final List<Widget> _screens = [
     const HomeScreen(),
     const OrderScreen(),
-    const AddPatientScreen(),
+    const AddOrderScreen(),
     const LaporanScreen(),
     const SettingScreen(),
   ];

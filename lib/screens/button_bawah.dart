@@ -110,7 +110,7 @@ class ButtonBawah extends StatelessWidget {
       message =
           """Halo Bunda *${data['nama']}*, 👋
 
-Terima kasih telah mempercayakan pemeriksaan di *${OutletSettings.namaKlinik}*. Berikut ringkasannya:
+Terima kasih telah mempercayakan pemeriksaan di *${OutletSettings.namaMadeenalaundry}*. Berikut ringkasannya:
 
 🆔 *NIP:* ${data['nip']}
 👶 *Layanan:* KB 
@@ -123,7 +123,7 @@ Sehat selalu,! 😊""";
       message =
           """Halo *${data['nama']}*, 👋
 
-Terima kasih telah melakukan pemeriksaan di *${OutletSettings.namaKlinik}*. Berikut ringkasan kunjungan Anda:
+Terima kasih telah melakukan pemeriksaan di *${OutletSettings.namaMadeenalaundry}*. Berikut ringkasan kunjungan Anda:
 
 🆔 *NIP:* ${data['nip']}
 🏥 *Layanan:* ${data['layan']}

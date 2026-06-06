@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:intl/intl.dart';
 import '../screens/screens.dart';
 
 class LaporanOrderPage extends StatefulWidget {
@@ -23,10 +22,11 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
   int _totalTransaksi = 0;
   double _totalOmzet = 0;
   double _totalTerbayar = 0;
-  double _totalPiutang = 0;
+  double _totalPiutang =
+      0; // sisa yang belum dibayar = harga_total - dp_amount (jika belum lunas)
 
-  Map<String, List<Map<String, dynamic>>> _grouped = {};
   List<Map<String, dynamic>> _allOrders = [];
+  Map<String, List<Map<String, dynamic>>> _grouped = {};
 
   @override
   void initState() {
@@ -45,110 +45,107 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
   }
 
   // ════════════════════════════════════════════════════════════
-  // HELPER: parse date fleksibel (String ATAU Timestamp)
-  // ════════════════════════════════════════════════════════════
-  DateTime? _parseFlexibleDate(dynamic raw) {
-    if (raw == null) return null;
-    if (raw is Timestamp) return raw.toDate();
-    if (raw is String) {
-      if (raw.trim().isEmpty) return null;
-      try {
-        return DateFormat('dd/MM/yyyy HH:mm').parse(raw.trim());
-      } catch (_) {
-        try {
-          return DateFormat('dd/MM/yyyy').parse(raw.trim());
-        } catch (_) {
-          return null;
-        }
-      }
-    }
-    return null;
-  }
-
-  // ════════════════════════════════════════════════════════════
-  // FETCH FIRESTORE
+  // FETCH
   // ════════════════════════════════════════════════════════════
   Future<void> _fetchData() async {
     setState(() => _isLoading = true);
     try {
       final results = await Future.wait([
-        FirebaseFirestore.instance.collection('keuangan').get(),
-        FirebaseFirestore.instance.collection('pasien').get(),
-        FirebaseFirestore.instance.collection('rekam_medis').get(),
+        FirebaseFirestore.instance.collection('order').get(),
+        FirebaseFirestore.instance.collection('pelanggan').get(),
       ]);
 
-      final keuanganSnap = results[0];
-      final pasienSnap = results[1];
-      final rekamMedisSnap = results[2];
+      final orderSnap = results[0];
+      final pelangganSnap = results[1];
 
-      // Map NIP → nama pasien
-      final Map<String, String> nipToNama = {};
-      for (var doc in pasienSnap.docs) {
+      // Build pelanggan lookup
+      final Map<String, Map<String, String>> pelangganMap = {};
+      for (final doc in pelangganSnap.docs) {
         final d = doc.data();
-        final nip = (d['nomer_induk_pasien'] ?? '').toString().trim();
-        if (nip.isNotEmpty) {
-          nipToNama[nip] = (d['nama_lengkap'] ?? '-').toString();
-        }
+        final key = (d['nomor_pelanggan'] ?? '').toString().trim();
+        if (key.isEmpty) continue;
+        pelangganMap[key] = {
+          'nama': (d['nama_lengkap'] ?? key).toString().trim(),
+          'nomer_hp': (d['nomer_hp'] ?? '').toString().trim(),
+          'alamat': (d['alamat'] ?? '').toString().trim(),
+        };
       }
 
-      // Map NIP+tanggal → layanan
-      final Map<String, String> nipTglToLayanan = {};
-      for (var doc in rekamMedisSnap.docs) {
-        final d = doc.data();
-        final nip = (d['nomer_induk_pasien'] ?? '').toString().trim();
-        final layanan = (d['layanan'] ?? '-').toString().trim();
-        if (nip.isEmpty) continue;
+      final List<Map<String, dynamic>> orders = [];
 
-        final DateTime? tglRekam = _parseFlexibleDate(d['waktu_kunjungan']);
-        if (tglRekam == null) continue;
-
-        final String tglKey = DateFormat('yyyyMMdd').format(tglRekam);
-        final String mapKey = '$nip|$tglKey';
-
-        if (nipTglToLayanan.containsKey(mapKey)) {
-          final existing = nipTglToLayanan[mapKey]!;
-          if (existing != layanan && layanan != '-') {
-            nipTglToLayanan[mapKey] = '$existing, $layanan';
-          }
-        } else {
-          nipTglToLayanan[mapKey] = layanan;
-        }
-      }
-
-      // ── Loop keuangan ──
-      List<Map<String, dynamic>> orders = [];
-
-      for (var doc in keuanganSnap.docs) {
+      for (final doc in orderSnap.docs) {
         final data = doc.data();
 
-        final DateTime? tgl = _parseFlexibleDate(data['waktu_transaksi']);
-        if (tgl == null) continue;
+        // waktu_order
+        final dynamic rawWaktu = data['waktu_order'];
+        if (rawWaktu == null) continue;
+        DateTime tgl;
+        if (rawWaktu is Timestamp) {
+          tgl = rawWaktu.toDate();
+        } else {
+          try {
+            final s = rawWaktu.toString().trim();
+            tgl = s.contains('/')
+                ? DateFormat('dd/MM/yyyy HH:mm').parse(s)
+                : DateFormat('dd-MM-yyyy').parse(s);
+          } catch (_) {
+            continue;
+          }
+        }
 
-        final String nip = (data['nomer_induk_pasien'] ?? '-')
+        final String nomorPelanggan = (data['nomor_pelanggan'] ?? '')
             .toString()
             .trim();
-        final String status = (data['status_bayar'] ?? '-').toString();
-        final double biaya = (data['biaya'] ?? 0).toDouble();
-        final String nama = nipToNama[nip] ?? nip;
+        if (nomorPelanggan.isEmpty) continue;
 
-        final String tglKey = DateFormat('yyyyMMdd').format(tgl);
-        final String layananKey = '$nip|$tglKey';
-        final String layanan = nipTglToLayanan[layananKey] ?? '-';
+        // ── Nama & HP: baca langsung dari document order ─────────────────
+        // Field di order: nama_pelanggan, no_hp
+        // Fallback ke collection pelanggan jika field tidak ada di order
+        final info = pelangganMap[nomorPelanggan];
+        final String namaDariOrder = (data['nama_pelanggan'] ?? '')
+            .toString()
+            .trim();
+        final String hpDariOrder = (data['no_hp'] ?? '').toString().trim();
+
+        final String nama = namaDariOrder.isNotEmpty
+            ? namaDariOrder
+            : (info?['nama'] ?? nomorPelanggan);
+        final String nomerHp = hpDariOrder.isNotEmpty
+            ? hpDariOrder
+            : (info?['nomer_hp'] ?? '');
+        final String alamat = info?['alamat'] ?? '';
+
+        final double hargaTotal = (data['harga_total'] ?? 0).toDouble();
+        // ── dp_amount: jumlah yang sudah dibayar di muka ─────────────────
+        final double dpAmount = (data['dp_amount'] ?? 0).toDouble();
+
+        final String statusBayar = (data['status_bayar'] ?? '')
+            .toString()
+            .toLowerCase();
+        final String statusOrder = (data['status'] ?? '').toString();
+        final String layananNama = (data['layanan_nama'] ?? '-')
+            .toString()
+            .trim();
+        final String admin = (data['admin'] ?? '-').toString().trim();
 
         final String orderId =
-            'ORD-${DateFormat('yyyyMMdd').format(tgl)}-'
+            '${DateFormat('yyyyMMdd').format(tgl)}-'
             '${doc.id.substring(0, 4).toUpperCase()}';
 
         orders.add({
           'doc_id': doc.id,
           'order_id': orderId,
-          'nip': nip,
+          'nomor_pelanggan': nomorPelanggan,
           'nama': nama,
-          'biaya': biaya,
-          'status': status,
+          'nomer_hp': nomerHp,
+          'alamat': alamat,
+          'harga_total': hargaTotal,
+          'dp_amount': dpAmount, // ← tambah field ini
+          'status_bayar': statusBayar,
+          'status_order': statusOrder,
+          'layanan_nama': layananNama,
+          'admin': admin,
           'waktu': tgl,
-          'waktu_str': DateFormat('dd/MM/yyyy HH:mm').format(tgl),
-          'layanan': layanan,
         });
       }
 
@@ -156,10 +153,6 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
         (a, b) => (b['waktu'] as DateTime).compareTo(a['waktu'] as DateTime),
       );
 
-      // ════════════════════════════════════════════════════════
-      // FIX: Hitung filter DULU sebelum setState, lalu set semua
-      // sekaligus dalam SATU setState agar tidak double rebuild
-      // ════════════════════════════════════════════════════════
       final result = _computeFilter(orders, _startDate, _endDate, _searchQuery);
 
       setState(() {
@@ -178,7 +171,22 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
   }
 
   // ════════════════════════════════════════════════════════════
-  // PURE COMPUTATION — tidak ada setState di sini
+  // COMPUTE FILTER
+  //
+  // Logika pembayaran:
+  //   status_bayar == 'lunas'
+  //     → terbayar += harga_total  (sudah lunas penuh)
+  //     → piutang  += 0
+  //
+  //   status_bayar == 'dp'
+  //     → terbayar += dp_amount
+  //     → piutang  += harga_total - dp_amount
+  //
+  //   status_bayar lainnya (belum_bayar / kosong)
+  //     → terbayar += 0
+  //     → piutang  += harga_total
+  //
+  //   omzet selalu += harga_total (nilai bruto order)
   // ════════════════════════════════════════════════════════════
   Map<String, dynamic> _computeFilter(
     List<Map<String, dynamic>> orders,
@@ -186,42 +194,51 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
     DateTime endDate,
     String searchQuery,
   ) {
-    final DateTime start = DateTime(
-      startDate.year,
-      startDate.month,
-      startDate.day,
-    );
-    final DateTime end = DateTime(endDate.year, endDate.month, endDate.day);
+    final start = DateTime(startDate.year, startDate.month, startDate.day);
+    final end = DateTime(endDate.year, endDate.month, endDate.day);
 
     final filtered = orders.where((item) {
       final DateTime tgl = item['waktu'] as DateTime;
-      final DateTime tglHari = DateTime(tgl.year, tgl.month, tgl.day);
-      final bool inRange = !tglHari.isBefore(start) && !tglHari.isAfter(end);
+      final DateTime hari = DateTime(tgl.year, tgl.month, tgl.day);
+      final bool inRange = !hari.isBefore(start) && !hari.isAfter(end);
+
       final bool matchSearch =
           searchQuery.isEmpty ||
           (item['nama'] as String).toLowerCase().contains(
             searchQuery.toLowerCase(),
           ) ||
+          (item['nomor_pelanggan'] as String).toLowerCase().contains(
+            searchQuery.toLowerCase(),
+          ) ||
           (item['order_id'] as String).toLowerCase().contains(
             searchQuery.toLowerCase(),
           );
+
       return inRange && matchSearch;
     }).toList();
 
     double omzet = 0, terbayar = 0, piutang = 0;
-    for (var o in filtered) {
-      final double biaya = o['biaya'] as double;
-      final String status = o['status'] as String;
-      omzet += biaya;
-      if (status == 'Belum Lunas') {
-        piutang += biaya;
+    for (final o in filtered) {
+      final double harga = o['harga_total'] as double;
+      final double dp = o['dp_amount'] as double;
+      final String status = o['status_bayar'] as String;
+
+      omzet += harga;
+
+      if (status == 'lunas') {
+        terbayar += harga;
+        // piutang += 0
+      } else if (status == 'dp') {
+        terbayar += dp;
+        piutang += (harga - dp).clamp(0, double.infinity);
       } else {
-        terbayar += biaya;
+        // belum_bayar atau kosong
+        piutang += harga;
       }
     }
 
     final Map<String, List<Map<String, dynamic>>> grouped = {};
-    for (var o in filtered) {
+    for (final o in filtered) {
       final String key = DateFormat(
         'd MMM yyyy',
         'id',
@@ -239,7 +256,7 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
   }
 
   // ════════════════════════════════════════════════════════════
-  // APPLY FILTER — dipanggil saat search / ganti periode
+  // APPLY FILTER
   // ════════════════════════════════════════════════════════════
   void _applyFilter() {
     final result = _computeFilter(
@@ -261,13 +278,20 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
   // DETAIL BOTTOM SHEET
   // ════════════════════════════════════════════════════════════
   void _showDetailOrder(Map<String, dynamic> order) {
-    final double biaya = (order['biaya'] as num).toDouble();
-    final String status = (order['status'] as String? ?? '-');
-    final bool belumLunas = status == 'Belum Lunas';
+    final double harga = order['harga_total'] as double;
+    final double dp = order['dp_amount'] as double;
+    final String statusBayar = order['status_bayar'] as String;
+    final bool lunas = statusBayar == 'lunas';
+    final bool hasDP = statusBayar == 'dp' && dp > 0;
+
+    // Sisa yang harus dibayar
+    final double sisaBayar = lunas ? 0 : (harga - dp).clamp(0, double.infinity);
+
     final DateTime tgl = order['waktu'] as DateTime;
-    final String layanan = (order['layanan'] as String?)?.isNotEmpty == true
-        ? order['layanan']
-        : '-';
+    final String layanan = order['layanan_nama'] as String;
+    final String statusOrder = order['status_order'] as String;
+    final String admin = order['admin'] as String;
+    final String nomerHp = order['nomer_hp'] as String;
 
     showModalBottomSheet(
       context: context,
@@ -277,6 +301,18 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
         final theme = Theme.of(ctx);
         final bodyLarge = theme.textTheme.bodyLarge;
         final bodySmall = theme.textTheme.bodySmall;
+
+        // Warna: lunas = hijau, dp = oranye, belum bayar = merah
+        final Color statusColor = lunas
+            ? const Color(0xff16A34A)
+            : hasDP
+            ? const Color(0xffD97706)
+            : const Color(0xffDC2626);
+        final String statusLabel = lunas
+            ? 'Lunas'
+            : hasDP
+            ? 'DP'
+            : 'Belum Bayar';
 
         return Container(
           decoration: BoxDecoration(
@@ -303,67 +339,84 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                   ),
                 ),
                 const SizedBox(height: 16),
+
+                // Header
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      (order['order_id'] as String? ?? '-'),
+                      order['nomor_pelanggan'] as String,
                       style: bodyLarge?.copyWith(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                     Text(
-                      _formatRp(biaya),
+                      _formatRp(harga),
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
-                        color: belumLunas
-                            ? const Color(0xffD97706)
-                            : const Color(0xff16A34A),
+                        color: statusColor,
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 10),
+
+                // Badge status bayar
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 12,
                     vertical: 5,
                   ),
                   decoration: BoxDecoration(
-                    color: belumLunas
-                        ? const Color(0xffFEE2E2)
-                        : const Color(0xffDCFCE7),
+                    color: statusColor.withOpacity(0.12),
                     borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: statusColor.withOpacity(0.4)),
                   ),
                   child: Text(
-                    belumLunas ? 'Belum Bayar' : 'Lunas',
+                    statusLabel,
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: belumLunas
-                          ? const Color(0xffDC2626)
-                          : const Color(0xff16A34A),
+                      color: statusColor,
                     ),
                   ),
                 ),
                 const SizedBox(height: 20),
+
+                // Pelanggan
                 _sheetSection('PELANGGAN', Icons.person_outline_rounded),
                 const SizedBox(height: 8),
                 Text(
-                  (order['nama'] as String? ?? '-'),
+                  order['nama'] as String,
                   style: bodyLarge?.copyWith(
                     fontSize: 15,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
                 Text(
-                  (order['nip'] as String? ?? '-'),
+                  order['nomor_pelanggan'] as String,
                   style: bodySmall?.copyWith(fontSize: 13),
                 ),
+                if (nomerHp.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.phone_outlined,
+                        size: 13,
+                        color: theme.textTheme.bodySmall?.color,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(nomerHp, style: bodySmall?.copyWith(fontSize: 12)),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 16),
-                _sheetSection('LAYANAN', Icons.medical_services_outlined),
+
+                // Layanan
+                _sheetSection('LAYANAN', Icons.local_laundry_service_outlined),
                 const SizedBox(height: 8),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -379,44 +432,77 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                     ),
                     Expanded(
                       child: Text(
-                        '$layanan — ${_formatRp(biaya)}',
+                        '$layanan — ${_formatRp(harga)}',
                         style: bodyLarge?.copyWith(fontSize: 13),
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 16),
-                _sheetSection('INFORMASI WAKTU', Icons.calendar_month_outlined),
+
+                // Status order
+                _sheetSection('STATUS ORDER', Icons.assignment_outlined),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    _statusBadge(statusOrder),
+                    const SizedBox(width: 10),
+                    Text(
+                      'Admin: $admin',
+                      style: bodySmall?.copyWith(fontSize: 12),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // Waktu
+                _sheetSection('WAKTU ORDER', Icons.calendar_month_outlined),
                 const SizedBox(height: 8),
                 _sheetTimeRow(
-                  Icons.add_circle_outline_rounded,
-                  'Dibuat',
+                  Icons.access_time_rounded,
+                  'Masuk',
                   DateFormat('d MMM yyyy, HH:mm', 'id').format(tgl),
                   bodySmall,
                 ),
                 const SizedBox(height: 16),
+
+                // Pembayaran — tampilkan breakdown jika ada DP
                 _sheetSection('PEMBAYARAN', Icons.credit_card_outlined),
                 const SizedBox(height: 8),
                 _sheetPayRow(
                   'Total',
-                  _formatRp(biaya),
+                  _formatRp(harga),
                   bodySmall: bodySmall,
                   valueStyle: bodyLarge?.copyWith(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
+                if (hasDP) ...[
+                  const SizedBox(height: 6),
+                  _sheetPayRow(
+                    'DP Terbayar',
+                    _formatRp(dp),
+                    bodySmall: bodySmall,
+                    valueStyle: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xffD97706),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 6),
+                // Sisa / Piutang
                 _sheetPayRow(
-                  'Status',
-                  belumLunas ? 'Belum Bayar' : 'Lunas',
+                  lunas ? 'Status' : 'Sisa Tagihan',
+                  lunas ? 'Lunas' : _formatRp(sisaBayar),
                   bodySmall: bodySmall,
                   valueStyle: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
-                    color: belumLunas
-                        ? const Color(0xffDC2626)
-                        : const Color(0xff16A34A),
+                    color: lunas
+                        ? const Color(0xff16A34A)
+                        : const Color(0xffDC2626),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -425,82 +511,6 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
           ),
         );
       },
-    );
-  }
-
-  Widget _sheetSection(String label, IconData icon) {
-    return Row(
-      children: [
-        Container(
-          width: 3,
-          height: 16,
-          decoration: BoxDecoration(
-            color: kPrimary,
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Icon(
-          icon,
-          size: 14,
-          color: Theme.of(context).textTheme.bodySmall?.color,
-        ),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            fontSize: 11,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 0.8,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _sheetTimeRow(
-    IconData icon,
-    String label,
-    String value,
-    TextStyle? bodySmall, {
-    Color? color,
-  }) {
-    return Row(
-      children: [
-        Icon(
-          icon,
-          size: 14,
-          color: color ?? Theme.of(context).textTheme.bodySmall?.color,
-        ),
-        const SizedBox(width: 8),
-        SizedBox(
-          width: 90,
-          child: Text(label, style: bodySmall?.copyWith(fontSize: 13)),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-            color: color ?? Theme.of(context).textTheme.bodyLarge?.color,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _sheetPayRow(
-    String label,
-    String value, {
-    TextStyle? bodySmall,
-    TextStyle? valueStyle,
-  }) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(label, style: bodySmall?.copyWith(fontSize: 13)),
-        Text(value, style: valueStyle),
-      ],
     );
   }
 
@@ -616,15 +626,30 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
             GestureDetector(
               onTap: () async {
                 Navigator.pop(context);
-                final DateTimeRange? range =
-                    await CalendarHelper.showFullDatePicker(context);
+                final DateTimeRange? range = await showDateRangePicker(
+                  context: context,
+                  firstDate: DateTime(2020),
+                  lastDate: DateTime.now(),
+                  initialDateRange: DateTimeRange(
+                    start: _startDate,
+                    end: _endDate,
+                  ),
+                  builder: (ctx, child) => Theme(
+                    data: Theme.of(ctx).copyWith(
+                      colorScheme: Theme.of(
+                        ctx,
+                      ).colorScheme.copyWith(primary: kPrimary),
+                    ),
+                    child: child!,
+                  ),
+                );
                 if (range != null) {
                   setState(() {
                     _selectedPeriode = 'Custom';
                     _startDate = range.start;
                     _endDate = range.end;
                   });
-                  await _fetchData();
+                  _applyFilter();
                 }
               },
               child: Container(
@@ -693,7 +718,7 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
       _startDate = s;
       _endDate = e;
     });
-    _fetchData();
+    _applyFilter();
   }
 
   // ════════════════════════════════════════════════════════════
@@ -707,14 +732,51 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
 
   String _formatPeriodeLabel() {
     if (_selectedPeriode == 'Custom') {
-      return '${DateFormat('d MMM', 'id').format(_startDate)} - '
+      return '${DateFormat('d MMM', 'id').format(_startDate)} – '
           '${DateFormat('d MMM yyyy', 'id').format(_endDate)}';
     }
     return _selectedPeriode;
   }
 
   double _grupTotal(List<Map<String, dynamic>> items) =>
-      items.fold(0, (sum, e) => sum + (e['biaya'] as double));
+      items.fold(0, (sum, e) => sum + (e['harga_total'] as double));
+
+  Color _orderStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'antrian':
+        return const Color(0xFF4F6FE8);
+      case 'proses':
+        return const Color(0xFFF59E0B);
+      case 'siap ambil':
+        return const Color(0xFF0D9488);
+      case 'siap antar':
+        return const Color(0xFF7C3AED);
+      case 'selesai':
+        return const Color(0xFF16A34A);
+      default:
+        return Colors.grey;
+    }
+  }
+
+  Widget _statusBadge(String status) {
+    final color = _orderStatusColor(status);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Text(
+        status.isEmpty ? '-' : status,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
+      ),
+    );
+  }
 
   // ════════════════════════════════════════════════════════════
   // BUILD
@@ -731,7 +793,7 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
       body: GlobalRefresh(
         onRefresh: _fetchData,
         child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
+            ? const Center(child: CircularProgressIndicator(color: kPrimary))
             : CustomScrollView(
                 slivers: [
                   SliverToBoxAdapter(
@@ -740,14 +802,7 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Laporan Penjualan',
-                            style: bodyLarge?.copyWith(
-                              fontSize: 22,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 14),
+                          // Periode + search
                           Row(
                             children: [
                               GestureDetector(
@@ -794,23 +849,35 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                               ),
                               const Spacer(),
                               Text(
-                                '${DateFormat('d MMM yyyy', 'id').format(_startDate)} - '
-                                '${DateFormat('d MMM', 'id').format(_endDate)}...',
+                                '${DateFormat('d MMM', 'id').format(_startDate)} – '
+                                '${DateFormat('d MMM yyyy', 'id').format(_endDate)}',
                                 style: bodySmall?.copyWith(fontSize: 11),
                               ),
                               const SizedBox(width: 8),
                               GestureDetector(
                                 onTap: () =>
                                     setState(() => _showSearch = !_showSearch),
-                                child: Icon(
-                                  Icons.search_rounded,
-                                  color: Theme.of(
-                                    context,
-                                  ).textTheme.bodySmall?.color,
+                                child: Container(
+                                  padding: const EdgeInsets.all(6),
+                                  decoration: BoxDecoration(
+                                    color: _showSearch
+                                        ? kPrimary.withOpacity(0.1)
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Icon(
+                                    Icons.search_rounded,
+                                    color: _showSearch
+                                        ? kPrimary
+                                        : Theme.of(
+                                            context,
+                                          ).textTheme.bodySmall?.color,
+                                  ),
                                 ),
                               ),
                             ],
                           ),
+
                           if (_showSearch) ...[
                             const SizedBox(height: 10),
                             TextField(
@@ -822,11 +889,24 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                               },
                               decoration: InputDecoration(
                                 hintText:
-                                    'Cari nama pasien atau nomor order...',
+                                    'Cari nama, nomor pelanggan, atau ID order...',
                                 prefixIcon: const Icon(
                                   Icons.search_rounded,
                                   size: 20,
                                 ),
+                                suffixIcon: _searchQuery.isNotEmpty
+                                    ? GestureDetector(
+                                        onTap: () {
+                                          _searchCtrl.clear();
+                                          _searchQuery = '';
+                                          _applyFilter();
+                                        },
+                                        child: const Icon(
+                                          Icons.close,
+                                          size: 18,
+                                        ),
+                                      )
+                                    : null,
                                 filled: true,
                                 fillColor: cardColor,
                                 contentPadding: const EdgeInsets.symmetric(
@@ -845,10 +925,19 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                                     color: Theme.of(context).dividerColor,
                                   ),
                                 ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: const BorderSide(
+                                    color: kPrimary,
+                                    width: 1.5,
+                                  ),
+                                ),
                               ),
                             ),
                           ],
                           const SizedBox(height: 16),
+
+                          // Summary 2×2
                           Row(
                             children: [
                               _summaryCard(
@@ -909,6 +998,8 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                       ),
                     ),
                   ),
+
+                  // List grouped
                   if (_grouped.isEmpty)
                     SliverFillRemaining(
                       child: Center(
@@ -965,8 +1056,7 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                                   ),
                                   const Spacer(),
                                   Text(
-                                    '${items.length} Trx  '
-                                    '${_formatRp(_grupTotal(items))}',
+                                    '${items.length} Trx  ${_formatRp(_grupTotal(items))}',
                                     style: TextStyle(
                                       fontSize: 12,
                                       color: kPrimary,
@@ -989,10 +1079,13 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                         );
                       }, childCount: _grouped.length),
                     ),
+
                   const SliverToBoxAdapter(child: SizedBox(height: 80)),
                 ],
               ),
       ),
+
+      // Bottom bar
       bottomNavigationBar: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         decoration: BoxDecoration(
@@ -1022,7 +1115,9 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
               children: [
                 Text(
                   'Pendapatan Kotor',
-                  style: bodySmall?.copyWith(fontSize: 11),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(fontSize: 11),
                 ),
                 Text(
                   _formatRp(_totalOmzet),
@@ -1034,6 +1129,27 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                 ),
               ],
             ),
+            const Spacer(),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  'Terbayar',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(fontSize: 11),
+                ),
+                Text(
+                  _formatRp(_totalTerbayar),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xff16A34A),
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -1041,7 +1157,7 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
   }
 
   // ════════════════════════════════════════════════════════════
-  // WIDGETS
+  // WIDGET HELPERS
   // ════════════════════════════════════════════════════════════
   Widget _summaryCard({
     required Color cardColor,
@@ -1100,147 +1216,287 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
     TextStyle? bodyLarge,
     TextStyle? bodySmall,
   ) {
-    final String orderId = order['order_id'] ?? '-';
-    final String nama = order['nama'] ?? '-';
-    final double biaya = order['biaya'] as double;
-    final String status = order['status'] ?? '-';
+    final String nomorPelanggan = order['nomor_pelanggan'] as String;
+    final String nama = order['nama'] as String;
+    final String layanan = order['layanan_nama'] as String;
+    final double harga = order['harga_total'] as double;
+    final double dp = order['dp_amount'] as double;
+    final String statusBayar = order['status_bayar'] as String;
+    final String statusOrder = order['status_order'] as String;
     final DateTime waktu = order['waktu'] as DateTime;
 
-    final bool lunas = status != 'Belum Lunas';
-    final Color statusColor = lunas
+    final bool lunas = statusBayar == 'lunas';
+    final bool hasDP = statusBayar == 'dp' && dp > 0;
+
+    // Sisa tagihan nyata
+    final double sisaBayar = lunas ? 0 : (harga - dp).clamp(0, double.infinity);
+
+    // Warna & label status bayar di card
+    final Color bayarColor = lunas
         ? const Color(0xff16A34A)
-        : const Color(0xffD97706);
-    final String statusLabel = lunas ? 'Lunas' : 'Belum Bayar';
-    final IconData statusIcon = lunas
+        : hasDP
+        ? const Color(0xffD97706)
+        : const Color(0xffDC2626);
+    final String bayarLabel = lunas
+        ? 'Lunas'
+        : hasDP
+        ? 'DP'
+        : 'Belum Bayar';
+    final IconData bayarIcon = lunas
         ? Icons.check_circle_outline_rounded
+        : hasDP
+        ? Icons.payments_outlined
         : Icons.hourglass_empty_rounded;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Theme.of(context).dividerColor),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    orderId,
-                    style: bodyLarge?.copyWith(
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                Text(
-                  _formatRp(biaya),
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: lunas
-                        ? const Color(0xff16A34A)
-                        : const Color(0xffDC2626),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(nama, style: bodyLarge?.copyWith(fontSize: 13)),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                Icon(
-                  Icons.calendar_today_outlined,
-                  size: 11,
-                  color: Theme.of(context).textTheme.bodySmall?.color,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  DateFormat('d MMM yyyy, HH:mm', 'id').format(waktu),
-                  style: bodySmall?.copyWith(fontSize: 11),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: statusColor.withOpacity(0.3)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(statusIcon, color: statusColor, size: 12),
-                      const SizedBox(width: 4),
-                      Text(
-                        statusLabel,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: statusColor,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (!lunas) ...[
-                  const SizedBox(width: 8),
-                  Text(
-                    'Sisa ${_formatRp(biaya)}',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: Color(0xffDC2626),
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-                const Spacer(),
-                GestureDetector(
-                  onTap: () => _showDetailOrder(order),
-                  child: Row(
-                    children: [
-                      Text(
-                        'Lihat Detail',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: kPrimary,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Icon(
-                        Icons.arrow_forward_ios_rounded,
-                        size: 12,
-                        color: kPrimary,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+    // Nilai yang ditampilkan di kanan atas: harga total
+    // Nilai merah/hijau = sisa tagihan (bukan harga_total)
+    final Color nilaiColor = lunas
+        ? const Color(0xff16A34A)
+        : const Color(0xffDC2626);
+    // Tampilkan sisa jika belum lunas, harga_total jika lunas
+    final String nilaiText = lunas ? _formatRp(harga) : _formatRp(sisaBayar);
+
+    return GestureDetector(
+      onTap: () => _showDetailOrder(order),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Theme.of(context).dividerColor),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.03),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
             ),
           ],
         ),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Baris 1: nomor + nilai
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          nomorPelanggan,
+                          style: bodyLarge?.copyWith(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          nama,
+                          style: Theme.of(
+                            context,
+                          ).textTheme.bodySmall?.copyWith(fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      // Total order (abu-abu kecil)
+                      if (!lunas && dp > 0)
+                        Text(
+                          _formatRp(harga),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade400,
+                            decoration: TextDecoration.lineThrough,
+                          ),
+                        ),
+                      // Sisa / nilai utama
+                      Text(
+                        nilaiText,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: nilaiColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 6),
+
+              // Baris 2: layanan + waktu
+              Row(
+                children: [
+                  Icon(
+                    Icons.local_laundry_service_outlined,
+                    size: 12,
+                    color: Theme.of(context).textTheme.bodySmall?.color,
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      layanan,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: bodySmall?.copyWith(fontSize: 11),
+                    ),
+                  ),
+                  Icon(
+                    Icons.access_time_rounded,
+                    size: 11,
+                    color: Theme.of(context).textTheme.bodySmall?.color,
+                  ),
+                  const SizedBox(width: 3),
+                  Text(
+                    DateFormat('d MMM, HH:mm', 'id').format(waktu),
+                    style: bodySmall?.copyWith(fontSize: 11),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 8),
+
+              // Baris 3: badge + detail
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: bayarColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: bayarColor.withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(bayarIcon, color: bayarColor, size: 12),
+                        const SizedBox(width: 4),
+                        Text(
+                          bayarLabel,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: bayarColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  if (statusOrder.isNotEmpty) _statusBadge(statusOrder),
+                  const Spacer(),
+                  GestureDetector(
+                    onTap: () => _showDetailOrder(order),
+                    child: Row(
+                      children: [
+                        Text(
+                          'Detail',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: kPrimary,
+                          ),
+                        ),
+                        const SizedBox(width: 2),
+                        Icon(
+                          Icons.arrow_forward_ios_rounded,
+                          size: 11,
+                          color: kPrimary,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
+    );
+  }
+
+  // Sheet helpers
+  Widget _sheetSection(String label, IconData icon) {
+    return Row(
+      children: [
+        Container(
+          width: 3,
+          height: 16,
+          decoration: BoxDecoration(
+            color: kPrimary,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Icon(
+          icon,
+          size: 14,
+          color: Theme.of(context).textTheme.bodySmall?.color,
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 0.8,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _sheetTimeRow(
+    IconData icon,
+    String label,
+    String value,
+    TextStyle? bodySmall, {
+    Color? color,
+  }) {
+    return Row(
+      children: [
+        Icon(
+          icon,
+          size: 14,
+          color: color ?? Theme.of(context).textTheme.bodySmall?.color,
+        ),
+        const SizedBox(width: 8),
+        SizedBox(
+          width: 60,
+          child: Text(label, style: bodySmall?.copyWith(fontSize: 13)),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+            color: color ?? Theme.of(context).textTheme.bodyLarge?.color,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _sheetPayRow(
+    String label,
+    String value, {
+    TextStyle? bodySmall,
+    TextStyle? valueStyle,
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: bodySmall?.copyWith(fontSize: 13)),
+        Text(value, style: valueStyle),
+      ],
     );
   }
 
@@ -1263,10 +1519,8 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
           centerTitle: true,
           actions: [
             IconButton(
-              icon: const Icon(Icons.download_rounded, color: Colors.white),
-              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Fitur export segera hadir')),
-              ),
+              icon: const Icon(Icons.refresh_rounded, color: Colors.white),
+              onPressed: _fetchData,
             ),
           ],
           leading: Navigator.canPop(context)

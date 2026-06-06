@@ -8,7 +8,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.mdncare_project"
+    namespace = "com.mdn.laundry"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -26,7 +26,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.madeenacare"
+        applicationId = "com.mdn.laundry"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -39,6 +39,18 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+
+    lintOptions {
+        disable 'InvalidPackage'
+        warningsAsErrors false
+        abortOnError false
+        quiet true  // ← ini yang suppress warning di terminal
+    }
+
+    kotlinOptions {
+        suppressWarnings = true  // ← suppress Kotlin deprecation warnings
+    }
+
 }
 
 flutter {

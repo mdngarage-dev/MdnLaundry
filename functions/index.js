@@ -1,126 +1,120 @@
-// ─── functions/index.js (Gen 1 - Spark Plan Compatible) ─────────────────────
-// Menggunakan firebase-functions v1 (pubsub.schedule) bukan v2
-// Kompatibel dengan Firebase Spark plan (gratis)
-// Cron: setiap hari jam 08:00 WIB
+// ─── functions/index.js ──────────────────────────────────────────────────────
+// firebase-functions v5+ (Gen 2 syntax)
+// Notifikasi laundry: kirim FCM 4 jam sebelum estimasi selesai
 // ─────────────────────────────────────────────────────────────────────────────
 
-const functions = require("firebase-functions");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { onDocumentUpdated } = require("firebase-functions/v2/firestore");
 const admin = require("firebase-admin");
 
 admin.initializeApp();
 
-exports.notifHarianKB = functions
-  .region("asia-southeast1") // Singapore — paling dekat, support scheduled functions
-  .pubsub.schedule("0 8 * * *") // 01:00 UTC = 08:00 WIB
-  .timeZone("Asia/Jakarta")
-  .onRun(async (context) => {
+// ─── Scheduled: cek setiap 30 menit ─────────────────────────────────────────
+exports.notifLaundryEstimasi = onSchedule(
+  {
+    schedule: "*/30 * * * *",
+    timeZone: "Asia/Jakarta",
+    region: "asia-southeast1",
+  },
+  async (event) => {
     const db = admin.firestore();
     const messaging = admin.messaging();
 
-    // ── Hitung rentang tanggal ──────────────────────────────────────────────
     const now = new Date();
-    const hariIni = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const batasAkhir = new Date(hariIni);
-    batasAkhir.setDate(batasAkhir.getDate() + 3);
 
-    console.log(`Cek KB jatuh tempo: ${_fmt(hariIni)} s/d ${_fmt(batasAkhir)}`);
+    // Window notif: 3.5 ~ 4.5 jam dari sekarang
+    const windowMin = new Date(now.getTime() + 3.5 * 60 * 60 * 1000);
+    const windowMax = new Date(now.getTime() + 4.5 * 60 * 60 * 1000);
+
+    console.log(
+      `[${_fmtWib(now)}] Cek order estimasi selesai antara ${_fmtWib(windowMin)} - ${_fmtWib(windowMax)} WIB`
+    );
 
     try {
-      // ── Ambil semua rekam_medis yang punya tgl_kembali tidak kosong ───────
       const snap = await db
-        .collection("rekam_medis")
-        .where("tgl_kembali", "!=", "")
+        .collection("order")
+        .where("status", "==", "proses")
         .get();
 
       if (snap.empty) {
-        console.log("Tidak ada dokumen dengan tgl_kembali.");
-        return null;
+        console.log("Tidak ada order dengan status proses.");
+        return;
       }
 
-      // ── Dedup per NIP: ambil rekam medis terbaru ─────────────────────────
-      const latestPerNip = {};
+      console.log(`Total order proses: ${snap.size}`);
+
+      const orderJatuhTempo = [];
+
       snap.forEach((doc) => {
         const data = doc.data();
-        const nip = data.nomer_induk_pasien || "";
-        if (!nip) return;
+        const docId = doc.id;
 
-        const tglStr = (data.tgl_kembali || "").trim();
-        if (!tglStr) return;
+        const waktuOrder = data.waktu_order;
+        const durasiJam = data.durasi_jam;
 
-        const tglKembali = _parseTgl(tglStr);
-        if (!tglKembali) return;
+        if (!waktuOrder || durasiJam === undefined || durasiJam === null) {
+          console.log(`Skip ${docId}: waktu_order atau durasi_jam kosong`);
+          return;
+        }
 
-        // Filter: hanya yang jatuh tempo hari ini s/d 3 hari ke depan
-        if (tglKembali < hariIni || tglKembali > batasAkhir) return;
+        const waktuOrderDate = waktuOrder.toDate
+          ? waktuOrder.toDate()
+          : new Date(waktuOrder._seconds * 1000);
 
-        // Simpan yang paling baru per NIP
-        if (!latestPerNip[nip]) {
-          latestPerNip[nip] = { data, tglKembali };
-        } else {
-          const existing = latestPerNip[nip].data.waktu_kunjungan || "";
-          const current = data.waktu_kunjungan || "";
-          if (current > existing) {
-            latestPerNip[nip] = { data, tglKembali };
-          }
+        const estimasiSelesai = new Date(
+          waktuOrderDate.getTime() + durasiJam * 60 * 60 * 1000
+        );
+
+        if (estimasiSelesai >= windowMin && estimasiSelesai <= windowMax) {
+          orderJatuhTempo.push({
+            docId,
+            nama: data.nama_pelanggan || "Pelanggan",
+            noHp: data.no_hp || "",
+            layanan: data.layanan_nama || "Laundry",
+            estimasiSelesai,
+            notifSudahDikirim: data.notif_estimasi_terkirim === true,
+          });
         }
       });
 
-      const listPasien = Object.entries(latestPerNip);
-
-      if (listPasien.length === 0) {
-        console.log("Tidak ada pasien KB yang jatuh tempo hari ini.");
-        return null;
+      if (orderJatuhTempo.length === 0) {
+        console.log("Tidak ada order dalam window notifikasi.");
+        return;
       }
 
-      console.log(`Ditemukan ${listPasien.length} pasien KB jatuh tempo.`);
+      const perluNotif = orderJatuhTempo.filter((o) => !o.notifSudahDikirim);
 
-      // ── Ambil nama pasien dari collection 'pasien' ───────────────────────
-      const nipList = listPasien.map(([nip]) => nip);
-      const namaPasien = {};
-      const chunkSize = 30;
-
-      for (let i = 0; i < nipList.length; i += chunkSize) {
-        const chunk = nipList.slice(i, i + chunkSize);
-        const pasienSnap = await db
-          .collection("pasien")
-          .where("nomer_induk_pasien", "in", chunk)
-          .get();
-        pasienSnap.forEach((doc) => {
-          const d = doc.data();
-          namaPasien[d.nomer_induk_pasien] =
-            d.nama_lengkap || d.nomer_induk_pasien;
-        });
+      if (perluNotif.length === 0) {
+        console.log("Semua order dalam window sudah dapat notifikasi.");
+        return;
       }
 
-      // ── Susun isi notifikasi ─────────────────────────────────────────────
+      console.log(`Order perlu notifikasi: ${perluNotif.length}`);
+
+      // ── Susun pesan ───────────────────────────────────────────────────────
       let judulNotif;
       let bodyNotif;
 
-      if (listPasien.length === 1) {
-        const [nip, { tglKembali }] = listPasien[0];
-        const nama = namaPasien[nip] || nip;
-        const selisih = _selisihHari(hariIni, tglKembali);
-        const waktuStr = _labelWaktu(selisih);
-
-        judulNotif = "⏰ Pengingat Jadwal KB";
-        bodyNotif = `Pasien ${nama} jadwal kontrol KB ${waktuStr} (${_fmtTampil(tglKembali)})`;
+      if (perluNotif.length === 1) {
+        const o = perluNotif[0];
+        judulNotif = "🧺 Laundry Segera Selesai";
+        bodyNotif = `${o.layanan} milik ${o.nama} estimasi selesai jam ${_fmtJam(o.estimasiSelesai)} — mohon siapkan pesanan.`;
       } else {
-        const namaList = listPasien
+        const namaList = perluNotif
           .slice(0, 3)
-          .map(([nip]) => namaPasien[nip] || nip)
+          .map((o) => o.nama)
           .join(", ");
         const sisanya =
-          listPasien.length > 3 ? ` +${listPasien.length - 3} lainnya` : "";
-
-        judulNotif = `⏰ ${listPasien.length} Pasien KB Jatuh Tempo`;
-        bodyNotif = `${namaList}${sisanya} — Buka app untuk detail`;
+          perluNotif.length > 3 ? ` +${perluNotif.length - 3} lainnya` : "";
+        judulNotif = `🧺 ${perluNotif.length} Laundry Segera Selesai`;
+        bodyNotif = `${namaList}${sisanya} — estimasi selesai ~4 jam lagi.`;
       }
 
       console.log(`Kirim FCM: "${judulNotif}" | "${bodyNotif}"`);
 
-      // ── Kirim FCM ke topic admin_klinik ──────────────────────────────────
+      // ── Kirim FCM ─────────────────────────────────────────────────────────
       const message = {
-        topic: "admin_klinik",
+        topic: "admin_Madeena_Laundry",
         notification: {
           title: judulNotif,
           body: bodyNotif,
@@ -128,7 +122,7 @@ exports.notifHarianKB = functions
         android: {
           priority: "high",
           notification: {
-            channelId: "kb_reminder",
+            channelId: "laundry_reminder",
             sound: "default",
             clickAction: "FLUTTER_NOTIFICATION_CLICK",
           },
@@ -137,64 +131,67 @@ exports.notifHarianKB = functions
           payload: {
             aps: {
               sound: "default",
-              badge: listPasien.length,
+              badge: perluNotif.length,
             },
           },
         },
         data: {
-          type: "kb_reminder",
-          jumlah: listPasien.length.toString(),
+          type: "laundry_estimasi",
+          jumlah: perluNotif.length.toString(),
           route: "/notifikasi",
         },
       };
 
       const response = await messaging.send(message);
       console.log(`✅ FCM terkirim. Message ID: ${response}`);
-      return null;
+
+      // ── Tandai sudah dapat notif ──────────────────────────────────────────
+      const batch = db.batch();
+      perluNotif.forEach((o) => {
+        const ref = db.collection("order").doc(o.docId);
+        batch.update(ref, { notif_estimasi_terkirim: true });
+      });
+      await batch.commit();
+      console.log(`✅ ${perluNotif.length} order ditandai notif_estimasi_terkirim = true`);
 
     } catch (err) {
-      console.error("❌ Error notifHarianKB:", err);
-      return null;
+      console.error("❌ Error notifLaundryEstimasi:", err);
     }
-  });
+  }
+);
 
-// ─── Helper functions ────────────────────────────────────────────────────────
+// ─── Realtime trigger: reset flag jika durasi/waktu order diubah ─────────────
+exports.resetNotifFlagOnOrderUpdate = onDocumentUpdated(
+  {
+    document: "order/{orderId}",
+    region: "asia-southeast1",
+  },
+  (event) => {
+    const before = event.data.before.data();
+    const after = event.data.after.data();
 
-function _parseTgl(str) {
-  try {
-    const [d, m, y] = str.split("-");
-    if (d && m && y && y.length === 4) {
-      const dt = new Date(parseInt(y), parseInt(m) - 1, parseInt(d));
-      if (!isNaN(dt.getTime())) return dt;
+    const durasiChanged = before.durasi_jam !== after.durasi_jam;
+    const waktuChanged =
+      JSON.stringify(before.waktu_order) !== JSON.stringify(after.waktu_order);
+
+    if ((durasiChanged || waktuChanged) && after.notif_estimasi_terkirim === true) {
+      console.log(`Reset notif flag untuk order ${event.params.orderId}`);
+      return event.data.after.ref.update({ notif_estimasi_terkirim: false });
     }
-  } catch (_) {}
-  return null;
+
+    return null;
+  }
+);
+
+// ─── Helper ──────────────────────────────────────────────────────────────────
+function _fmtWib(date) {
+  const wib = new Date(date.getTime() + 7 * 60 * 60 * 1000);
+  const pad = (n) => n.toString().padStart(2, "0");
+  return `${pad(wib.getUTCDate())}-${pad(wib.getUTCMonth() + 1)}-${wib.getUTCFullYear()} ${pad(wib.getUTCHours())}:${pad(wib.getUTCMinutes())}`;
 }
 
-function _selisihHari(dari, ke) {
-  const ms = ke.getTime() - dari.getTime();
-  return Math.round(ms / (1000 * 60 * 60 * 24));
-}
-
-function _labelWaktu(selisih) {
-  if (selisih === 0) return "hari ini";
-  if (selisih === 1) return "besok";
-  if (selisih > 1) return `${selisih} hari lagi`;
-  return `terlambat ${Math.abs(selisih)} hari`;
-}
-
-function _fmt(date) {
-  return `${date.getDate().toString().padStart(2, "0")}/${(date.getMonth() + 1)
-    .toString()
-    .padStart(2, "0")}/${date.getFullYear()}`;
-}
-
-function _fmtTampil(date) {
-  const bulan = [
-    "Jan","Feb","Mar","Apr","Mei","Jun",
-    "Jul","Agt","Sep","Okt","Nov","Des",
-  ];
-  return `${date.getDate().toString().padStart(2, "0")} ${
-    bulan[date.getMonth()]
-  } ${date.getFullYear()}`;
+function _fmtJam(date) {
+  const wib = new Date(date.getTime() + 7 * 60 * 60 * 1000);
+  const pad = (n) => n.toString().padStart(2, "0");
+  return `${pad(wib.getUTCHours())}:${pad(wib.getUTCMinutes())} WIB`;
 }

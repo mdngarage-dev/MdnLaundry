@@ -140,8 +140,8 @@ class _FormPengeluaranPageState extends State<FormPengeluaranPage> {
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
-                            const Color(0xFF0D9488),
-                            const Color(0xFF0D9488).withOpacity(0.75),
+                            const Color(0xFF5B9BD5),
+                            const Color(0xFF5B9BD5).withOpacity(0.75),
                           ],
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
@@ -175,7 +175,7 @@ class _FormPengeluaranPageState extends State<FormPengeluaranPage> {
                                 ),
                               ),
                               Text(
-                                "Catat pengeluaran operasional klinik",
+                                "Catat pengeluaran operasional Madeena Laundry",
                                 style: TextStyle(
                                   color: Colors.white.withOpacity(0.8),
                                   fontSize: 12,
@@ -219,12 +219,33 @@ class _FormPengeluaranPageState extends State<FormPengeluaranPage> {
                         RupiahInputFormatter(),
                       ],
                       style: bodyLarge?.copyWith(fontSize: 14),
-                      decoration: _inputDecoration(
-                        hint: "Contoh: 150,000",
-                        icon: Icons.money,
-                        cardColor: cardColor,
-                        prefix: "Rp ",
-                      ),
+                      decoration:
+                          _inputDecoration(
+                            hint: "Contoh: 150.000",
+                            icon: Icons.money,
+                            cardColor: cardColor,
+                            prefix: null,
+                          ).copyWith(
+                            prefixText: null,
+                            prefix: null,
+                            prefixIconConstraints: const BoxConstraints(
+                              minWidth: 48,
+                              minHeight: 48,
+                            ),
+                            prefixIcon: SizedBox(
+                              width: 48,
+                              child: Center(
+                                child: Text(
+                                  'Rp',
+                                  style: bodyLarge?.copyWith(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
                       validator: (val) {
                         if (val == null || val.trim().isEmpty) {
                           return 'Nominal tidak boleh kosong';
@@ -404,7 +425,7 @@ class _FormPengeluaranPageState extends State<FormPengeluaranPage> {
                             style: const TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.bold,
-                              color: Color(0xFF0D9488),
+                              color: Color(0xFF5B9BD5),
                             ),
                           ),
                         ],
@@ -418,9 +439,9 @@ class _FormPengeluaranPageState extends State<FormPengeluaranPage> {
                       child: ElevatedButton.icon(
                         onPressed: _simpanPengeluaran,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF0D9488),
+                          backgroundColor: const Color(0xFF5B9BD5),
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 15),
+                          padding: const EdgeInsets.symmetric(vertical: 20),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -478,7 +499,7 @@ class _FormPengeluaranPageState extends State<FormPengeluaranPage> {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFF0D9488), width: 1.5),
+        borderSide: const BorderSide(color: Color(0xFF5B9BD5), width: 1.5),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
@@ -500,7 +521,7 @@ class _FormPengeluaranPageState extends State<FormPengeluaranPage> {
             "Input Pengeluaran",
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
           ),
-          backgroundColor: const Color(0xFF0D9488),
+          backgroundColor: kPrimary,
           foregroundColor: Colors.white,
           elevation: 2,
           centerTitle: true,

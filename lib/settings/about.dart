@@ -37,11 +37,11 @@ class TentangAplikasiPage extends StatelessWidget {
                 ],
               ),
               child: CircleAvatar(
-                radius: 45,
+                radius: 50,
                 backgroundColor: kPrimary.withOpacity(0.1),
                 child: Icon(
-                  Icons.local_hospital_rounded,
-                  size: 50,
+                  Icons.local_laundry_service_rounded,
+                  size: 70,
                   color: kPrimary,
                 ),
               ),
@@ -50,7 +50,7 @@ class TentangAplikasiPage extends StatelessWidget {
 
             // --- NAMA APLIKASI ---
             Text(
-              "Klinik Ku Mobile",
+              "Laundry Ku Mobile",
               // ✅ Adaptive bold title
               style: theme.textTheme.bodyLarge?.copyWith(
                 fontSize: 22,
@@ -93,8 +93,8 @@ class TentangAplikasiPage extends StatelessWidget {
                   ),
                   Divider(height: 20, thickness: 1, color: theme.dividerColor),
                   Text(
-                    "Klinik Ku Mobile adalah sistem manajemen internal klinik yang dirancang khusus untuk mempercepat proses rekam medis, pendaftaran pasien, serta pengelolaan laporan keuangan secara real-time.\n\n"
-                    "Aplikasi ini terintegrasi langsung dengan ekosistem cloud untuk memastikan keamanan data pasien tetap terjaga, mempermudah pelacakan riwayat kunjungan, serta mendukung efisiensi operasional petugas admin dan tenaga medis di outlet.",
+                    "Laundry Ku Mobile adalah sistem manajemen internal Laundry yang dirancang khusus untuk mempercepat proses administrasi laundry, pendaftaran pelanggan, serta pengelolaan laporan keuangan secara real-time.\n\n"
+                    "Aplikasi ini terintegrasi langsung dengan ekosistem cloud untuk memastikan keamanan data pelanggan tetap terjaga, mempermudah pelacakan riwayat kunjungan, serta mendukung efisiensi operasional petugas admin di outlet.",
                     style: theme.textTheme.bodyLarge?.copyWith(
                       fontSize: 14,
                       // ✅ Sedikit lebih muted dari teks utama
@@ -110,7 +110,7 @@ class TentangAplikasiPage extends StatelessWidget {
 
             // --- FOOTER ---
             Text(
-              "© 2026 Klinik Ku. All Rights Reserved.\nPowored by : Rdh. Project",
+              "© 2026 Laundry Ku. All Rights Reserved.\nPowored by : Rdh. Project",
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyLarge?.copyWith(
                 fontSize: 12,

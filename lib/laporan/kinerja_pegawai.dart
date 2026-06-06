@@ -7,28 +7,22 @@ import '../screens/screens.dart';
 // ════════════════════════════════════════════════════════════
 class _PegawaiKinerja {
   final String nama;
-  String role;
-  int orderSelesai;
   int totalOrder;
+  int orderSelesai; // status == 'selesai'
   double totalRevenue;
-  int pasienBaruCount; // untuk on-time rate baru
-  Map<String, int> layananCount;
+  Map<String, int> layananCount; // layanan_nama → jumlah
 
-  _PegawaiKinerja({
-    required this.nama,
-    this.role = 'KARYAWAN',
-    Map<String, int>? layananCount,
-  }) : orderSelesai = 0,
-       totalOrder = 0,
-       totalRevenue = 0,
-       pasienBaruCount = 0,
-       layananCount = layananCount ?? {};
+  _PegawaiKinerja({required this.nama})
+    : totalOrder = 0,
+      orderSelesai = 0,
+      totalRevenue = 0,
+      layananCount = {};
 
   String get id => nama;
 
-  // Rate = (Jumlah Pasien yang Baru Pertama Datang / Total Kunjungan) × 100%
-  double get onTimeRate =>
-      totalOrder == 0 ? 0 : (pasienBaruCount / totalOrder) * 100;
+  /// Completion rate = selesai / total × 100
+  double get completionRate =>
+      totalOrder == 0 ? 0 : (orderSelesai / totalOrder) * 100;
 
   double progressRatio(double maxRevenue) =>
       maxRevenue == 0 ? 0 : (totalRevenue / maxRevenue).clamp(0.0, 1.0);
@@ -55,7 +49,7 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
   double _totalPendapatan = 0;
   double _rerataPegawai = 0;
   int _totalOrder = 0;
-  double _avgOnTimeRate = 0;
+  double _avgCompletionRate = 0;
 
   final Map<String, bool> _expanded = {};
 
@@ -70,33 +64,18 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
   }
 
   // ════════════════════════════════════════════════════════════
-  // FETCH FIRESTORE
-  //
-  // Struktur Firestore (dari foto):
-  //   rekam_medis: admin_pemeriksa, layanan, waktu_kunjungan,
-  //                nomer_induk_pasien, diagnosa, tindakan, dll
-  //   keuangan:    biaya, nomer_induk_pasien, status_bayar,
-  //                waktu_transaksi
-  //
-  // Join: rekam_medis.nomer_induk_pasien == keuangan.nomer_induk_pasien
-  //
-  // On-Time Rate (logika baru):
-  //   Rate = (Pasien yang baru pertama datang / Total Kunjungan) × 100%
-  //   "Baru pertama datang" = nomer_induk_pasien hanya muncul
-  //   1x di seluruh rekam_medis (ALL TIME), bukan hanya periode ini.
+  // FETCH — collection: order
+  //   Fields yang dipakai:
+  //     admin           → nama pegawai
+  //     waktu_order     → Timestamp, filter periode
+  //     harga_total     → revenue per order
+  //     status          → untuk hitung completion rate
+  //     layanan_nama    → breakdown layanan
   // ════════════════════════════════════════════════════════════
   Future<void> _fetchData() async {
     setState(() => _isLoading = true);
     try {
-      final DateFormat fmt = DateFormat('dd/MM/yyyy HH:mm');
-
-      final results = await Future.wait([
-        FirebaseFirestore.instance.collection('rekam_medis').get(),
-        FirebaseFirestore.instance.collection('keuangan').get(),
-      ]);
-
-      final rekamSnap = results[0];
-      final keuanganSnap = results[1];
+      final snap = await FirebaseFirestore.instance.collection('order').get();
 
       final DateTime start = DateTime(
         _startDate.year,
@@ -109,143 +88,71 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
         _endDate.day,
       );
 
-      // ── 1. Hitung total kunjungan ALL TIME per pasien (untuk deteksi pasien baru)
-      final Map<String, int> pasienVisitCountAllTime = {};
-      for (var doc in rekamSnap.docs) {
-        final noInduk = (doc.data()['nomer_induk_pasien'] ?? '')
-            .toString()
-            .trim();
-        if (noInduk.isEmpty) continue;
-        pasienVisitCountAllTime[noInduk] =
-            (pasienVisitCountAllTime[noInduk] ?? 0) + 1;
-      }
-
-      // ── 2. Build map keuangan: nomer_induk_pasien → biaya
-      //       Hanya transaksi dalam periode, LUNAS saja (opsional filter status)
-      //       Key: nomer_induk_pasien, Value: total biaya semua transaksi pasien itu
-      final Map<String, double> keuanganByPasien = {};
-      for (var doc in keuanganSnap.docs) {
-        final data = doc.data();
-        final String waktu = (data['waktu_transaksi'] ?? '').toString().trim();
-        if (waktu.isEmpty) continue;
-
-        DateTime tgl;
-        try {
-          tgl = fmt.parse(waktu);
-        } catch (_) {
-          continue;
-        }
-
-        final hari = DateTime(tgl.year, tgl.month, tgl.day);
-        if (hari.isBefore(start) || hari.isAfter(end)) continue;
-
-        final noInduk = (data['nomer_induk_pasien'] ?? '').toString().trim();
-        if (noInduk.isEmpty) continue;
-
-        final double biaya = (data['biaya'] ?? 0).toDouble();
-        // Akumulasi semua transaksi per pasien dalam periode
-        keuanganByPasien[noInduk] = (keuanganByPasien[noInduk] ?? 0) + biaya;
-      }
-
-      // ── 3. Baca rekam_medis dalam periode
-      //       Setiap kunjungan = 1 record, revenue dibagi rata jika pasien
-      //       punya lebih dari 1 kunjungan di periode yang sama
-
-      // Pertama, hitung dulu berapa kali tiap pasien kunjungan DI PERIODE INI
-      // supaya bisa bagi revenue secara proporsional per kunjungan
-      final Map<String, int> pasienVisitInPeriod = {};
-      for (var doc in rekamSnap.docs) {
-        final data = doc.data();
-        final String waktu = (data['waktu_kunjungan'] ?? '').toString().trim();
-        if (waktu.isEmpty) continue;
-        DateTime tgl;
-        try {
-          tgl = fmt.parse(waktu);
-        } catch (_) {
-          continue;
-        }
-        final hari = DateTime(tgl.year, tgl.month, tgl.day);
-        if (hari.isBefore(start) || hari.isAfter(end)) continue;
-
-        final noInduk = (data['nomer_induk_pasien'] ?? '').toString().trim();
-        if (noInduk.isEmpty) continue;
-        pasienVisitInPeriod[noInduk] = (pasienVisitInPeriod[noInduk] ?? 0) + 1;
-      }
-
-      // ── 4. Akumulasi per pegawai
       final Map<String, _PegawaiKinerja> map = {};
 
-      for (var doc in rekamSnap.docs) {
+      for (final doc in snap.docs) {
         final data = doc.data();
 
-        final String waktu = (data['waktu_kunjungan'] ?? '').toString().trim();
-        if (waktu.isEmpty) continue;
+        // ── Filter periode via waktu_order (Timestamp)
+        final dynamic rawWaktu = data['waktu_order'];
+        if (rawWaktu == null) continue;
 
         DateTime tgl;
-        try {
-          tgl = fmt.parse(waktu);
-        } catch (_) {
-          continue;
+        if (rawWaktu is Timestamp) {
+          tgl = rawWaktu.toDate();
+        } else {
+          // fallback: string "dd-MM-yyyy" atau "dd/MM/yyyy HH:mm"
+          try {
+            final s = rawWaktu.toString().trim();
+            tgl = s.contains('/')
+                ? DateFormat('dd/MM/yyyy HH:mm').parse(s)
+                : DateFormat('dd-MM-yyyy').parse(s);
+          } catch (_) {
+            continue;
+          }
         }
 
         final hari = DateTime(tgl.year, tgl.month, tgl.day);
         if (hari.isBefore(start) || hari.isAfter(end)) continue;
 
-        final String rawPegawai = (data['admin_pemeriksa'] ?? '')
+        // ── Nama admin (bisa "Ameena" atau "Ameena|ROLE")
+        final String rawAdmin = (data['admin'] ?? '').toString().trim();
+        final String namaAdmin = rawAdmin.contains('|')
+            ? rawAdmin.split('|').first.trim()
+            : rawAdmin;
+        if (namaAdmin.isEmpty) continue;
+
+        final String status = (data['status'] ?? '').toString().toLowerCase();
+        final String layanan = (data['layanan_nama'] ?? 'Lainnya')
             .toString()
             .trim();
-        final String namaPegawai = rawPegawai.contains('|')
-            ? rawPegawai.split('|').first.trim()
-            : rawPegawai;
-        if (namaPegawai.isEmpty) continue;
+        final double hargaTotal = (data['harga_total'] ?? 0).toDouble();
 
-        final String noInduk = (data['nomer_induk_pasien'] ?? '')
-            .toString()
-            .trim();
-        final String layanan = (data['layanan'] ?? 'Lainnya').toString().trim();
-
-        map.putIfAbsent(namaPegawai, () => _PegawaiKinerja(nama: namaPegawai));
-        final p = map[namaPegawai]!;
+        map.putIfAbsent(namaAdmin, () => _PegawaiKinerja(nama: namaAdmin));
+        final p = map[namaAdmin]!;
 
         p.totalOrder += 1;
-        p.orderSelesai += 1;
+        if (status == 'selesai') p.orderSelesai += 1;
+        p.totalRevenue += hargaTotal;
         p.layananCount[layanan] = (p.layananCount[layanan] ?? 0) + 1;
-
-        // ── Revenue: bagi rata per kunjungan supaya tidak double-count
-        //    Contoh: pasien MC-022 bayar Rp30.000, kunjungan 2x di periode ini
-        //    → tiap kunjungan dihitung Rp15.000
-        if (noInduk.isNotEmpty && keuanganByPasien.containsKey(noInduk)) {
-          final totalBiaya = keuanganByPasien[noInduk] ?? 0;
-          final jumlahKunjungan = pasienVisitInPeriod[noInduk] ?? 1;
-          p.totalRevenue += totalBiaya / jumlahKunjungan;
-        }
-
-        // ── Pasien baru = hanya pernah datang 1x sepanjang waktu (ALL TIME)
-        if (noInduk.isNotEmpty &&
-            (pasienVisitCountAllTime[noInduk] ?? 0) == 1) {
-          p.pasienBaruCount += 1;
-        }
       }
 
-      // ── 5. Sort & hitung summary
-      final list =
-          map.values
-              .where((p) => p.totalOrder > 0 || p.totalRevenue > 0)
-              .toList()
-            ..sort((a, b) => b.totalRevenue.compareTo(a.totalRevenue));
+      // ── Sort by revenue desc
+      final list = map.values.where((p) => p.totalOrder > 0).toList()
+        ..sort((a, b) => b.totalRevenue.compareTo(a.totalRevenue));
 
       final totalPend = list.fold<double>(0, (s, p) => s + p.totalRevenue);
       final totalOrd = list.fold<int>(0, (s, p) => s + p.totalOrder);
-      final avgOnTime = list.isEmpty
+      final avgCompletion = list.isEmpty
           ? 0.0
-          : list.fold<double>(0, (s, p) => s + p.onTimeRate) / list.length;
+          : list.fold<double>(0, (s, p) => s + p.completionRate) / list.length;
 
       setState(() {
         _pegawaiList = list;
         _totalPendapatan = totalPend;
         _rerataPegawai = list.isEmpty ? 0 : totalPend / list.length;
         _totalOrder = totalOrd;
-        _avgOnTimeRate = avgOnTime;
+        _avgCompletionRate = avgCompletion;
         _isLoading = false;
       });
     } catch (e, stack) {
@@ -363,11 +270,27 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
               }).toList(),
             ),
             const SizedBox(height: 20),
+            // Custom date range
             GestureDetector(
               onTap: () async {
                 Navigator.pop(context);
-                final DateTimeRange? range =
-                    await CalendarHelper.showFullDatePicker(context);
+                final DateTimeRange? range = await showDateRangePicker(
+                  context: context,
+                  firstDate: DateTime(2020),
+                  lastDate: DateTime.now(),
+                  initialDateRange: DateTimeRange(
+                    start: _startDate,
+                    end: _endDate,
+                  ),
+                  builder: (ctx, child) => Theme(
+                    data: Theme.of(ctx).copyWith(
+                      colorScheme: Theme.of(
+                        ctx,
+                      ).colorScheme.copyWith(primary: kPrimary),
+                    ),
+                    child: child!,
+                  ),
+                );
                 if (range != null) {
                   setState(() {
                     _selectedPeriode = 'Custom';
@@ -436,7 +359,7 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
         s = DateTime(now.year, now.month - 1, 1);
         e = DateTime(now.year, now.month, 0);
         break;
-      default:
+      default: // 30 Hari Terakhir
         s = today.subtract(const Duration(days: 29));
         e = today;
     }
@@ -467,7 +390,7 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
 
   String _formatDateRange() =>
       '${DateFormat('d MMM yyyy', 'id').format(_startDate)}'
-      ' - '
+      ' – '
       '${DateFormat('d MMM yyyy', 'id').format(_endDate)}';
 
   Widget _medal(int rank) {
@@ -521,7 +444,7 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
       body: GlobalRefresh(
         onRefresh: _fetchData,
         child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
+            ? const Center(child: CircularProgressIndicator(color: kPrimary))
             : CustomScrollView(
                 slivers: [
                   SliverToBoxAdapter(
@@ -530,7 +453,7 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // ── Date range + periode dropdown ──
+                          // ── Periode bar ──────────────────────────────────
                           Row(
                             children: [
                               Expanded(
@@ -607,7 +530,7 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
                           ),
                           const SizedBox(height: 16),
 
-                          // ── Summary Grid 2x2 ──
+                          // ── Summary Grid 2×2 ─────────────────────────────
                           Row(
                             children: [
                               _summaryCard(
@@ -627,7 +550,7 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
                                 icon: Icons.people_alt_outlined,
                                 iconColor: const Color(0xff0284C7),
                                 iconBg: const Color(0xffE0F2FE),
-                                label: 'Rerata per Pegawai',
+                                label: 'Rerata per Admin',
                                 value: _formatRp(_rerataPegawai),
                                 isCurrency: true,
                               ),
@@ -639,7 +562,7 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
                               _summaryCard(
                                 cardColor: cardColor,
                                 bodySmall: bodySmall,
-                                icon: Icons.shopping_bag_outlined,
+                                icon: Icons.local_laundry_service_outlined,
                                 iconColor: const Color(0xff16A34A),
                                 iconBg: const Color(0xffDCFCE7),
                                 label: 'Total Order',
@@ -650,23 +573,23 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
                               _summaryCard(
                                 cardColor: cardColor,
                                 bodySmall: bodySmall,
-                                icon: Icons.person_add_outlined,
+                                icon: Icons.check_circle_outline_rounded,
                                 iconColor: const Color(0xffD97706),
                                 iconBg: const Color(0xffFEF3C7),
-                                label: 'Pasien Baru Rate',
-                                value: '${_avgOnTimeRate.toStringAsFixed(1)}%',
+                                label: 'Completion Rate',
+                                value:
+                                    '${_avgCompletionRate.toStringAsFixed(1)}%',
                                 isCurrency: false,
                               ),
                             ],
                           ),
-
                           const SizedBox(height: 20),
                         ],
                       ),
                     ),
                   ),
 
-                  // ── List pegawai ──
+                  // ── List pegawai ─────────────────────────────────────────
                   if (_pegawaiList.isEmpty)
                     SliverFillRemaining(
                       child: Center(
@@ -680,7 +603,7 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
                             ),
                             const SizedBox(height: 12),
                             Text(
-                              'Tidak ada data pegawai',
+                              'Tidak ada data admin',
                               style: bodyLarge?.copyWith(
                                 fontWeight: FontWeight.w500,
                               ),
@@ -717,7 +640,7 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
               ),
       ),
 
-      // ── Bottom bar ──
+      // ── Bottom bar ───────────────────────────────────────────────────────
       bottomNavigationBar: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         decoration: BoxDecoration(
@@ -763,7 +686,7 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
             ),
             const Spacer(),
             Text(
-              '${_pegawaiList.length} Pegawai',
+              '${_pegawaiList.length} Admin',
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
@@ -840,6 +763,13 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
   ) {
     final isExpanded = _expanded[p.id] ?? false;
 
+    // Completion rate color
+    final Color rateColor = p.completionRate >= 80
+        ? const Color(0xFF16A34A)
+        : p.completionRate >= 50
+        ? const Color(0xFFF59E0B)
+        : Colors.red.shade600;
+
     return Container(
       decoration: BoxDecoration(
         color: cardColor,
@@ -858,7 +788,7 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Row 1: Medal + Nama + Verified icon + Revenue ──
+            // ── Row 1: Medal + Nama + Revenue ───────────────────────
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -881,7 +811,6 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
                             ),
                           ),
                           const SizedBox(width: 6),
-                          // ── Verified checkmark badge ──
                           Icon(
                             Icons.verified_rounded,
                             color: kPrimary,
@@ -891,7 +820,7 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '${p.orderSelesai} Kunjungan Selesai',
+                        '${p.totalOrder} Order Diproses',
                         style: bodySmall?.copyWith(fontSize: 12),
                       ),
                     ],
@@ -916,21 +845,29 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
 
             const SizedBox(height: 12),
 
-            // ── Row 2: Stats (Pasien Baru Rate | Order) — Berat dihapus ──
+            // ── Row 2: Stats (Completion Rate | Selesai | Total) ────
             Row(
               children: [
                 _statItem(
-                  icon: Icons.person_add_outlined,
-                  iconColor: const Color(0xffD97706),
-                  label: 'Pasien Baru',
-                  value: '${p.onTimeRate.toStringAsFixed(1)}%',
+                  icon: Icons.check_circle_outline_rounded,
+                  iconColor: rateColor,
+                  label: 'Completion',
+                  value: '${p.completionRate.toStringAsFixed(1)}%',
                   bodySmall: bodySmall,
                 ),
                 const SizedBox(width: 20),
                 _statItem(
-                  icon: Icons.shopping_bag_outlined,
+                  icon: Icons.done_all_rounded,
                   iconColor: const Color(0xff16A34A),
-                  label: 'Kunjungan',
+                  label: 'Selesai',
+                  value: '${p.orderSelesai}',
+                  bodySmall: bodySmall,
+                ),
+                const SizedBox(width: 20),
+                _statItem(
+                  icon: Icons.local_laundry_service_outlined,
+                  iconColor: const Color(0xFF4F6FE8),
+                  label: 'Total Order',
                   value: '${p.totalOrder}',
                   bodySmall: bodySmall,
                 ),
@@ -939,20 +876,34 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
 
             const SizedBox(height: 12),
 
-            // ── Progress bar ──
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: p.progressRatio(maxRevenue),
-                minHeight: 6,
-                backgroundColor: Theme.of(context).dividerColor,
-                valueColor: AlwaysStoppedAnimation<Color>(kPrimary),
-              ),
+            // ── Progress bar (revenue) ──────────────────────────────
+            Row(
+              children: [
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: p.progressRatio(maxRevenue),
+                      minHeight: 6,
+                      backgroundColor: Theme.of(context).dividerColor,
+                      valueColor: AlwaysStoppedAnimation<Color>(kPrimary),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '${(p.progressRatio(maxRevenue) * 100).toStringAsFixed(0)}%',
+                  style: bodySmall?.copyWith(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
 
             const SizedBox(height: 12),
 
-            // ── Rincian Layanan toggle ──
+            // ── Rincian Layanan toggle ──────────────────────────────
             GestureDetector(
               onTap: () =>
                   setState(() => _expanded[p.id] = !(_expanded[p.id] ?? false)),
@@ -984,53 +935,56 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
               ),
             ),
 
-            // ── Layanan list (expandable) ──
+            // ── Layanan list (expandable) ───────────────────────────
             if (isExpanded && p.layananCount.isNotEmpty) ...[
               const SizedBox(height: 10),
               Divider(color: Theme.of(context).dividerColor, height: 1),
               const SizedBox(height: 10),
-              ...p.layananCount.entries.map(
-                (e) => Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: BoxDecoration(
-                          color: kPrimary,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          e.key,
-                          style: bodySmall?.copyWith(fontSize: 12),
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: kPrimary.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          '${e.value}x',
-                          style: TextStyle(
-                            color: kPrimary,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
+              // Sort by count desc
+              ...(p.layananCount.entries.toList()
+                    ..sort((a, b) => b.value.compareTo(a.value)))
+                  .map(
+                    (e) => Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              color: kPrimary,
+                              shape: BoxShape.circle,
+                            ),
                           ),
-                        ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              e.key,
+                              style: bodySmall?.copyWith(fontSize: 12),
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: kPrimary.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              '${e.value}x',
+                              style: TextStyle(
+                                color: kPrimary,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
-                ),
-              ),
             ],
           ],
         ),
@@ -1078,7 +1032,7 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
         ),
         child: AppBar(
           title: const Text(
-            'Kinerja Pegawai',
+            'Kinerja Admin',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
           ),
           backgroundColor: kPrimary,
@@ -1087,12 +1041,8 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
           centerTitle: true,
           actions: [
             IconButton(
-              icon: const Icon(Icons.download_rounded, color: Colors.white),
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Fitur export segera hadir')),
-                );
-              },
+              icon: const Icon(Icons.refresh_rounded, color: Colors.white),
+              onPressed: _fetchData,
             ),
           ],
           leading: Navigator.canPop(context)

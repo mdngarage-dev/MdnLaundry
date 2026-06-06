@@ -57,7 +57,7 @@ class GetStartedScreen extends StatelessWidget {
                           ),
                           const SizedBox(height: 16),
                           Text(
-                            "Solusi kesehatan digital dalam genggaman anda.",
+                            "Solusi management laundry dalam genggaman anda.",
                             style: TextStyle(
                               fontFamily: 'Pastrami',
                               color: Theme.of(

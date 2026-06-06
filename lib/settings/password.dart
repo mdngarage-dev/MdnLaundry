@@ -139,8 +139,9 @@ class _GantiPasswordPageState extends State<GantiPasswordPage> {
                         () => _obscureKonfirmasi = !_obscureKonfirmasi,
                       ),
                       validator: (v) {
-                        if (v!.isEmpty)
+                        if (v!.isEmpty) {
                           return "Konfirmasi password wajib diisi";
+                        }
                         if (v != _passwordBaruController.text) {
                           return "Password konfirmasi tidak cocok";
                         }

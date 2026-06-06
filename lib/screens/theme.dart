@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 
 // ─── Warna Utama ──────────────────────────────────────────────────────────────
-const Color kPrimary = Color(0xFF0D9488);
-const Color kPrimaryLight = Color(0xFFF0F9F9);
-const Color kPrimaryMid = Color(0xFFE2F2F2);
+const Color kPrimary = Color(
+  0xFF5B9BD5,
+); // Blue utama (lebih dalam agar readable)
+const Color kPrimaryLight = Color(0xFFF0F6FC); // Background sangat terang
+const Color kPrimaryMid = Color(0xFFDCEEF9); // Divider / highlight ringan
+const Color kAccentBlue = Color(0xFF8BC3E6); // Accent / Light blue dari foto
+const Color kPastelBlue = Color(0xFFA7C6ED); // Pastel blue primer dari foto
 const Color kTextDark = Color(0xFF1E293B);
 const Color kTextLight = Color(0xFF64748B);
 const Color kWhite = Colors.white;
@@ -33,7 +37,7 @@ InputDecoration customInputDecoration({
     enabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(14),
       borderSide: BorderSide(
-        color: isDark ? Colors.white24 : const Color(0xFFE5E7EB),
+        color: isDark ? Colors.white24 : const Color(0xFFD4E6F5),
       ),
     ),
     focusedBorder: OutlineInputBorder(
@@ -88,7 +92,7 @@ BoxDecoration cardDecoration() {
     borderRadius: BorderRadius.circular(24),
     boxShadow: [
       BoxShadow(
-        color: Colors.black.withOpacity(0.06),
+        color: kPastelBlue.withOpacity(0.18),
         blurRadius: 20,
         offset: const Offset(0, 4),
       ),
@@ -108,17 +112,17 @@ ThemeData lightTheme() {
 
     colorScheme: const ColorScheme.light(
       primary: kPrimary,
-      secondary: kAccentSuccess,
+      secondary: kAccentBlue,
       surface: kCardWhite,
       onPrimary: Colors.white,
       onSurface: kTextDark,
-      // ✅ Dipakai ringkasan.dart untuk border & divider
-      outline: Color(0xFFE2E8F0),
-      // ✅ Dipakai date_range_picker untuk highlight range selection
-      surfaceContainerHighest: Color(0xFFF1F5F9),
+      // Border & divider
+      outline: Color(0xFFD4E6F5),
+      // Highlight range selection (date picker)
+      surfaceContainerHighest: Color(0xFFE8F4FC),
       onSurfaceVariant: kTextLight,
-      // ✅ Warna badge/chip di ringkasan
-      tertiary: Color(0xff0284C7),
+      // Badge/chip warna biru lebih dalam
+      tertiary: Color(0xFF2E86C1),
       onTertiary: Colors.white,
     ),
 
@@ -127,7 +131,6 @@ ThemeData lightTheme() {
       foregroundColor: Colors.white,
       elevation: 0,
       iconTheme: IconThemeData(color: Colors.white),
-      // ✅ titleTextStyle dipakai langsung di ringkasan.dart
       titleTextStyle: TextStyle(
         color: Colors.white,
         fontSize: 18,
@@ -144,7 +147,7 @@ ThemeData lightTheme() {
       elevation: 8,
     ),
 
-    dividerColor: Color(0xFFE2E8F0),
+    dividerColor: Color(0xFFD4E6F5),
 
     textTheme: const TextTheme(
       displayLarge: TextStyle(color: kTextDark),
@@ -156,7 +159,6 @@ ThemeData lightTheme() {
       titleLarge: TextStyle(color: kTextDark),
       titleMedium: TextStyle(color: kTextDark),
       titleSmall: TextStyle(color: kTextLight),
-      // ✅ bodyLarge = teks utama, dipakai di semua widget
       bodyLarge: TextStyle(color: kTextDark, fontSize: 14),
       bodyMedium: TextStyle(color: kTextLight),
       bodySmall: TextStyle(color: kTextLight, fontSize: 12),
@@ -171,7 +173,7 @@ ThemeData lightTheme() {
       hintStyle: const TextStyle(color: kTextLight, fontSize: 14),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+        borderSide: const BorderSide(color: Color(0xFFD4E6F5)),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
@@ -203,10 +205,10 @@ ThemeData lightTheme() {
     cardTheme: const CardThemeData(
       color: kCardWhite,
       elevation: 2,
-      shadowColor: Color(0x14000000),
+      shadowColor: Color(0x1A5B9BD5),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.all(Radius.circular(20)),
-        side: BorderSide(color: Color(0x26808080)),
+        side: BorderSide(color: Color(0x26A7C6ED)),
       ),
     ),
 
@@ -216,32 +218,32 @@ ThemeData lightTheme() {
 
 // ─── DARK THEME ───────────────────────────────────────────────────────────────
 ThemeData darkTheme() {
-  const Color darkBase = Color(0xFF121212);
-  const Color darkSurface = Color(0xFF1E1E1E);
-  const Color darkCard = Color(0xFF252525);
+  const Color darkBase = Color(0xFF0D1B2A); // Deep navy base
+  const Color darkSurface = Color(0xFF152232); // Navy surface
+  const Color darkCard = Color(0xFF1C2E40); // Sedikit lebih terang dari surface
 
   return ThemeData(
     brightness: Brightness.dark,
-    primaryColor: kPrimary,
+    primaryColor: kPastelBlue, // Pastel blue cocok di dark mode
     scaffoldBackgroundColor: darkBase,
     cardColor: darkCard,
     canvasColor: darkSurface,
     hintColor: Colors.white38,
 
     colorScheme: const ColorScheme.dark(
-      primary: kPrimary,
-      secondary: kAccentSuccess,
+      primary: kPastelBlue,
+      secondary: kAccentBlue,
       surface: darkSurface,
-      onPrimary: Colors.white,
+      onPrimary: Color(0xFF1E293B), // Teks gelap di atas warna pastel
       onSurface: Colors.white,
-      // ✅ Dipakai ringkasan.dart untuk border & divider
-      outline: Color(0xFF2D3748),
-      // ✅ FIX: Kunci perbaikan bug start date hilang di dark mode
-      surfaceContainerHighest: Color(0xFF2D3748),
+      // Border & divider
+      outline: Color(0xFF2A4A65),
+      // FIX: date picker range highlight
+      surfaceContainerHighest: Color(0xFF1F3A52),
       onSurfaceVariant: Colors.white70,
-      // ✅ Warna badge/chip
-      tertiary: Color(0xff38BDF8),
-      onTertiary: Colors.white,
+      // Badge/chip
+      tertiary: Color(0xFF8BC3E6),
+      onTertiary: Color(0xFF0D1B2A),
     ),
 
     appBarTheme: const AppBarTheme(
@@ -249,7 +251,6 @@ ThemeData darkTheme() {
       foregroundColor: Colors.white,
       elevation: 0,
       iconTheme: IconThemeData(color: Colors.white),
-      // ✅ titleTextStyle konsisten
       titleTextStyle: TextStyle(
         color: Colors.white,
         fontSize: 18,
@@ -261,7 +262,7 @@ ThemeData darkTheme() {
 
     bottomNavigationBarTheme: const BottomNavigationBarThemeData(
       backgroundColor: darkSurface,
-      selectedItemColor: kPrimary,
+      selectedItemColor: kPastelBlue,
       unselectedItemColor: Colors.white54,
     ),
 
@@ -295,14 +296,14 @@ ThemeData darkTheme() {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: kPrimary, width: 2),
+        borderSide: const BorderSide(color: kPastelBlue, width: 2),
       ),
     ),
 
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
-        backgroundColor: kPrimary,
-        foregroundColor: Colors.white,
+        backgroundColor: kPastelBlue,
+        foregroundColor: const Color(0xFF1E293B),
         elevation: 0,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
       ),
@@ -310,11 +311,11 @@ ThemeData darkTheme() {
 
     switchTheme: SwitchThemeData(
       thumbColor: WidgetStateProperty.resolveWith(
-        (s) => s.contains(WidgetState.selected) ? kPrimary : Colors.white54,
+        (s) => s.contains(WidgetState.selected) ? kPastelBlue : Colors.white54,
       ),
       trackColor: WidgetStateProperty.resolveWith(
         (s) => s.contains(WidgetState.selected)
-            ? kPrimary.withOpacity(0.4)
+            ? kPastelBlue.withOpacity(0.4)
             : Colors.white24,
       ),
     ),
@@ -322,7 +323,7 @@ ThemeData darkTheme() {
     cardTheme: const CardThemeData(
       color: darkCard,
       elevation: 4,
-      shadowColor: Color(0x80000000),
+      shadowColor: Color(0x805B9BD5),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.all(Radius.circular(20)),
       ),

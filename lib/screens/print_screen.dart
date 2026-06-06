@@ -13,6 +13,7 @@ class _PrintScreenState extends State<PrintScreen> {
   final ThermalPrinterService _printerService = ThermalPrinterService();
   List<BluetoothDevice> _devices = [];
   bool _isBluetoothOn = false;
+  bool _isPrinting = false;
 
   @override
   void initState() {
@@ -30,16 +31,42 @@ class _PrintScreenState extends State<PrintScreen> {
     }
   }
 
+  Future<void> _onPrint(BluetoothDevice device) async {
+    if (_isPrinting) return;
+    setState(() => _isPrinting = true);
+    try {
+      await _printerService.printStruk(device, widget.data);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Struk berhasil dicetak'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal cetak: $e'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isPrinting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: _buildAppBar(context),
-
       body: Column(
         children: [
-          // Card Info Cara Print
           _buildInfoCard(),
-
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             child: Row(
@@ -53,14 +80,11 @@ class _PrintScreenState extends State<PrintScreen> {
               ],
             ),
           ),
-
           Expanded(
             child: !_isBluetoothOn
-                ? _buildBluetoothOffWarning() // Tampilan jika BT Mati
-                : _buildDeviceList(), // Tampilan jika BT Nyala
+                ? _buildBluetoothOffWarning()
+                : _buildDeviceList(),
           ),
-
-          // Tombol Refresh
           Padding(
             padding: const EdgeInsets.all(20),
             child: OutlinedButton.icon(
@@ -97,7 +121,10 @@ class _PrintScreenState extends State<PrintScreen> {
           ),
           SizedBox(height: 10),
           Text(
-            "1. Nyalakan printer Bluetooth\n2. Pair printer dari Settings -> Bluetooth HP\n3. Pilih printer dari daftar di bawah\n4. Tekan 'Connect' untuk mencetak",
+            "1. Nyalakan printer Bluetooth\n"
+            "2. Pair printer dari Settings → Bluetooth HP\n"
+            "3. Pilih printer dari daftar di bawah\n"
+            "4. Tekan 'Connect' untuk mencetak",
           ),
         ],
       ),
@@ -128,6 +155,7 @@ class _PrintScreenState extends State<PrintScreen> {
     return ListView.builder(
       itemCount: _devices.length,
       itemBuilder: (context, index) {
+        final device = _devices[index];
         return Container(
           margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
           decoration: BoxDecoration(
@@ -139,13 +167,28 @@ class _PrintScreenState extends State<PrintScreen> {
               backgroundColor: kPrimary,
               child: Icon(Icons.print, color: Colors.white),
             ),
-            title: Text(_devices[index].name ?? "Unknown"),
-            subtitle: Text(_devices[index].address ?? ""),
-            trailing: ElevatedButton(
-              onPressed: () =>
-                  _printerService.printStruk(_devices[index], widget.data),
-              child: const Text("Connect"),
-            ),
+            title: Text(device.name ?? "Unknown"),
+            subtitle: Text(device.address ?? ""),
+            trailing: _isPrinting
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: kPrimary,
+                    ),
+                  )
+                : ElevatedButton(
+                    onPressed: () => _onPrint(device),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: kPrimary,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: const Text("Connect"),
+                  ),
           ),
         );
       },

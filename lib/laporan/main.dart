@@ -159,52 +159,79 @@ class LaporanScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SizedBox(height: 25),
-
             // ── Section: Ringkasan ──────────────────────────────────────
-            Text(
-              "RINGKASAN",
-              style: TextStyle(
-                // ✅ THEME: Warna label section mengikuti hintColor tema
-                color: Theme.of(context).hintColor,
-                fontWeight: FontWeight.bold,
-                fontSize: 13,
-                letterSpacing: 1,
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            _buildIndividualCard(
-              context: context,
-              icon: Icons.grid_view_rounded,
-              title: "Ringkasan Klinik",
-              subtitle: "Analisis performa bisnis lengkap",
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const RingkasanPage(),
-                  ),
+            FutureBuilder<List<bool>>(
+              future: Future.wait([
+                canAccess('can_view_ringkasan'),
+                canAccess('can_view_harian'),
+                // tambah key lain di sini kalau ada
+              ]),
+              builder: (context, snapshot) {
+                // Tampil label jika minimal 1 diizinkan
+                final anyVisible = (snapshot.data ?? []).any((v) => v == true);
+                if (!anyVisible) return const SizedBox.shrink();
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 15),
+                    Text(
+                      "RINGKASAN",
+                      style: TextStyle(
+                        color: Theme.of(context).hintColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                 );
               },
             ),
 
-            _buildIndividualCard(
-              context: context,
-              icon: Icons.calendar_today_rounded,
-              title: "Laporan Harian",
-              subtitle: "Ringkasan transaksi hari ini",
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const LaporanHarianPage(),
-                  ),
+            // Menu yang hanya muncul untuk owner (hanya Admin yang diizinkan)
+            FutureBuilder<bool>(
+              future: canAccess('can_view_ringkasan'),
+              builder: (context, snapshot) {
+                if (!(snapshot.data ?? false)) return const SizedBox.shrink();
+                return _buildIndividualCard(
+                  context: context,
+                  icon: Icons.grid_view_rounded,
+                  title: "Ringkasan Outlet",
+                  subtitle: "Analisis performa bisnis lengkap",
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const RingkasanPage(),
+                      ),
+                    );
+                  },
                 );
               },
             ),
 
-            const SizedBox(height: 25),
+            // Menu yang hanya muncul untuk owner (hanya Admin yang diizinkan)
+            FutureBuilder<bool>(
+              future: canAccess('can_view_harian'),
+              builder: (context, snapshot) {
+                if (!(snapshot.data ?? false)) return const SizedBox.shrink();
+                return _buildIndividualCard(
+                  context: context,
+                  icon: Icons.calendar_today_rounded,
+                  title: "Laporan Harian",
+                  subtitle: "Ringkasan transaksi hari ini",
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const LaporanHarianPage(),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
 
             // ── Section: Laporan Keuangan ───────────────────────────────
             Text(
@@ -231,20 +258,54 @@ class LaporanScreen extends StatelessWidget {
                 borderRadius: BorderRadius.circular(20),
                 child: Column(
                   children: [
-                    _buildGroupedItem(
-                      context: context,
-                      icon: Icons.shopping_bag_outlined,
-                      title: "Pengeluaran",
-                      subtitle: "Laporan detail pengeluaran",
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const ListPengeluaranPage(),
-                          ),
+                    // Menu yang hanya muncul untuk admin (Owner tidak lihat)
+                    FutureBuilder<bool>(
+                      future: canAccess('', ownerOnly: true),
+                      builder: (context, snapshot) {
+                        if (!(snapshot.data ?? false)) {
+                          return const SizedBox.shrink();
+                        }
+                        return _buildGroupedItem(
+                          context: context,
+                          icon: Icons.shopping_bag_outlined,
+                          title: "Tambah Pengeluaran",
+                          subtitle: "Halaman Input pengeluaran",
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const FormPengeluaranPage(),
+                              ),
+                            );
+                          },
                         );
                       },
                     ),
+
+                    // Menu yang hanya muncul untuk owner (hanya Admin yang diizinkan)
+                    FutureBuilder<bool>(
+                      future: canAccess('can_view_lispengeluaran'),
+                      builder: (context, snapshot) {
+                        if (!(snapshot.data ?? false)) {
+                          return const SizedBox.shrink();
+                        }
+                        return _buildGroupedItem(
+                          context: context,
+                          icon: Icons.shopping_bag_outlined,
+                          title: "Pengeluaran",
+                          subtitle: "Laporan detail pengeluaran",
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const ListPengeluaranPage(),
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
+
                     _buildDivider(context),
                     _buildGroupedItem(
                       context: context,

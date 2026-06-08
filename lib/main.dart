@@ -61,7 +61,8 @@ void main() async {
   }
 
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-  NotifKiaService().inisialisasiNotifikasi();
+  NotifLaundryService().inisialisasiNotifikasi();
+  await OutletSettingsService.load();
 
   runApp(
     ChangeNotifierProvider(

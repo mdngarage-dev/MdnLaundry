@@ -25,6 +25,7 @@ class OrderScreen extends StatefulWidget {
 class _OrderScreenState extends State<OrderScreen> {
   late String? _filterStatus;
   late bool _filterBelumBayar;
+  bool _filterBulanIni = true;
 
   late final Stream<QuerySnapshot> _orderStream;
 
@@ -54,6 +55,17 @@ class _OrderScreenState extends State<OrderScreen> {
       final statusBayar = data['status_bayar']?.toString().toLowerCase() ?? '';
       if (statusBayar == 'lunas') return false;
     }
+
+    // Filter bulan berjalan — hanya aktif saat chip "Semua" dipilih
+    if (_filterStatus == null && !_filterBelumBayar && _filterBulanIni) {
+      final waktu = data['waktu_order'];
+      if (waktu is Timestamp) {
+        final tgl = waktu.toDate();
+        final now = DateTime.now();
+        if (tgl.year != now.year || tgl.month != now.month) return false;
+      }
+    }
+
     return true;
   }
 
@@ -110,11 +122,14 @@ class _OrderScreenState extends State<OrderScreen> {
                 children: [
                   _filterChip(
                     context,
-                    label: 'Semua',
+                    label: _filterStatus == null && !_filterBelumBayar
+                        ? 'Bulan Ini' // ← label berubah saat aktif
+                        : 'Semua',
                     selected: _filterStatus == null && !_filterBelumBayar,
                     onTap: () => setState(() {
                       _filterStatus = null;
                       _filterBelumBayar = false;
+                      _filterBulanIni = true;
                     }),
                     primary: primary,
                     isDark: isDark,
@@ -131,6 +146,7 @@ class _OrderScreenState extends State<OrderScreen> {
                           _filterStatus = _filterStatus == c.status
                               ? null
                               : c.status;
+                          _filterBulanIni = false;
                         }),
                         primary: primary,
                         isDark: isDark,
@@ -142,8 +158,12 @@ class _OrderScreenState extends State<OrderScreen> {
                     label: 'Belum Bayar',
                     icon: Icons.payment_outlined,
                     selected: _filterBelumBayar,
-                    onTap: () =>
-                        setState(() => _filterBelumBayar = !_filterBelumBayar),
+                    onTap: () {
+                      setState(() {
+                        _filterBelumBayar = !_filterBelumBayar;
+                        _filterBulanIni = false;
+                      });
+                    },
                     activeColor: Colors.orange.shade700,
                     isDark: isDark,
                   ),
@@ -151,6 +171,7 @@ class _OrderScreenState extends State<OrderScreen> {
               ),
             ),
           ),
+
           Container(
             height: 1,
             decoration: BoxDecoration(
@@ -221,6 +242,10 @@ class _OrderScreenState extends State<OrderScreen> {
                           data['status_bayar']?.toString().toLowerCase() ?? '';
                       final belumLunas = statusBayar != 'lunas';
 
+                      final namaPelanggan =
+                          data['nama_pelanggan']?.toString() ?? '';
+                      final noHpPelanggan = data['no_hp']?.toString() ?? '';
+
                       return GestureDetector(
                         onTap: () => Navigator.push(
                           context,
@@ -242,78 +267,138 @@ class _OrderScreenState extends State<OrderScreen> {
                               ),
                             ],
                           ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 5,
-                                height: 90,
-                                decoration: BoxDecoration(
-                                  color: sColor,
-                                  borderRadius: const BorderRadius.only(
-                                    topLeft: Radius.circular(16),
-                                    bottomLeft: Radius.circular(16),
-                                  ),
-                                ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 14,
-                                  vertical: 14,
-                                ),
-                                child: Container(
-                                  width: 40,
-                                  height: 40,
+                          child: IntrinsicHeight(
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                // Left color bar
+                                Container(
+                                  width: 5,
                                   decoration: BoxDecoration(
-                                    color: sColor.withOpacity(0.12),
-                                    borderRadius: BorderRadius.circular(12),
+                                    color: sColor,
+                                    borderRadius: const BorderRadius.only(
+                                      topLeft: Radius.circular(16),
+                                      bottomLeft: Radius.circular(16),
+                                    ),
                                   ),
-                                  child: Icon(sIcon, color: sColor, size: 20),
                                 ),
-                              ),
-                              Expanded(
-                                child: Padding(
+                                // Status icon
+                                Padding(
                                   padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
                                     vertical: 14,
                                   ),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        noPelanggan,
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodyLarge
-                                            ?.copyWith(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 14,
+                                  child: Container(
+                                    width: 40,
+                                    height: 40,
+                                    decoration: BoxDecoration(
+                                      color: sColor.withOpacity(0.12),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Icon(sIcon, color: sColor, size: 20),
+                                  ),
+                                ),
+                                // Main content
+                                Expanded(
+                                  child: Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      0,
+                                      12,
+                                      0,
+                                      12,
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        // No order + layanan nama
+                                        Text(
+                                          noPelanggan,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodyLarge
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 14,
+                                              ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          layananNama +
+                                              (jenis.isNotEmpty
+                                                  ? ' · $jenis'
+                                                  : ''),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall
+                                              ?.copyWith(fontSize: 12),
+                                        ),
+                                        const SizedBox(height: 6),
+                                        // Customer name row (left only)
+                                        Row(
+                                          children: [
+                                            Icon(
+                                              Icons.person_outline_rounded,
+                                              size: 12,
+                                              color: Colors.grey.shade500,
                                             ),
-                                      ),
-                                      const SizedBox(height: 3),
+                                            const SizedBox(width: 3),
+                                            Expanded(
+                                              child: Text(
+                                                namaPelanggan.isNotEmpty
+                                                    ? namaPelanggan
+                                                    : '-',
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .bodySmall
+                                                    ?.copyWith(fontSize: 11),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                // Right column: tanggal, badge/harga, chevron
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    0,
+                                    12,
+                                    12,
+                                    12,
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      // Tanggal estimasi
                                       Text(
-                                        layananNama +
-                                            (jenis.isNotEmpty
-                                                ? ' · $jenis'
-                                                : ''),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
+                                        estimasi,
                                         style: Theme.of(context)
                                             .textTheme
                                             .bodySmall
-                                            ?.copyWith(fontSize: 12),
+                                            ?.copyWith(fontSize: 11),
                                       ),
-                                      const SizedBox(height: 6),
+                                      const SizedBox(height: 4),
+                                      // Badge status + belum bayar / harga
                                       Row(
+                                        mainAxisSize: MainAxisSize.min,
                                         children: [
                                           _miniChip(context, status, sColor),
-                                          const SizedBox(width: 6),
+                                          const SizedBox(width: 4),
                                           if (belumLunas)
                                             _miniChip(
                                               context,
                                               'Belum Bayar',
                                               Colors.orange.shade700,
-                                            ),
-                                          if (!belumLunas)
+                                            )
+                                          else
                                             Text(
                                               hargaFmt,
                                               style: Theme.of(context)
@@ -321,36 +406,48 @@ class _OrderScreenState extends State<OrderScreen> {
                                                   .bodySmall
                                                   ?.copyWith(
                                                     fontWeight: FontWeight.w600,
-                                                    fontSize: 12,
+                                                    fontSize: 11,
                                                   ),
                                             ),
                                         ],
                                       ),
+                                      const SizedBox(height: 2),
+                                      if (noHpPelanggan.isNotEmpty)
+                                        Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              Icons.phone_outlined,
+                                              size: 10,
+                                              color: Colors.grey.shade500,
+                                            ),
+                                            const SizedBox(width: 2),
+                                            Text(
+                                              noHpPelanggan,
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall
+                                                  ?.copyWith(fontSize: 10),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Icon(
+                                              Icons.chevron_right_rounded,
+                                              color: Colors.grey.shade400,
+                                              size: 18,
+                                            ),
+                                          ],
+                                        )
+                                      else
+                                        Icon(
+                                          Icons.chevron_right_rounded,
+                                          color: Colors.grey.shade400,
+                                          size: 18,
+                                        ),
                                     ],
                                   ),
                                 ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.only(right: 14),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    Text(
-                                      estimasi,
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodySmall
-                                          ?.copyWith(fontSize: 11),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Icon(
-                                      Icons.chevron_right_rounded,
-                                      color: Colors.grey.shade400,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       );
@@ -606,6 +703,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   }
 
   // ── Load items + biaya_tambahan dari Firestore ────────────────────────────
+
   Future<void> _loadItemsFromFirestore() async {
     setState(() => _isLoadingItems = true);
     try {
@@ -682,8 +780,6 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     }
   }
 
-  int get _grandTotal => _totalLayanan + _totalBiayaTambahan;
-
   // Total layanan saja (tanpa biaya tambahan)
   int get _totalLayanan =>
       _items.fold(0, (sum, item) => sum + _itemTotal(item));
@@ -703,6 +799,16 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     }
   });
 
+  // Grand total = layanan + biaya tambahan ← DIPERBAIKI
+  // Subtotal sebelum diskon
+  int get _subtotalSebelumDiskon => _totalLayanan + _totalBiayaTambahan;
+
+  // Grand total final setelah diskon (sinkron dengan add.dart → _grandTotalFinal)
+  int get _grandTotal {
+    final hasil = _subtotalSebelumDiskon - _diskonNominal;
+    return hasil < 0 ? 0 : hasil;
+  }
+
   bool get _sudahLunas =>
       (_data['status_bayar']?.toString() ?? '').toLowerCase() == 'lunas';
 
@@ -721,6 +827,19 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     final sisa = _grandTotal - _dpAmount;
     return sisa < 0 ? 0 : sisa;
   }
+
+  // ── Getter diskon ──────────────────────────────────────────────────────────
+  int get _diskonNominal {
+    final d = _data['diskon_nominal'];
+    if (d == null) return 0;
+    try {
+      return d is num ? d.toInt() : int.parse(d.toString());
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  String get _diskonCatatan => _data['diskon_catatan']?.toString() ?? '';
 
   Color _statusColor(String s) {
     switch (s.toLowerCase()) {
@@ -855,6 +974,12 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         ? '💵 DP / Uang Muka : ${_formatRupiah(_dpAmount)}\n'
         : '';
 
+    final diskonBaris = _diskonNominal > 0
+        ? '🏷️ Diskon         : - ${_formatRupiah(_diskonNominal)}' +
+              (_diskonCatatan.isNotEmpty ? ' (${_diskonCatatan})' : '') +
+              '\n'
+        : '';
+
     final pesan =
         '🧺 *Informasi Order Laundry*\n'
         '━━━━━━━━━━━━━━━━━\n'
@@ -867,6 +992,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         '${detailBuffer.toString().trim()}\n'
         '${biayaBuffer.toString()}'
         '━━━━━━━━━━━━━━━━━\n'
+        '${_diskonNominal > 0 ? '💰 Subtotal       : ${_formatRupiah(_subtotalSebelumDiskon)}\n' : ''}'
+        '$diskonBaris'
         '💰 Total          : $totalFmt\n'
         '$dpBaris'
         '💳 Sisa Tagihan   : $sisaFmt\n'
@@ -884,9 +1011,20 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     }
   }
 
-  // ── Cetak Struk ───────────────────────────────────────────────────────────
+  // ── Cetak Struk ── KEY KONSISTEN dengan ThermalPrinterService ─────────────
   void _cetak() {
     final tanggalCetak = DateFormat('dd MMM yyyy HH:mm').format(DateTime.now());
+
+    // Ambil pengaturan printer saat ini
+    final namaLaundry = OutletSettings.namaMadeenalaundry;
+    final alamat = OutletSettings.alamat;
+    final noHpLaundry = OutletSettings.noHpMadeenalaundry;
+    final namaPelangganDisplay = PrinterSettings.namaPelangganBesar
+        ? _namaPelangganStr.toUpperCase()
+        : _namaPelangganStr;
+    final noHpDisplay = PrinterSettings.sembunyikanNoHpPelanggan
+        ? ''
+        : (_noHp.isNotEmpty ? _noHp : '-');
 
     showDialog(
       context: context,
@@ -900,26 +1038,32 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // Header
+                // ── Header outlet ─────────────────────────────────────────
                 Text(
-                  OutletSettings.namaMadeenalaundry,
+                  namaLaundry,
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  OutletSettings.alamat,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                Text(
-                  'Telp: ${OutletSettings.noHpMadeenalaundry}',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
+                if (PrinterSettings.tampilkanAlamatOutlet &&
+                    alamat.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    alamat,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+                if (PrinterSettings.tampilkanNoHpOutlet &&
+                    noHpLaundry.isNotEmpty) ...[
+                  Text(
+                    'Telp: $noHpLaundry',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
                 const SizedBox(height: 8),
                 Text(
                   '══════════════════════════',
@@ -937,7 +1081,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                 ),
                 const SizedBox(height: 8),
 
-                // Info order
+                // ── Info order ────────────────────────────────────────────
                 Align(
                   alignment: Alignment.centerLeft,
                   child: Column(
@@ -945,14 +1089,15 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                     children: [
                       _strRow('No', _noPelanggan),
                       _strRow('Tgl', _waktuStr),
-                      _strRow('Pelanggan', _namaPelangganStr),
-                      _strRow('HP', _noHp.isNotEmpty ? _noHp : '-'),
+                      _strRow('Pelanggan', namaPelangganDisplay),
+                      if (!PrinterSettings.sembunyikanNoHpPelanggan)
+                        _strRow('HP', noHpDisplay),
                     ],
                   ),
                 ),
                 const Divider(),
 
-                // Layanan
+                // ── Layanan ───────────────────────────────────────────────
                 Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
@@ -997,7 +1142,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                   );
                 }),
 
-                // Biaya tambahan (jika ada) ← BARU
+                // ── Biaya tambahan ────────────────────────────────────────
                 if (_biayaTambahan.isNotEmpty) ...[
                   const Divider(),
                   Align(
@@ -1039,26 +1184,40 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                     );
                   }),
                 ],
-
                 const Divider(),
 
-                // Total
+                // ── Total ─────────────────────────────────────────────────
                 Align(
                   alignment: Alignment.centerLeft,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Layanan: ${_formatRupiah(_totalLayanan)}',
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                      if (_biayaTambahan.isNotEmpty)
+                      if (_biayaTambahan.isNotEmpty) ...[
                         Text(
-                          'Biaya Tambahan: ${_formatRupiah(_totalBiayaTambahan)}',
+                          'Layanan  : ${_formatRupiah(_totalLayanan)}',
                           style: Theme.of(context).textTheme.bodyMedium,
                         ),
+                        Text(
+                          'Biaya Tmb: ${_formatRupiah(_totalBiayaTambahan)}',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ],
+                      if (_diskonNominal > 0) ...[
+                        Text(
+                          'Subtotal : ${_formatRupiah(_subtotalSebelumDiskon)}',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                        Text(
+                          'Diskon   : - ${_formatRupiah(_diskonNominal)}' +
+                              (_diskonCatatan.isNotEmpty
+                                  ? ' (${_diskonCatatan})'
+                                  : ''),
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(color: Colors.red.shade600),
+                        ),
+                      ],
                       Text(
-                        'TOTAL: ${_formatRupiah(_grandTotal)}',
+                        'TOTAL    : ${_formatRupiah(_grandTotal)}',
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
@@ -1068,22 +1227,24 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                 ),
                 const Divider(),
 
-                // Pembayaran
+                // ── Pembayaran ────────────────────────────────────────────
                 Align(
                   alignment: Alignment.centerLeft,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Dibayar: ${_dpAmount > 0 ? _formatRupiah(_dpAmount) : 'Rp 0'}',
+                        _sudahLunas && _dpAmount == 0
+                            ? 'Dibayar : ${_formatRupiah(_grandTotal)}'
+                            : 'Dibayar : ${_dpAmount > 0 ? _formatRupiah(_dpAmount) : 'Rp 0'}',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                       Text(
-                        'Sisa: ${_formatRupiah(_sisaTagihan)}',
+                        'Sisa    : ${_formatRupiah(_sisaTagihan)}',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                       Text(
-                        'Status: ${_sudahLunas ? 'LUNAS' : 'BELUM LUNAS'}',
+                        'Status  : ${_sudahLunas ? 'LUNAS' : 'BELUM LUNAS'}',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           fontWeight: FontWeight.bold,
                           color: _sudahLunas ? Colors.green : Colors.red,
@@ -1100,29 +1261,111 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
+
+                // ── Rekening Pembayaran + QR ──────────────────────────────
+                if (PrinterSettings.rekeningList.isNotEmpty) ...[
+                  Text(
+                    '══════════════════════════',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  Text(
+                    'PEMBAYARAN VIA',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  ...PrinterSettings.rekeningList.map((rek) {
+                    final hasQr = (rek['qr_url'] ?? '').isNotEmpty;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Column(
+                        children: [
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  rek['nama_bank'] ?? '',
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(fontWeight: FontWeight.bold),
+                                ),
+                                Text(
+                                  rek['no_rekening'] ?? '',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                                if ((rek['atas_nama'] ?? '').isNotEmpty)
+                                  Text(
+                                    'a.n ${rek['atas_nama']}',
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodySmall,
+                                  ),
+                              ],
+                            ),
+                          ),
+                          // QR code — lebar max 58mm = ~160px di struk
+                          if (hasQr) ...[
+                            const SizedBox(height: 6),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(6),
+                              child: Image.network(
+                                rek['qr_url']!,
+                                width: 160,
+                                height: 160,
+                                fit: BoxFit.contain,
+                                loadingBuilder: (_, child, prog) => prog == null
+                                    ? child
+                                    : const SizedBox(
+                                        width: 160,
+                                        height: 160,
+                                        child: Center(
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        ),
+                                      ),
+                                errorBuilder: (_, __, ___) => const Icon(
+                                  Icons.qr_code_2_rounded,
+                                  size: 60,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  }),
+                ],
+
+                // ── Pesan kaki ────────────────────────────────────────────
                 Text(
                   '══════════════════════════',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
+                if (PrinterSettings.pesanKaki.isNotEmpty) ...[
+                  Text(
+                    PrinterSettings.pesanKaki,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 4),
+                ] else
+                  Text(
+                    'Terima kasih.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
                 Align(
                   alignment: Alignment.centerLeft,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Terima kasih.',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      Text(
-                        'Dicetak oleh: $_admin',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
+                  child: Text(
+                    'Dicetak oleh: $_admin',
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
                 const SizedBox(height: 20),
 
-                // Tombol
+                // ── Tombol ────────────────────────────────────────────────
                 Row(
                   children: [
                     Expanded(
@@ -1147,18 +1390,22 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                             MaterialPageRoute(
                               builder: (_) => PrintScreen(
                                 data: {
-                                  // Info outlet
-                                  'nama_laundry':
-                                      OutletSettings.namaMadeenalaundry,
-                                  'alamat': OutletSettings.alamat,
+                                  // Outlet
+                                  'nama_laundry': namaLaundry,
+                                  'alamat':
+                                      PrinterSettings.tampilkanAlamatOutlet
+                                      ? alamat
+                                      : '',
                                   'no_hp_laundry':
-                                      OutletSettings.noHpMadeenalaundry,
-                                  // Info order — KEY KONSISTEN
+                                      PrinterSettings.tampilkanNoHpOutlet
+                                      ? noHpLaundry
+                                      : '',
+                                  // Order
                                   'no_order': _noPelanggan,
                                   'waktu': _waktuStr,
-                                  'pelanggan': _namaPelangganStr,
-                                  'no_hp': _noHp.isNotEmpty ? _noHp : '-',
-                                  // Items & biaya tambahan
+                                  'pelanggan': namaPelangganDisplay,
+                                  'no_hp': noHpDisplay,
+                                  // Items & biaya
                                   'items': List<Map<String, dynamic>>.from(
                                     _items.map(
                                       (e) =>
@@ -1174,7 +1421,12 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                                                 ..remove('_biayaDocId'),
                                         ),
                                       ),
-                                  // Total & bayar
+                                  // Total
+                                  // Total
+                                  'subtotal_sebelum_diskon':
+                                      _subtotalSebelumDiskon,
+                                  'diskon_nominal': _diskonNominal,
+                                  'diskon_catatan': _diskonCatatan,
                                   'grand_total': _grandTotal,
                                   'dp_amount': _dpAmount,
                                   'sisa_tagihan': _sisaTagihan,
@@ -1182,6 +1434,10 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                                   'estimasi': _estimasi,
                                   'admin': _admin,
                                   'tanggal_cetak': tanggalCetak,
+                                  // Rekening + QR
+                                  'rekening_list': PrinterSettings.rekeningList,
+                                  // Pesan kaki
+                                  'pesan_kaki': PrinterSettings.pesanKaki,
                                 },
                               ),
                             ),
@@ -1395,18 +1651,24 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
 
   Future<void> _hapusOrder() async {
     try {
-      final itemsSnap = await FirebaseFirestore.instance
+      final orderRef = FirebaseFirestore.instance
           .collection('order')
-          .doc(widget.docId)
-          .collection('items')
-          .get();
+          .doc(widget.docId);
+
+      // Hapus subcollection items
+      final itemsSnap = await orderRef.collection('items').get();
       for (final doc in itemsSnap.docs) {
         await doc.reference.delete();
       }
-      await FirebaseFirestore.instance
-          .collection('order')
-          .doc(widget.docId)
-          .delete();
+
+      // FIX: Hapus subcollection biaya_tambahan juga ← TAMBAHAN
+      final biayaSnap = await orderRef.collection('biaya_tambahan').get();
+      for (final doc in biayaSnap.docs) {
+        await doc.reference.delete();
+      }
+
+      // Hapus dokumen order utama
+      await orderRef.delete();
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1582,15 +1844,18 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
 
   Future<void> _syncOrderSummary() async {
     if (_items.isEmpty) return;
-    final firstItem = _items[0];
-    final estimasiTerpanjang = firstItem['estimasi_selesai']?.toString() ?? '-';
+
+    // FIX: ambil estimasi dari item terakhir, bukan item pertama
+    final estimasiTerpanjang = _items
+        .map((i) => i['estimasi_selesai']?.toString() ?? '-')
+        .last;
 
     try {
       await FirebaseFirestore.instance
           .collection('order')
           .doc(widget.docId)
           .update({
-            'harga_total': _grandTotal,
+            'harga_total': _grandTotal, // sudah include biaya tambahan ✅
             'jumlah_item': _items.length,
             'estimasi_selesai': estimasiTerpanjang,
           });
@@ -1878,9 +2143,84 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                       ],
                     ),
                   ),
+                  const SizedBox(height: 10),
+
+                  // ── Info Pelanggan card ───────────────────────────────────
+                  _card(
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: primary.withOpacity(0.10),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            Icons.person_outline_rounded,
+                            color: primary,
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _namaPelangganStr,
+                                style: Theme.of(context).textTheme.bodyLarge
+                                    ?.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                    ),
+                              ),
+                              if (_noHp.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 2),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.phone_outlined,
+                                        size: 12,
+                                        color: Colors.grey.shade500,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        _noHp,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(fontSize: 12),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        if (_noHp.isNotEmpty)
+                          GestureDetector(
+                            onTap: _shareWA,
+                            child: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF25D366).withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(
+                                Icons.chat_outlined,
+                                color: Color(0xFF25D366),
+                                size: 18,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
                   const SizedBox(height: 16),
 
-                  // ── Item Pesanan ──────────────────────────────────────────
+                  // ── Item Pesanan ──────────────────────────────────────────────────────────
                   Row(
                     children: [
                       Text(
@@ -1892,6 +2232,51 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                       ),
                       const SizedBox(width: 8),
                       _miniPill('${_items.length} layanan', primary),
+                      const Spacer(),
+
+                      FutureBuilder<bool>(
+                        future: canAccess('can_eit_layanan'),
+                        builder: (context, snap) {
+                          if (!(snap.data ?? false)) {
+                            return const SizedBox.shrink();
+                          }
+                          return GestureDetector(
+                            onTap: () => _openEditLayanan(),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 5,
+                              ),
+                              decoration: BoxDecoration(
+                                color: primary.withOpacity(0.10),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: primary.withOpacity(0.3),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.edit_outlined,
+                                    size: 12,
+                                    color: primary,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Edit',
+                                    style: TextStyle(
+                                      color: primary,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
                     ],
                   ),
                   const SizedBox(height: 10),
@@ -2386,11 +2771,613 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       }),
     );
   }
+
+  // ── Buka edit item ────────────────────────────────────────────────────────
+  void _openEditLayanan() {
+    if (_items.isEmpty) return;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _EditItemListSheet(
+        items: List<Map<String, dynamic>>.from(_items),
+        onSave: (updatedItems) async {
+          Navigator.pop(ctx);
+          await _saveEditedItems(updatedItems);
+        },
+      ),
+    );
+  }
+
+  Future<void> _saveEditedItems(List<Map<String, dynamic>> updatedItems) async {
+    try {
+      final orderRef = FirebaseFirestore.instance
+          .collection('order')
+          .doc(widget.docId);
+
+      // Update setiap item yang punya docId
+      for (final item in updatedItems) {
+        final docId = item['_itemDocId']?.toString();
+        if (docId != null && docId.isNotEmpty) {
+          final dataToUpdate = Map<String, dynamic>.from(item)
+            ..remove('_itemDocId');
+          await orderRef.collection('items').doc(docId).update(dataToUpdate);
+        }
+      }
+
+      setState(() => _items = updatedItems);
+      await _syncOrderSummary();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Item berhasil diperbarui'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal memperbarui item: $e'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  BOTTOM SHEET: Edit Item Pesanan (dengan Ganti Layanan)
+// ════════════════════════════════════════════════════════════════════════════
+class _EditItemListSheet extends StatefulWidget {
+  final List<Map<String, dynamic>> items;
+  final void Function(List<Map<String, dynamic>>) onSave;
+
+  const _EditItemListSheet({required this.items, required this.onSave});
+
+  @override
+  State<_EditItemListSheet> createState() => _EditItemListSheetState();
+}
+
+class _EditItemListSheetState extends State<_EditItemListSheet> {
+  late List<Map<String, dynamic>> _editedItems;
+  late List<TextEditingController> _beratControllers;
+  late List<TextEditingController> _hargaControllers;
+  late List<TextEditingController> _catatanControllers;
+  bool _loadingLayanan = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initFromItems(widget.items);
+  }
+
+  void _initFromItems(List<Map<String, dynamic>> items) {
+    _editedItems = items.map((e) => Map<String, dynamic>.from(e)).toList();
+    _beratControllers = _editedItems.map((item) {
+      final berat = item['berat_kg'];
+      return TextEditingController(
+        text: berat != null
+            ? (berat is double && berat % 1 == 0
+                  ? berat.toInt().toString()
+                  : berat.toString())
+            : '1',
+      );
+    }).toList();
+    _hargaControllers = _editedItems.map((item) {
+      final harga = item['harga_satuan'];
+      return TextEditingController(
+        text: harga != null ? harga.toString() : '0',
+      );
+    }).toList();
+    _catatanControllers = _editedItems.map((item) {
+      return TextEditingController(text: item['catatan']?.toString() ?? '');
+    }).toList();
+  }
+
+  @override
+  void dispose() {
+    for (final c in _beratControllers) c.dispose();
+    for (final c in _hargaControllers) c.dispose();
+    for (final c in _catatanControllers) c.dispose();
+    super.dispose();
+  }
+
+  String _satuanLabel(String tipe) {
+    switch (tipe) {
+      case 'kiloan':
+        return 'kg';
+      case 'meter':
+        return 'm²';
+      default:
+        return 'pcs';
+    }
+  }
+
+  int _hitungSubtotal(int idx) {
+    try {
+      final berat = double.parse(_beratControllers[idx].text);
+      final harga = int.parse(_hargaControllers[idx].text);
+      return (berat * harga).toInt();
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  Future<void> _bukaGantiLayanan(int idx) async {
+    setState(() => _loadingLayanan = true);
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('layanan')
+          .orderBy('nama')
+          .get();
+      final layananList = snap.docs
+          .map((d) => Layanan.fromFirestore(d))
+          .toList();
+      setState(() => _loadingLayanan = false);
+
+      if (!mounted) return;
+      if (layananList.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Belum ada layanan tersedia'),
+            backgroundColor: Colors.orange,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (ctx) => _LayananPickerSheet(
+          layananList: layananList,
+          onSelected: (layanan) {
+            Navigator.pop(ctx);
+            // Dispose controller lama
+            _hargaControllers[idx].dispose();
+            // Buat controller baru dengan harga layanan baru
+            _hargaControllers[idx] = TextEditingController(
+              text: layanan.harga.round().toString(),
+            );
+
+            setState(() {
+              // Pertahankan berat/jumlah & catatan lama, ganti layanan info
+              _editedItems[idx] = {
+                ..._editedItems[idx],
+                'layanan_nama': layanan.nama,
+                'layanan_tipe': layanan.tipe,
+                'layanan_id': layanan.id,
+                'harga_satuan': layanan.harga.round(),
+              };
+            });
+          },
+        ),
+      );
+    } catch (e) {
+      setState(() => _loadingLayanan = false);
+    }
+  }
+
+  void _simpan() {
+    for (int i = 0; i < _editedItems.length; i++) {
+      _editedItems[i]['berat_kg'] =
+          double.tryParse(_beratControllers[i].text) ??
+          _editedItems[i]['berat_kg'];
+      _editedItems[i]['harga_satuan'] =
+          int.tryParse(_hargaControllers[i].text) ??
+          _editedItems[i]['harga_satuan'];
+      _editedItems[i]['catatan'] = _catatanControllers[i].text.trim();
+    }
+    widget.onSave(_editedItems);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 20,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Handle bar
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).dividerColor,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Edit Item Pesanan',
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Ubah layanan, berat/jumlah, harga, atau catatan',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 20),
+
+            // List item editor
+            ...List.generate(_editedItems.length, (i) {
+              final item = _editedItems[i];
+              final tipe = item['layanan_tipe']?.toString() ?? '';
+              final satuan = _satuanLabel(tipe);
+              final namaLayanan = item['layanan_nama']?.toString() ?? '-';
+
+              return StatefulBuilder(
+                builder: (ctx, setS) {
+                  final subtotal = _hitungSubtotal(i);
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).cardColor,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.04),
+                          blurRadius: 8,
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // ── Header item ──────────────────────────────────
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: primary.withOpacity(0.10),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                '${i + 1}',
+                                style: TextStyle(
+                                  color: primary,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    namaLayanan,
+                                    style: Theme.of(context).textTheme.bodyLarge
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
+                                        ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  // ── Tombol Ganti Layanan ──────────────
+                                  GestureDetector(
+                                    onTap: _loadingLayanan
+                                        ? null
+                                        : () async {
+                                            await _bukaGantiLayanan(i);
+                                            setS(() {});
+                                          },
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 3,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.orange.withOpacity(0.10),
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(
+                                          color: Colors.orange.withOpacity(
+                                            0.35,
+                                          ),
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          _loadingLayanan
+                                              ? const SizedBox(
+                                                  width: 10,
+                                                  height: 10,
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                        strokeWidth: 1.5,
+                                                        color: Colors.orange,
+                                                      ),
+                                                )
+                                              : Icon(
+                                                  Icons.swap_horiz_rounded,
+                                                  size: 11,
+                                                  color: Colors.orange.shade700,
+                                                ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            'Ganti Layanan',
+                                            style: TextStyle(
+                                              color: Colors.orange.shade700,
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              _formatRupiah(subtotal),
+                              style: TextStyle(
+                                color: primary,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Divider(
+                          height: 1,
+                          color: Theme.of(
+                            context,
+                          ).dividerColor.withOpacity(0.4),
+                        ),
+                        const SizedBox(height: 12),
+
+                        // ── Berat & Harga ────────────────────────────────
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Jumlah ($satuan)',
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(fontSize: 11),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  TextField(
+                                    controller: _beratControllers[i],
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.allow(
+                                        RegExp(r'^\d+\.?\d{0,2}'),
+                                      ),
+                                    ],
+                                    onChanged: (_) => setS(() {}),
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                    decoration: InputDecoration(
+                                      suffixText: satuan,
+                                      isDense: true,
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 10,
+                                          ),
+                                      filled: true,
+                                      fillColor: Theme.of(
+                                        context,
+                                      ).scaffoldBackgroundColor,
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                        borderSide: BorderSide(
+                                          color: Colors.grey.shade200,
+                                        ),
+                                      ),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                        borderSide: BorderSide(
+                                          color: Colors.grey.shade200,
+                                        ),
+                                      ),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                        borderSide: BorderSide(
+                                          color: primary,
+                                          width: 1.5,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Harga / $satuan',
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(fontSize: 11),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  TextField(
+                                    controller: _hargaControllers[i],
+                                    keyboardType: TextInputType.number,
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.digitsOnly,
+                                    ],
+                                    onChanged: (_) => setS(() {}),
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                    decoration: InputDecoration(
+                                      prefixText: 'Rp ',
+                                      isDense: true,
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 10,
+                                          ),
+                                      filled: true,
+                                      fillColor: Theme.of(
+                                        context,
+                                      ).scaffoldBackgroundColor,
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                        borderSide: BorderSide(
+                                          color: Colors.grey.shade200,
+                                        ),
+                                      ),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                        borderSide: BorderSide(
+                                          color: Colors.grey.shade200,
+                                        ),
+                                      ),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                        borderSide: BorderSide(
+                                          color: primary,
+                                          width: 1.5,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+
+                        // ── Catatan ──────────────────────────────────────
+                        Text(
+                          'Catatan',
+                          style: Theme.of(
+                            context,
+                          ).textTheme.bodySmall?.copyWith(fontSize: 11),
+                        ),
+                        const SizedBox(height: 4),
+                        TextField(
+                          controller: _catatanControllers[i],
+                          maxLines: 2,
+                          style: const TextStyle(fontSize: 13),
+                          decoration: InputDecoration(
+                            hintText: 'Kosongkan jika tidak ada',
+                            hintStyle: TextStyle(
+                              color: Colors.grey.shade400,
+                              fontSize: 12,
+                            ),
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 10,
+                            ),
+                            filled: true,
+                            fillColor: Theme.of(
+                              context,
+                            ).scaffoldBackgroundColor,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide(
+                                color: Colors.grey.shade200,
+                              ),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide(
+                                color: Colors.grey.shade200,
+                              ),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide(
+                                color: primary,
+                                width: 1.5,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              );
+            }),
+
+            const SizedBox(height: 8),
+
+            // ── Tombol Simpan ────────────────────────────────────────────
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _simpan,
+                icon: const Icon(Icons.save_outlined, size: 18),
+                label: const Text(
+                  'Simpan Perubahan',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor:
+                      Theme.of(context).appBarTheme.backgroundColor ?? kPrimary,
+                  foregroundColor:
+                      Theme.of(context).appBarTheme.foregroundColor ??
+                      Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
 //  BOTTOM SHEET: Pilih Layanan
 // ════════════════════════════════════════════════════════════════════════════
+
 class _LayananPickerSheet extends StatefulWidget {
   final List<Layanan> layananList;
   final void Function(Layanan) onSelected;

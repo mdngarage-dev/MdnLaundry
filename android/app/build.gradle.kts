@@ -18,10 +18,12 @@ android {
         isCoreLibraryDesugaringEnabled = true 
     }
 
-    // GUNAKAN HANYA INI (hapus kotlinOptions jika masih ada)
+    // Mengatur target JVM untuk Kotlin menggunakan cara baru
     tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile>().configureEach {
         compilerOptions {
             jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+            // Jika ingin mengabaikan warning kotlin, bisa aktifkan ini:
+            // allWarningsAsErrors.set(false)
         }
     }
 
@@ -40,22 +42,22 @@ android {
         }
     }
 
-    lintOptions {
-        disable 'InvalidPackage'
-        warningsAsErrors false
-        abortOnError false
-        quiet true  // ← ini yang suppress warning di terminal
+    // PERBAIKAN: Format lintOptions disesuaikan ke Kotlin DSL yang benar
+    lint {
+        disable.add("InvalidPackage")
+        warningsAsErrors = false
+        abortOnError = false
+        quiet = true  
     }
 
-    kotlinOptions {
-        suppressWarnings = true  // ← suppress Kotlin deprecation warnings
-    }
+    // KOTLIN OPTIONS LAMA YANG ERROR SUDAH DIHAPUS DARI SINI
 
 }
 
 flutter {
     source = "../.."
 }
+
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

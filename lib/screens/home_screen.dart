@@ -73,28 +73,17 @@ class _HomeScreenState extends State<HomeScreen>
         child: Scaffold(
           backgroundColor: Colors.transparent,
           body: SafeArea(
+            bottom: false,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ── FIXED: Header (sapaan + lonceng + avatar) ────────────
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 25),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: 25),
-                      _buildHeader(user),
-                      const SizedBox(height: 8),
-                    ],
-                  ),
-                ),
+                // ── BLUE HERO SECTION — full width, no horizontal padding ──────
+                _buildHeroSection(user, isDark),
 
-                // ── SCROLLABLE content ───────────────────────────────────
+                // ── SCROLLABLE content ─────────────────────────────────────────
                 Expanded(
                   child: GlobalRefresh(
-                    onRefresh: () async {
-                      setState(() {});
-                    },
+                    onRefresh: () async => setState(() {}),
                     child: SingleChildScrollView(
                       controller: _scrollController,
                       physics: const AlwaysScrollableScrollPhysics(),
@@ -102,15 +91,10 @@ class _HomeScreenState extends State<HomeScreen>
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const SizedBox(height: 27),
-
-                          // Stats Grid 3x2
+                          const SizedBox(height: 16),
                           _buildOrderStatsGrid(),
-                          const SizedBox(height: 35),
-
-                          // Recent orders section
+                          const SizedBox(height: 8),
                           _buildRecentOrdersSection(),
-
                           const SizedBox(height: 100),
                         ],
                       ),
@@ -122,6 +106,332 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         ),
       ),
+    );
+  }
+
+  // ─── HERO SECTION: Header + Pendapatan (full-width biru) ─────────────────
+  Widget _buildHeroSection(User? user, bool isDark) {
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final todayEnd = todayStart.add(const Duration(days: 1));
+    final tanggalStr = DateFormat('dd MMM yyyy').format(now);
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('order')
+          .where(
+            'waktu_order',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart),
+          )
+          .where('waktu_order', isLessThan: Timestamp.fromDate(todayEnd))
+          .snapshots(),
+      builder: (context, snapshot) {
+        int totalPendapatan = 0;
+        int jumlahOrder = 0;
+
+        if (snapshot.hasData) {
+          for (final doc in snapshot.data!.docs) {
+            final data = doc.data() as Map<String, dynamic>;
+            jumlahOrder++;
+            final harga = data['harga_total'];
+            if (harga != null) {
+              try {
+                totalPendapatan += harga is num
+                    ? harga.toInt()
+                    : int.parse(harga.toString());
+              } catch (_) {}
+            }
+          }
+        }
+
+        return Container(
+          width: double.infinity,
+          // Tidak pakai borderRadius di atas — biar mentok ke status bar
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: isDark
+                  ? [const Color(0xFF1A2744), const Color(0xFF0D1B3E)]
+                  : [kPrimary, const Color(0xFF2563EB)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            // Hanya radius di bawah
+            borderRadius: const BorderRadius.only(
+              bottomLeft: Radius.circular(28),
+              bottomRight: Radius.circular(28),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: kPrimary.withOpacity(0.3),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(22, 14, 22, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── Baris header: sapaan + lonceng + avatar ─────────────
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            "Halo, ${(user?.displayName ?? 'User').split('|')[0].trim()}!",
+                            style: const TextStyle(
+                              fontSize: 22,
+                              fontFamily: 'BubbbleGum',
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                          Text(
+                            "Selamat datang di ${OutletSettings.namaMadeenalaundry}",
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.white.withOpacity(0.75),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        // Lonceng notifikasi
+                        GestureDetector(
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const NotifikasiScreen(),
+                            ),
+                          ).then((_) => setState(() {})),
+                          child: FutureBuilder<int>(
+                            future: NotifStorage.jumlahBelumDibaca(),
+                            builder: (context, snap) {
+                              final jumlah = snap.data ?? 0;
+                              return Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  Container(
+                                    width: 40,
+                                    height: 40,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withOpacity(0.15),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Icon(
+                                      jumlah > 0
+                                          ? Icons.notifications_rounded
+                                          : Icons.notifications_none_rounded,
+                                      color: Colors.white,
+                                      size: 20,
+                                    ),
+                                  ),
+                                  if (jumlah > 0)
+                                    Positioned(
+                                      top: -4,
+                                      right: -4,
+                                      child: Container(
+                                        width: 17,
+                                        height: 17,
+                                        decoration: BoxDecoration(
+                                          color: Colors.red,
+                                          shape: BoxShape.circle,
+                                          border: Border.all(
+                                            color: kPrimary,
+                                            width: 1.5,
+                                          ),
+                                        ),
+                                        child: Center(
+                                          child: Text(
+                                            jumlah > 9
+                                                ? '9+'
+                                                : jumlah.toString(),
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 8,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              );
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        // Avatar
+                        GestureDetector(
+                          onTap: () => Navigator.pushNamed(
+                            context,
+                            '/profile',
+                          ).then((_) => setState(() {})),
+                          child: FutureBuilder<File?>(
+                            future: _loadLocalProfileImage(),
+                            builder: (context, snap) {
+                              final file = snap.data;
+                              return Container(
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: Colors.white.withOpacity(0.5),
+                                    width: 2,
+                                  ),
+                                ),
+                                child: CircleAvatar(
+                                  radius: 20,
+                                  backgroundColor: Colors.white.withOpacity(
+                                    0.2,
+                                  ),
+                                  backgroundImage: file != null
+                                      ? FileImage(file)
+                                      : null,
+                                  child: file == null
+                                      ? const Icon(
+                                          Icons.person,
+                                          color: Colors.white,
+                                          size: 20,
+                                        )
+                                      : null,
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+
+                // ── Card pendapatan (kaca / frosted glass style) ─────────
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: Colors.white.withOpacity(0.25),
+                      width: 1,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Label + tanggal
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Pendapatan Hari Ini',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              tanggalStr,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+
+                      // Nominal
+                      snapshot.connectionState == ConnectionState.waiting
+                          ? const SizedBox(
+                              height: 36,
+                              child: Center(
+                                child: SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2,
+                                  ),
+                                ),
+                              ),
+                            )
+                          : Text(
+                              NumberFormat.currency(
+                                locale: 'id_ID',
+                                symbol: 'Rp ',
+                                decimalDigits: 0,
+                              ).format(totalPendapatan),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 26,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: -0.5,
+                              ),
+                            ),
+                      const SizedBox(height: 8),
+
+                      // Badge jumlah order
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const SizedBox(width: 5),
+                            Text(
+                              snapshot.connectionState ==
+                                      ConnectionState.waiting
+                                  ? 'Memuat...'
+                                  : '$jumlahOrder order hari ini',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -234,20 +544,13 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         ];
 
-        return GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: 0.82,
-          ),
-          itemCount: cards.length,
-          itemBuilder: (context, index) {
-            final item = cards[index];
-            return _buildOrderStatCard(item);
-          },
+        return Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: cards.map((item) {
+            final w = (MediaQuery.of(context).size.width - 50 - 20) / 3;
+            return SizedBox(width: w, child: _buildOrderStatCard(item));
+          }).toList(),
         );
       },
     );
@@ -259,9 +562,7 @@ class _HomeScreenState extends State<HomeScreen>
         (item.label == 'Deadline' || item.label == 'Terlambat') &&
         item.count > 0;
 
-    // Map label → filter params
     String? navStatus;
-    bool navBelumBayar = false;
     switch (item.label) {
       case 'Antrian':
         navStatus = 'antrian';
@@ -276,68 +577,64 @@ class _HomeScreenState extends State<HomeScreen>
         navStatus = 'siap antar';
         break;
       case 'Deadline':
-        navStatus = 'proses'; // deadline = order proses yg mau habis
+        navStatus = 'proses';
         break;
       case 'Terlambat':
-        navStatus = 'proses'; // terlambat = order proses yg sudah lewat
+        navStatus = 'proses';
         break;
     }
 
     return GestureDetector(
-      onTap: () => _goToOrder(status: navStatus, belumBayar: navBelumBayar),
+      onTap: () => _goToOrder(status: navStatus),
       child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
         decoration: BoxDecoration(
           color: Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 3),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
             ),
           ],
         ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? item.iconColor.withOpacity(0.2)
-                      : item.bgColor,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(item.icon, color: item.iconColor, size: 22),
+        child: Column(
+          mainAxisSize: MainAxisSize.min, // ← kunci: tinggi mengikuti konten
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: isDark ? item.iconColor.withOpacity(0.2) : item.bgColor,
+                borderRadius: BorderRadius.circular(12),
               ),
-              const SizedBox(height: 10),
-              Text(
-                item.count.toString(),
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: isAlert
-                      ? item.iconColor
-                      : Theme.of(context).textTheme.bodyLarge?.color,
-                ),
+              child: Icon(item.icon, color: item.iconColor, size: 18),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              item.count.toString(),
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: isAlert
+                    ? item.iconColor
+                    : Theme.of(context).textTheme.bodyLarge?.color,
               ),
-              const SizedBox(height: 2),
-              Text(
-                item.label,
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  height: 1.2,
-                ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              item.label,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                fontSize: 10,
+                fontWeight: FontWeight.w500,
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -521,6 +818,38 @@ class _HomeScreenState extends State<HomeScreen>
                                     ),
                               ),
                               const SizedBox(height: 2),
+                              // ── Nama pelanggan ──────────────────
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.person_outline_rounded,
+                                    size: 11,
+                                    color: Colors.grey.shade500,
+                                  ),
+                                  const SizedBox(width: 3),
+                                  Expanded(
+                                    child: Text(
+                                      data['nama_pelanggan']
+                                                  ?.toString()
+                                                  .isNotEmpty ==
+                                              true
+                                          ? data['nama_pelanggan'].toString()
+                                          : '-',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.copyWith(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 3),
+                              // ── Badge status + nama layanan ─────
                               Row(
                                 children: [
                                   Container(

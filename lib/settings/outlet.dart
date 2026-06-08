@@ -4,7 +4,59 @@ import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../screens/screens.dart';
+
+// ════════════════════════════════════════════════════════════════════════════
+//  OutletSettingsService — baca & tulis ke Firestore
+//  Dokumen: settings/outlet
+// ════════════════════════════════════════════════════════════════════════════
+class OutletSettingsService {
+  static final _doc = FirebaseFirestore.instance
+      .collection('settings')
+      .doc('outlet');
+
+  /// Muat data dari Firestore lalu update OutletSettings in-memory.
+  static Future<void> load() async {
+    try {
+      final snap = await _doc.get();
+      if (!snap.exists) return;
+      final d = snap.data()!;
+      OutletSettings.namaMadeenalaundry =
+          d['nama']?.toString() ?? OutletSettings.namaMadeenalaundry;
+      OutletSettings.noHpMadeenalaundry =
+          d['no_hp']?.toString() ?? OutletSettings.noHpMadeenalaundry;
+      OutletSettings.alamat = d['alamat']?.toString() ?? OutletSettings.alamat;
+      // logoPath hanya berlaku di Android (disimpan lokal)
+      if (!kIsWeb) {
+        OutletSettings.logoPath =
+            d['logo_path']?.toString() ?? OutletSettings.logoPath;
+      }
+    } catch (_) {
+      // Gagal muat = tetap pakai nilai default
+    }
+  }
+
+  /// Simpan data ke Firestore.
+  static Future<void> save({
+    required String nama,
+    required String noHp,
+    required String alamat,
+    String logoPath = '',
+  }) async {
+    await _doc.set({
+      'nama': nama,
+      'no_hp': noHp,
+      'alamat': alamat,
+      if (!kIsWeb && logoPath.isNotEmpty) 'logo_path': logoPath,
+      'updated_at': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  /// Stream untuk realtime sync (opsional — dipakai jika ingin live update).
+  static Stream<DocumentSnapshot<Map<String, dynamic>>> get stream =>
+      _doc.snapshots();
+}
 
 class OutletPage extends StatefulWidget {
   const OutletPage({super.key});
@@ -21,21 +73,32 @@ class _OutletPageState extends State<OutletPage> {
   String? _localLogoPath;
   Uint8List? _webLogoBytes;
   bool _isSaved = false;
+  bool _isLoading = true;
+  bool _isSaving = false;
 
   @override
   void initState() {
     super.initState();
-    _namaController.text = OutletSettings.namaMadeenalaundry;
-    _phoneController.text = OutletSettings.noHpMadeenalaundry;
-    _alamatController.text = OutletSettings.alamat.isNotEmpty
-        ? OutletSettings.alamat
-        : "Jl. Raya Puncak Km.78";
+    _loadFromFirestore();
+  }
 
-    if (!kIsWeb) {
-      _localLogoPath = OutletSettings.logoPath.isNotEmpty
-          ? OutletSettings.logoPath
-          : null;
-    }
+  /// Muat data dari Firestore, lalu isi controller.
+  Future<void> _loadFromFirestore() async {
+    await OutletSettingsService.load();
+    if (!mounted) return;
+    setState(() {
+      _namaController.text = OutletSettings.namaMadeenalaundry;
+      _phoneController.text = OutletSettings.noHpMadeenalaundry;
+      _alamatController.text = OutletSettings.alamat.isNotEmpty
+          ? OutletSettings.alamat
+          : "Jl. Raya Puncak Km.78";
+      if (!kIsWeb) {
+        _localLogoPath = OutletSettings.logoPath.isNotEmpty
+            ? OutletSettings.logoPath
+            : null;
+      }
+      _isLoading = false;
+    });
   }
 
   @override
@@ -62,7 +125,7 @@ class _OutletPageState extends State<OutletPage> {
       });
     } else {
       final appDir = await getApplicationDocumentsDirectory();
-      final fileName = 'logo_Madeena Laundry${p.extension(picked.path)}';
+      final fileName = 'logo_outlet${p.extension(picked.path)}';
       final savedPath = '${appDir.path}/$fileName';
       await File(picked.path).copy(savedPath);
       setState(() {
@@ -87,7 +150,7 @@ class _OutletPageState extends State<OutletPage> {
     return Icon(Icons.storefront, size: 60, color: kPrimary);
   }
 
-  void _simpanPerubahan() {
+  Future<void> _simpanPerubahan() async {
     final nama = _namaController.text.trim();
     final phone = _phoneController.text.trim();
     final alamat = _alamatController.text.trim();
@@ -95,37 +158,63 @@ class _OutletPageState extends State<OutletPage> {
     if (nama.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("⚠️ Nama Madeena Laundry tidak boleh kosong"),
+          content: Text("⚠️ Nama Laundry tidak boleh kosong"),
           backgroundColor: Colors.orange,
         ),
       );
       return;
     }
 
-    OutletSettings.namaMadeenalaundry = nama;
-    OutletSettings.noHpMadeenalaundry = phone;
-    OutletSettings.alamat = alamat;
+    setState(() => _isSaving = true);
 
-    if (!kIsWeb) {
-      OutletSettings.logoPath = _localLogoPath ?? "";
-    }
+    try {
+      // 1. Simpan ke Firestore
+      await OutletSettingsService.save(
+        nama: nama,
+        noHp: phone,
+        alamat: alamat,
+        logoPath: _localLogoPath ?? '',
+      );
 
-    setState(() => _isSaved = true);
+      // 2. Update in-memory agar langsung berlaku tanpa restart
+      OutletSettings.namaMadeenalaundry = nama;
+      OutletSettings.noHpMadeenalaundry = phone;
+      OutletSettings.alamat = alamat;
+      if (!kIsWeb) OutletSettings.logoPath = _localLogoPath ?? '';
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Row(
-          children: [
-            Icon(Icons.check_circle, color: Colors.white, size: 18),
-            SizedBox(width: 8),
-            Text("Pengaturan outlet berhasil disimpan"),
-          ],
+      if (!mounted) return;
+      setState(() {
+        _isSaved = true;
+        _isSaving = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.white, size: 18),
+              SizedBox(width: 8),
+              Text("Pengaturan outlet berhasil disimpan"),
+            ],
+          ),
+          backgroundColor: kPrimary,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
-        backgroundColor: kPrimary,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
-    );
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("❌ Gagal menyimpan: $e"),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   @override
@@ -136,186 +225,222 @@ class _OutletPageState extends State<OutletPage> {
       // ✅ Adaptive scaffold background
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: _buildAppBar(context),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            // ✅ Bagian logo menggunakan cardColor
-            Container(
-              margin: const EdgeInsets.fromLTRB(
-                16,
-                16,
-                16,
-                0,
-              ), // ✅ padding kanan kiri atas
-              decoration: BoxDecoration(
-                color: theme.cardColor,
-                borderRadius: BorderRadius.circular(24), // ✅ sudut round
-              ),
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 30),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
               child: Column(
                 children: [
-                  Stack(
-                    children: [
-                      Container(
-                        width: 120,
-                        height: 120,
-                        padding: const EdgeInsets.all(12), // ✅ padding dalam
-                        decoration: BoxDecoration(
-                          color: kPrimary.withOpacity(0.08),
-                          borderRadius: BorderRadius.circular(
-                            28,
-                          ), // ✅ lebih round
-                          border: Border.all(
-                            color: kPrimary.withOpacity(0.3),
-                            width: 2,
-                          ),
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(
-                            16,
-                          ), // ✅ ikut menyesuaikan
-                          child: _buildLogoWidget(),
-                        ),
-                      ),
-                      Positioned(
-                        bottom: 0,
-                        right: 0,
-                        child: GestureDetector(
-                          onTap: _pickLogo,
-                          child: CircleAvatar(
-                            backgroundColor: kPrimary,
-                            radius: 18,
-                            child: const Icon(
-                              Icons.edit,
-                              size: 16,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    "Logo Laundry",
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: theme.textTheme.bodyLarge?.color?.withOpacity(0.5),
-                      fontSize: 13,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    "Ketuk ikon pensil untuk ganti logo",
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      color: theme.textTheme.bodyLarge?.color?.withOpacity(0.4),
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildSectionTitle("Informasi Laundry"),
-                  _buildCustomTextField(
-                    label: "Nama Laundry",
-                    controller: _namaController,
-                    icon: Icons.store,
-                    hint: "Masukkan nama Laundry",
-                    onChanged: (_) => setState(() => _isSaved = false),
-                  ),
-                  _buildCustomTextField(
-                    label: "Nomor WhatsApp / HP",
-                    controller: _phoneController,
-                    icon: Icons.phone_android,
-                    hint: "0812...",
-                    keyboardType: TextInputType.phone,
-                    onChanged: (_) => setState(() => _isSaved = false),
-                  ),
-                  _buildCustomTextField(
-                    label: "Alamat Lengkap",
-                    controller: _alamatController,
-                    icon: Icons.location_on_outlined,
-                    hint: "Alamat outlet",
-                    maxLines: 3,
-                    onChanged: (_) => setState(() => _isSaved = false),
-                  ),
-
-                  const SizedBox(height: 8),
-
-                  // ✅ Info box adaptive
+                  // ✅ Bagian logo menggunakan cardColor
                   Container(
-                    padding: const EdgeInsets.all(12),
+                    margin: const EdgeInsets.fromLTRB(
+                      16,
+                      16,
+                      16,
+                      0,
+                    ), // ✅ padding kanan kiri atas
                     decoration: BoxDecoration(
-                      color: kPrimary.withOpacity(0.07),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: kPrimary.withOpacity(0.2)),
+                      color: theme.cardColor,
+                      borderRadius: BorderRadius.circular(24), // ✅ sudut round
                     ),
-                    child: Row(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 30),
+                    child: Column(
                       children: [
-                        Icon(Icons.info_outline, color: kPrimary, size: 18),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            kIsWeb
-                                ? "Di versi web, logo hanya tersimpan selama sesi ini. "
-                                      "Untuk penyimpanan permanen, gunakan aplikasi Android."
-                                : "Nama Madeena Laundry, nomor HP, dan logo akan tampil "
-                                      "di kartu pasien setelah disimpan.",
-                            style: theme.textTheme.bodyLarge?.copyWith(
-                              fontSize: 12,
-                              color: kPrimary,
-                              height: 1.4,
+                        Stack(
+                          children: [
+                            Container(
+                              width: 120,
+                              height: 120,
+                              padding: const EdgeInsets.all(
+                                12,
+                              ), // ✅ padding dalam
+                              decoration: BoxDecoration(
+                                color: kPrimary.withOpacity(0.08),
+                                borderRadius: BorderRadius.circular(
+                                  28,
+                                ), // ✅ lebih round
+                                border: Border.all(
+                                  color: kPrimary.withOpacity(0.3),
+                                  width: 2,
+                                ),
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(
+                                  16,
+                                ), // ✅ ikut menyesuaikan
+                                child: _buildLogoWidget(),
+                              ),
                             ),
+                            Positioned(
+                              bottom: 0,
+                              right: 0,
+                              child: GestureDetector(
+                                onTap: _pickLogo,
+                                child: CircleAvatar(
+                                  backgroundColor: kPrimary,
+                                  radius: 18,
+                                  child: const Icon(
+                                    Icons.edit,
+                                    size: 16,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          "Logo Laundry",
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: theme.textTheme.bodyLarge?.color
+                                ?.withOpacity(0.5),
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          "Ketuk ikon pensil untuk ganti logo",
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: theme.textTheme.bodyLarge?.color
+                                ?.withOpacity(0.4),
+                            fontSize: 11,
                           ),
                         ),
                       ],
                     ),
                   ),
 
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 16),
 
-                  SizedBox(
-                    width: double.infinity,
-                    height: 55,
-                    child: ElevatedButton.icon(
-                      onPressed: _simpanPerubahan,
-                      icon: Icon(
-                        _isSaved ? Icons.check_circle : Icons.save_rounded,
-                        size: 20,
-                      ),
-                      label: Text(
-                        _isSaved ? "TERSIMPAN" : "SIMPAN PERUBAHAN",
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildSectionTitle("Informasi Laundry"),
+                        _buildCustomTextField(
+                          label: "Nama Laundry",
+                          controller: _namaController,
+                          icon: Icons.store,
+                          hint: "Masukkan nama Laundry",
+                          onChanged: (_) => setState(() => _isSaved = false),
                         ),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _isSaved ? Colors.green : kPrimary,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(15),
+                        _buildCustomTextField(
+                          label: "Nomor WhatsApp / HP",
+                          controller: _phoneController,
+                          icon: Icons.phone_android,
+                          hint: "0812...",
+                          keyboardType: TextInputType.phone,
+                          onChanged: (_) => setState(() => _isSaved = false),
                         ),
-                        elevation: 0,
-                      ),
+                        _buildCustomTextField(
+                          label: "Alamat Lengkap",
+                          controller: _alamatController,
+                          icon: Icons.location_on_outlined,
+                          hint: "Alamat outlet",
+                          maxLines: 3,
+                          onChanged: (_) => setState(() => _isSaved = false),
+                        ),
+
+                        const SizedBox(height: 8),
+
+                        // ✅ Info box adaptive
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: kPrimary.withOpacity(0.07),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: kPrimary.withOpacity(0.2),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.info_outline,
+                                color: kPrimary,
+                                size: 18,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  kIsWeb
+                                      ? "Logo hanya tersimpan selama sesi ini (web). "
+                                            "Data teks (nama, HP, alamat) tersimpan permanen di cloud."
+                                      : "Data outlet tersimpan di cloud Firestore. "
+                                            "Perubahan langsung berlaku di semua perangkat.",
+                                  style: theme.textTheme.bodyLarge?.copyWith(
+                                    fontSize: 12,
+                                    color: kPrimary,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        const SizedBox(height: 24),
+
+                        SizedBox(
+                          width: double.infinity,
+                          height: 55,
+                          child: ElevatedButton(
+                            onPressed: _isSaving ? null : _simpanPerubahan,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _isSaved
+                                  ? Colors.green
+                                  : kPrimary,
+                              foregroundColor: Colors.white,
+                              disabledBackgroundColor: kPrimary.withOpacity(
+                                0.6,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(15),
+                              ),
+                              elevation: 0,
+                            ),
+                            child: _isSaving
+                                ? const SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(
+                                      color: Colors.white,
+                                      strokeWidth: 2.5,
+                                    ),
+                                  )
+                                : Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        _isSaved
+                                            ? Icons.check_circle
+                                            : Icons.cloud_upload_rounded,
+                                        size: 20,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        _isSaved
+                                            ? "TERSIMPAN DI CLOUD"
+                                            : "SIMPAN KE CLOUD",
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                          ),
+                        ),
+                        const SizedBox(height: 40),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 40),
                 ],
               ),
             ),
-          ],
-        ),
-      ),
     );
   }
 

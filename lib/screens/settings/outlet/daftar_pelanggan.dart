@@ -1,6 +1,13 @@
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:mdnlaundry_project/screens/screens.dart';
+import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
+import 'package:share_plus/share_plus.dart';
 
 class DaftarPelangganPage extends StatefulWidget {
   final bool isSelecting;
@@ -17,10 +24,10 @@ class _DaftarPelangganPageState extends State<DaftarPelangganPage> {
   final TextEditingController _noHpCtrl = TextEditingController();
   final TextEditingController _searchCtrl = TextEditingController();
 
-  // Semua data pelanggan disimpan di sini (dari Firestore stream)
   List<QueryDocumentSnapshot> _allDocs = [];
-  // Data yang tampil setelah difilter
   List<QueryDocumentSnapshot> _filteredDocs = [];
+
+  bool _isExporting = false;
 
   @override
   void initState() {
@@ -36,7 +43,6 @@ class _DaftarPelangganPageState extends State<DaftarPelangganPage> {
     super.dispose();
   }
 
-  // Filter di memory — tanpa query ke Firestore, jadi instant
   void _onSearchChanged() {
     final query = _searchCtrl.text.trim().toLowerCase();
     setState(() {
@@ -53,13 +59,11 @@ class _DaftarPelangganPageState extends State<DaftarPelangganPage> {
     });
   }
 
-  // Update _allDocs setiap stream emit data baru, lalu re-apply filter
   void _updateDocs(List<QueryDocumentSnapshot> docs) {
     _allDocs = docs;
-    _onSearchChanged(); // langsung apply filter yang sedang aktif
+    _onSearchChanged();
   }
 
-  // Ambil 1–2 inisial dari nama untuk avatar
   String _getInitials(String nama) {
     final parts = nama.trim().split(RegExp(r'\s+'));
     if (parts.isEmpty || parts.first.isEmpty) return '?';
@@ -67,7 +71,6 @@ class _DaftarPelangganPageState extends State<DaftarPelangganPage> {
     return (parts.first[0] + parts[1][0]).toUpperCase();
   }
 
-  // Warna avatar unik berdasarkan nama (deterministik)
   Color _getAvatarColor(String nama) {
     const colors = [
       Color(0xFF1976D2),
@@ -83,7 +86,106 @@ class _DaftarPelangganPageState extends State<DaftarPelangganPage> {
     return colors[index];
   }
 
-  // ── Dialog Tambah / Edit Pelanggan ──
+  // ── Export CSV ──────────────────────────────────────────────────────────────
+  Future<void> _exportCsv() async {
+    if (_allDocs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Tidak ada data untuk diekspor')),
+      );
+      return;
+    }
+
+    setState(() => _isExporting = true);
+
+    try {
+      // Buat konten CSV
+      final buffer = StringBuffer();
+      buffer.writeln('No,Nama,Nomor HP'); // header
+
+      for (int i = 0; i < _allDocs.length; i++) {
+        final data = _allDocs[i].data() as Map<String, dynamic>;
+        final nama = _escapeCsvField(data['nama'] ?? '');
+        final noHp = _escapeCsvField(data['no_hp'] ?? '');
+        buffer.writeln('${i + 1},$nama,$noHp');
+      }
+
+      final csvString = buffer.toString();
+      final fileName = 'pelanggan_${DateTime.now().millisecondsSinceEpoch}.csv';
+
+      if (kIsWeb) {
+        // Web: tidak ada akses filesystem — copy ke clipboard sebagai fallback
+        // atau integrasikan dengan package universal_html untuk trigger download.
+        // Untuk saat ini tampilkan snackbar informatif.
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Export CSV di web: gunakan share_plus atau universal_html',
+            ),
+          ),
+        );
+        return;
+      }
+
+      // Mobile / Desktop: simpan ke temp lalu share
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/$fileName');
+      await file.writeAsString(csvString, encoding: utf8);
+
+      await Share.shareXFiles([
+        XFile(file.path, mimeType: 'text/csv'),
+      ], subject: 'Data Pelanggan Laundry');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Gagal mengekspor: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
+  /// Escape nilai CSV: jika mengandung koma, kutip, atau newline → bungkus
+  /// dengan double-quote dan escape kutip ganda menjadi dua kutip.
+  String _escapeCsvField(dynamic value) {
+    final str = value.toString();
+    if (str.contains(',') || str.contains('"') || str.contains('\n')) {
+      return '"${str.replaceAll('"', '""')}"';
+    }
+    return str;
+  }
+
+  String _normalizeNoHp(String raw) {
+    String cleaned = raw.replaceAll(RegExp(r'[\s\-\(\)]'), '');
+
+    if (cleaned.startsWith('+')) {
+      cleaned = cleaned.substring(1);
+    }
+    if (cleaned.startsWith('62')) {
+      cleaned = '0${cleaned.substring(2)}';
+    }
+    if (cleaned.startsWith('0') &&
+        cleaned.length >= 9 &&
+        cleaned.length <= 14 &&
+        RegExp(r'^\d+$').hasMatch(cleaned)) {
+      return cleaned;
+    }
+    return raw.trim();
+  }
+
+  Future<void> _pasteAndNormalize() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    if (data == null || data.text == null || data.text!.isEmpty) return;
+
+    final normalized = _normalizeNoHp(data.text!);
+    _noHpCtrl.text = normalized;
+    // Pindahkan cursor ke akhir
+    _noHpCtrl.selection = TextSelection.collapsed(
+      offset: _noHpCtrl.text.length,
+    );
+  }
+
+  // ── Dialog Tambah / Edit Pelanggan ─────────────────────────────────────────
   void _showFormDialog({
     String? docId,
     String? currentNama,
@@ -116,9 +218,22 @@ class _DaftarPelangganPageState extends State<DaftarPelangganPage> {
               TextField(
                 controller: _noHpCtrl,
                 keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(
+                autofocus: true,
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[0-9]')),
+                ],
+                decoration: InputDecoration(
                   labelText: 'Nomor HP',
-                  prefixIcon: Icon(Icons.phone_outlined),
+                  prefixIcon: const Icon(Icons.phone_outlined),
+                  suffixIcon: Tooltip(
+                    message: 'Paste & konversi otomatis',
+                    child: IconButton(
+                      icon: const Icon(Icons.content_paste_rounded, size: 18),
+                      onPressed: _pasteAndNormalize,
+                    ),
+                  ),
+                  helperText: 'Format +62 / 62 otomatis dikonversi ke 0xxx',
+                  helperStyle: const TextStyle(fontSize: 11),
                 ),
               ),
             ],
@@ -167,7 +282,6 @@ class _DaftarPelangganPageState extends State<DaftarPelangganPage> {
     );
   }
 
-  // ── Dialog Edit Nomor HP saja (dari subtitle / tombol khusus) ──
   void _showEditNoHpDialog(String docId, String currentNoHp) {
     _noHpCtrl.text = currentNoHp;
     showDialog(
@@ -178,10 +292,21 @@ class _DaftarPelangganPageState extends State<DaftarPelangganPage> {
         content: TextField(
           controller: _noHpCtrl,
           keyboardType: TextInputType.phone,
-          autofocus: true,
-          decoration: const InputDecoration(
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(RegExp(r'[0-9]')),
+          ],
+          decoration: InputDecoration(
             labelText: 'Nomor HP',
-            prefixIcon: Icon(Icons.phone_outlined),
+            prefixIcon: const Icon(Icons.phone_outlined),
+            suffixIcon: Tooltip(
+              message: 'Paste & konversi otomatis',
+              child: IconButton(
+                icon: const Icon(Icons.content_paste_rounded, size: 18),
+                onPressed: _pasteAndNormalize,
+              ),
+            ),
+            helperText: 'Format +62 / 62 otomatis dikonversi ke 0xxx',
+            helperStyle: const TextStyle(fontSize: 11),
           ),
         ),
         actions: [
@@ -211,7 +336,6 @@ class _DaftarPelangganPageState extends State<DaftarPelangganPage> {
     );
   }
 
-  // ── Konfirmasi Hapus ──
   void _konfirmasiHapus(String docId, String nama) {
     showDialog(
       context: context,
@@ -241,6 +365,7 @@ class _DaftarPelangganPageState extends State<DaftarPelangganPage> {
     );
   }
 
+  // ── Build ───────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -254,11 +379,8 @@ class _DaftarPelangganPageState extends State<DaftarPelangganPage> {
             );
           }
 
-          // Update data lokal setiap ada data baru dari Firestore
-          // Loading hanya muncul saat pertama kali (belum ada data sama sekali)
           if (snapshot.hasData) {
             final incoming = snapshot.data!.docs;
-            // Cek apakah data berubah sebelum update agar tidak trigger rebuild ganda
             if (_allDocs.length != incoming.length ||
                 (incoming.isNotEmpty &&
                     (_allDocs.isEmpty ||
@@ -269,7 +391,6 @@ class _DaftarPelangganPageState extends State<DaftarPelangganPage> {
             }
           }
 
-          // Tampilkan loading hanya saat benar-benar belum ada data lokal
           if (snapshot.connectionState == ConnectionState.waiting &&
               _allDocs.isEmpty) {
             return const Center(child: CircularProgressIndicator());
@@ -315,7 +436,6 @@ class _DaftarPelangganPageState extends State<DaftarPelangganPage> {
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      // Shadow sedikit
                       elevation: 3,
                       shadowColor: Colors.black26,
                       child: ListTile(
@@ -340,8 +460,6 @@ class _DaftarPelangganPageState extends State<DaftarPelangganPage> {
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                         subtitle: Text(noHp),
-                        // Tombol edit & hapus selalu tampil,
-                        // termasuk saat isSelecting — tap card tetap untuk memilih
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -400,10 +518,16 @@ class _DaftarPelangganPageState extends State<DaftarPelangganPage> {
     );
   }
 
-  // ── Search Bar ──
+  // ── Search Bar ─────────────────────────────────────────────────────────────
   Widget _buildSearchBar() {
+    // Gunakan warna dari tema agar kompatibel dengan dark mode
+    final colorScheme = Theme.of(context).colorScheme;
+    final fillColor =
+        colorScheme.surfaceContainerHighest; // abu di dark, abu muda di light
+
     return Container(
-      color: Colors.white,
+      // Ganti Colors.white → pakai surface dari tema
+      color: Theme.of(context).colorScheme.surface,
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
       child: TextField(
         controller: _searchCtrl,
@@ -413,14 +537,12 @@ class _DaftarPelangganPageState extends State<DaftarPelangganPage> {
           suffixIcon: _searchCtrl.text.isNotEmpty
               ? IconButton(
                   icon: const Icon(Icons.clear),
-                  onPressed: () {
-                    _searchCtrl.clear();
-                    // _onSearchChanged otomatis dipanggil via listener
-                  },
+                  onPressed: () => _searchCtrl.clear(),
                 )
               : null,
           filled: true,
-          fillColor: Colors.grey.shade100,
+          // Ganti Colors.grey.shade100 → ikut tema
+          fillColor: fillColor,
           contentPadding: const EdgeInsets.symmetric(vertical: 0),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(30),
@@ -431,7 +553,7 @@ class _DaftarPelangganPageState extends State<DaftarPelangganPage> {
     );
   }
 
-  // ── AppBar ──
+  // ── AppBar ─────────────────────────────────────────────────────────────────
   PreferredSizeWidget _buildAppBar(BuildContext context) {
     return PreferredSize(
       preferredSize: const Size.fromHeight(kToolbarHeight),
@@ -461,6 +583,31 @@ class _DaftarPelangganPageState extends State<DaftarPelangganPage> {
                   onPressed: () => Navigator.of(context).pop(),
                 )
               : null,
+          actions: [
+            // ── Tombol Export CSV ──
+            _isExporting
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  )
+                : IconButton(
+                    tooltip: 'Export CSV',
+                    icon: const Icon(
+                      Icons.download_rounded,
+                      color: Colors.white,
+                    ),
+                    onPressed: _exportCsv,
+                  ),
+          ],
         ),
       ),
     );

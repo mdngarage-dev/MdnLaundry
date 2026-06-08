@@ -191,7 +191,7 @@ class LaporanScreen extends StatelessWidget {
 
             // Menu yang hanya muncul untuk owner (hanya Admin yang diizinkan)
             FutureBuilder<bool>(
-              future: canAccess('can_view_ringkasan'),
+              future: canAccess('can_access_ringkasan'),
               builder: (context, snapshot) {
                 if (!(snapshot.data ?? false)) return const SizedBox.shrink();
                 return _buildIndividualCard(
@@ -213,7 +213,7 @@ class LaporanScreen extends StatelessWidget {
 
             // Menu yang hanya muncul untuk owner (hanya Admin yang diizinkan)
             FutureBuilder<bool>(
-              future: canAccess('can_view_harian'),
+              future: canAccess('can_access_harian'),
               builder: (context, snapshot) {
                 if (!(snapshot.data ?? false)) return const SizedBox.shrink();
                 return _buildIndividualCard(
@@ -234,6 +234,18 @@ class LaporanScreen extends StatelessWidget {
             ),
 
             // ── Section: Laporan Keuangan ───────────────────────────────
+            FutureBuilder<List<bool>>(
+              future: Future.wait([
+                canAccess('can_access_ringkasan'),
+                canAccess('can_access_harian'),
+              ]),
+              builder: (context, snapshot) {
+                final anyVisible = (snapshot.data ?? []).any((v) => v == true);
+                // Kalau TIDAK ada card yang tampil, beri jarak ke appbar
+                // Kalau ADA card yang tampil, tidak perlu jarak (card sudah dorong otomatis)
+                return SizedBox(height: anyVisible ? 0 : 25);
+              },
+            ),
             Text(
               "DETAIL LAPORAN",
               style: TextStyle(
@@ -284,7 +296,7 @@ class LaporanScreen extends StatelessWidget {
 
                     // Menu yang hanya muncul untuk owner (hanya Admin yang diizinkan)
                     FutureBuilder<bool>(
-                      future: canAccess('can_view_lispengeluaran'),
+                      future: canAccess('can_access_lispengeluaran'),
                       builder: (context, snapshot) {
                         if (!(snapshot.data ?? false)) {
                           return const SizedBox.shrink();

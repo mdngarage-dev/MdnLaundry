@@ -872,7 +872,7 @@ class _RingkasanPageState extends State<RingkasanPage> {
                       iconColor: const Color(0xff15803D),
                       iconBgColor: const Color(0xffE2F0D9),
                       title: 'Laba / Rugi',
-                      subtitle: 'Uang masuk dikurangi pengeluaran',
+                      subtitle: 'Uang masuk dikurangi pengeluaran & piutang',
                       value: labaRugi,
                       valueColor: const Color(0xff16A34A),
                     ),

@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:uuid/uuid.dart';
 import '../screens/screens.dart';
-import '../screens/notifikasi.dart'; // import NotifStorage
+import '../screens/notifikasi.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 // ─── Navigator key global ────────────────────────────────────────────────────
@@ -24,21 +24,35 @@ const _androidChannel = AndroidNotificationChannel(
   importance: Importance.max,
 );
 
-// ─── Helper: simpan notif ke SharedPreferences ───────────────────────────────
+// ─── Ambil judul & isi dari data-only FCM message ────────────────────────────
+String _getJudul(RemoteMessage message) =>
+    message.data['judul'] ??
+    message.notification?.title ??
+    'Notifikasi Laundry';
+
+String _getIsi(RemoteMessage message) =>
+    message.data['isi'] ?? message.notification?.body ?? '';
+
+// ─── Simpan notif ke SharedPreferences ───────────────────────────────────────
 Future<void> _simpanKeHistory(RemoteMessage message) async {
   const uuid = Uuid();
   final item = NotifItem(
+    // Gunakan messageId jika ada, fallback ke uuid
     id: message.messageId ?? uuid.v4(),
-    judul: message.notification?.title ?? 'Notifikasi Laundry',
-    isi: message.notification?.body ?? '',
+    judul: _getJudul(message),
+    isi: _getIsi(message),
     waktu: DateTime.now(),
     sudahDibaca: false,
   );
   await NotifStorage.simpan(item);
+  debugPrint('✅ Notif tersimpan: ${item.judul}');
 }
 
-// ─── Helper: tampilkan local notif ───────────────────────────────────────────
+// ─── Tampilkan local notification ────────────────────────────────────────────
 Future<void> _showLocalNotif(RemoteMessage message) async {
+  final judul = _getJudul(message);
+  final isi = _getIsi(message);
+
   final androidDetails = AndroidNotificationDetails(
     _androidChannel.id,
     _androidChannel.name,
@@ -46,27 +60,32 @@ Future<void> _showLocalNotif(RemoteMessage message) async {
     importance: Importance.max,
     priority: Priority.high,
     channelShowBadge: true,
+    // Gunakan icon dari app (bukan icon default Android)
+    icon: '@mipmap/ic_launcher',
   );
 
   await flutterLocalNotif.show(
     message.hashCode,
-    message.notification?.title ?? 'Notifikasi',
-    message.notification?.body ?? '',
+    judul,
+    isi,
     NotificationDetails(android: androidDetails),
     payload: '/notifikasi',
   );
 }
 
 // ─── Background handler — WAJIB top-level function ───────────────────────────
+// Dipanggil saat app background/terminated dan data-only FCM masuk
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
+  // Simpan ke history
   await _simpanKeHistory(message);
+  // Tampilkan notif manual (karena data-only tidak auto-display)
   await _showLocalNotif(message);
 }
 
-// ─── Service utama ───────────────────────────────────────────────────────────
-class NotifKiaService {
+// ─── Service utama ────────────────────────────────────────────────────────────
+class NotifLaundryService {
   final FirebaseMessaging _fcm = FirebaseMessaging.instance;
   final AudioPlayer _audioPlayer = AudioPlayer();
 
@@ -75,6 +94,8 @@ class NotifKiaService {
   Future<void> inisialisasiNotifikasi() async {
     debugPrint("▶ Inisialisasi notifikasi FCM Laundry...");
 
+    // Data-only message tidak perlu suppress foreground presentation
+    // tapi tetap set false agar tidak dobel jika suatu saat ada notification payload
     await FirebaseMessaging.instance
         .setForegroundNotificationPresentationOptions(
           alert: false,
@@ -83,12 +104,10 @@ class NotifKiaService {
         );
 
     try {
-      // ── 1. Minta izin notifikasi (Android 13+) ────────────────────────────
+      // ── 1. Izin notifikasi Android 13+ ───────────────────────────────────
       if (await Permission.notification.isDenied) {
         final result = await Permission.notification.request();
-        debugPrint("📋 Permission result: $result");
         if (result.isDenied || result.isPermanentlyDenied) {
-          debugPrint("⚠ Izin notifikasi ditolak — buka settings");
           await openAppSettings();
           return;
         }
@@ -96,35 +115,33 @@ class NotifKiaService {
 
       // ── 2. Setup flutter_local_notifications ──────────────────────────────
       const initSettings = InitializationSettings(
-        android: AndroidInitializationSettings(
-          '@android:drawable/ic_dialog_info',
-        ),
+        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
         iOS: DarwinInitializationSettings(),
       );
 
       await flutterLocalNotif.initialize(
         initSettings,
         onDidReceiveNotificationResponse: (details) {
-          debugPrint('🔔 Tap notif: ${details.payload}');
+          debugPrint('🔔 Tap notif lokal: ${details.payload}');
           if (details.payload == '/notifikasi') {
             _navigateToNotifikasi();
           }
         },
       );
 
+      // Buat channel Android
       await flutterLocalNotif
           .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin
           >()
           ?.createNotificationChannel(_androidChannel);
 
-      // ── 3. Minta izin FCM ─────────────────────────────────────────────────
+      // ── 3. Izin FCM ───────────────────────────────────────────────────────
       final settings = await _fcm
           .requestPermission(alert: true, badge: true, sound: true)
           .timeout(
             const Duration(seconds: 5),
             onTimeout: () {
-              debugPrint("⚠ requestPermission timeout — skip FCM");
               return const NotificationSettings(
                 authorizationStatus: AuthorizationStatus.denied,
                 alert: AppleNotificationSetting.disabled,
@@ -143,11 +160,9 @@ class NotifKiaService {
             },
           );
 
-      debugPrint("✅ Status izin: ${settings.authorizationStatus}");
-
       if (settings.authorizationStatus != AuthorizationStatus.authorized &&
           settings.authorizationStatus != AuthorizationStatus.provisional) {
-        debugPrint("⚠ Izin notifikasi ditolak — FCM tidak aktif");
+        debugPrint("⚠ Izin ditolak");
         return;
       }
 
@@ -165,33 +180,37 @@ class NotifKiaService {
       // ── 5. Subscribe topic ────────────────────────────────────────────────
       try {
         await _fcm.subscribeToTopic(_topic).timeout(const Duration(seconds: 5));
-        debugPrint("✅ Subscribe topic: $_topic");
+        debugPrint("✅ Subscribe: $_topic");
       } catch (e) {
         debugPrint("⚠ subscribeToTopic error: $e");
       }
 
-      // ── 6. FOREGROUND ─────────────────────────────────────────────────────
+      // ── 6. FOREGROUND: app terbuka ────────────────────────────────────────
       FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
-        debugPrint("📨 FCM Foreground: ${message.notification?.title}");
+        debugPrint("📨 FCM Foreground: ${_getJudul(message)}");
 
+        // Simpan ke history dulu
         try {
           await _simpanKeHistory(message);
         } catch (e) {
-          debugPrint("⚠ Simpan history error: $e");
+          debugPrint("⚠ Simpan error: $e");
         }
 
+        // Suara notif
         try {
           await _audioPlayer.play(AssetSource('sounds/notif.mp3'));
         } catch (e) {
-          debugPrint("⚠ Gagal putar suara: $e");
+          debugPrint("⚠ Suara error: $e");
         }
 
+        // Local notif di status bar (data-only tidak auto-display)
         try {
           await _showLocalNotif(message);
         } catch (e) {
           debugPrint("⚠ Local notif error: $e");
         }
 
+        // Overlay banner in-app
         try {
           showOverlayNotification(
             (context) => GestureDetector(
@@ -215,14 +234,14 @@ class NotifKiaService {
                       color: Colors.tealAccent,
                     ),
                     title: Text(
-                      message.notification?.title ?? 'Notifikasi Laundry',
+                      _getJudul(message),
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                     subtitle: Text(
-                      message.notification?.body ?? '',
+                      _getIsi(message),
                       style: const TextStyle(color: Colors.white70),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
@@ -242,9 +261,11 @@ class NotifKiaService {
         }
       });
 
-      // ── 7. BACKGROUND: tap notif dari status bar ──────────────────────────
+      // ── 7. BACKGROUND: user tap notif dari status bar ─────────────────────
+      // Notif sudah disimpan di background handler saat masuk
+      // Handler ini hanya untuk navigasi saat user tap
       FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-        debugPrint("📨 onMessageOpenedApp: ${message.notification?.title}");
+        debugPrint("📨 onMessageOpenedApp: ${_getJudul(message)}");
         _navigateToNotifikasi();
       });
 
@@ -255,19 +276,19 @@ class NotifKiaService {
           onTimeout: () => null,
         );
         if (initialMessage != null) {
-          debugPrint(
-            "📨 getInitialMessage: ${initialMessage.notification?.title}",
-          );
+          debugPrint("📨 getInitialMessage: ${_getJudul(initialMessage)}");
+          // Edge case: kalau belum tersimpan di background handler
           await _simpanKeHistory(initialMessage);
-          Future.delayed(const Duration(milliseconds: 800), () {
-            _navigateToNotifikasi();
-          });
+          Future.delayed(
+            const Duration(milliseconds: 800),
+            _navigateToNotifikasi,
+          );
         }
       } catch (e) {
         debugPrint("⚠ getInitialMessage error: $e");
       }
     } catch (e, stack) {
-      debugPrint("⚠ FCM inisialisasi error: $e\n$stack");
+      debugPrint("⚠ FCM error: $e\n$stack");
     }
   }
 

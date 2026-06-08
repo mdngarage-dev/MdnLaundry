@@ -1039,12 +1039,7 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
           foregroundColor: Colors.white,
           elevation: 2,
           centerTitle: true,
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.refresh_rounded, color: Colors.white),
-              onPressed: _fetchData,
-            ),
-          ],
+
           leading: Navigator.canPop(context)
               ? IconButton(
                   icon: const Icon(

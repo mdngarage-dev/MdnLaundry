@@ -173,7 +173,7 @@ class OutletSettingScreen extends StatelessWidget {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => const ProfilPage(),
+                              builder: (context) => const PrinterSettingPage(),
                             ),
                           ).then((_) {
                             (context as Element).markNeedsBuild();
@@ -185,7 +185,7 @@ class OutletSettingScreen extends StatelessWidget {
 
                       // Menu yang hanya muncul untuk owner (hanya Admin yang diizinkan)
                       FutureBuilder<bool>(
-                        future: canAccess('can_view_layanan'),
+                        future: canAccess('can_access_layanan'),
                         builder: (context, snapshot) {
                           if (!(snapshot.data ?? false)) {
                             return const SizedBox.shrink();
@@ -226,7 +226,7 @@ class OutletSettingScreen extends StatelessWidget {
                       _buildDivider(context),
                       // Menu yang hanya muncul untuk owner (hanya Admin yang diizinkan)
                       FutureBuilder<bool>(
-                        future: canAccess('can_view_outlet'),
+                        future: canAccess('can_access_outlet'),
                         builder: (context, snapshot) {
                           if (!(snapshot.data ?? false)) {
                             return const SizedBox.shrink();
@@ -251,7 +251,7 @@ class OutletSettingScreen extends StatelessWidget {
                       _buildDivider(context),
                       // Menu yang hanya muncul untuk owner (hanya Admin yang diizinkan)
                       FutureBuilder<bool>(
-                        future: canAccess('can_view_admin'),
+                        future: canAccess('can_access_admin'),
                         builder: (context, snapshot) {
                           if (!(snapshot.data ?? false)) {
                             return const SizedBox.shrink();

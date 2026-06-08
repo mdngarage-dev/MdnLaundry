@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'screens.dart';
-// import _LayananPickerSheet & _ItemDetailSheet
 
 class AddOrderScreen extends StatefulWidget {
   const AddOrderScreen({super.key});
@@ -19,9 +18,13 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
   String? _selectedNama;
   String? _selectedHp;
 
-  // ── Items (multi layanan, sama seperti OrderDetailScreen) ─────────────────
+  // ── Items ─────────────────────────────────────────────────────────────────
   List<Map<String, dynamic>> _items = [];
   List<Map<String, dynamic>> _biayaTambahan = [];
+
+  // ── Diskon ────────────────────────────────────────────────────────────────
+  int _diskonNominal = 0;
+  String _diskonCatatan = '';
 
   int get _totalBiayaTambahan => _biayaTambahan.fold(0, (sum, b) {
     try {
@@ -31,7 +34,25 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
     }
   });
 
-  int get _grandTotalFinal => _grandTotal + _totalBiayaTambahan;
+  // Grand total layanan saja
+  int get _grandTotal => _items.fold(0, (sum, item) {
+    try {
+      final berat = (item['berat_kg'] as num).toDouble();
+      final harga = (item['harga_satuan'] as num).toInt();
+      return sum + (berat * harga).toInt();
+    } catch (_) {
+      return sum;
+    }
+  });
+
+  // Subtotal sebelum diskon (layanan + biaya tambahan)
+  int get _grandTotalSebelumDiskon => _grandTotal + _totalBiayaTambahan;
+
+  // Grand total final setelah diskon
+  int get _grandTotalFinal {
+    final hasil = _grandTotalSebelumDiskon - _diskonNominal;
+    return hasil < 0 ? 0 : hasil;
+  }
 
   // ── Status pembayaran ─────────────────────────────────────────────────────
   String _statusBayar = 'belum_bayar';
@@ -61,17 +82,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
     super.dispose();
   }
 
-  // ── Grand total dari semua items ──────────────────────────────────────────
-  int get _grandTotal => _items.fold(0, (sum, item) {
-    try {
-      final berat = (item['berat_kg'] as num).toDouble();
-      final harga = (item['harga_satuan'] as num).toInt();
-      return sum + (berat * harga).toInt();
-    } catch (_) {
-      return sum;
-    }
-  });
-
   // ── Estimasi selesai terpanjang dari semua items ───────────────────────────
   String get _estimasiTerpanjang {
     if (_items.isEmpty) return '-';
@@ -94,7 +104,7 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
     }
   }
 
-  // ── Buka picker layanan (sama persis dengan OrderDetailScreen) ────────────
+  // ── Buka picker layanan ───────────────────────────────────────────────────
   Future<void> _openTambahLayanan() async {
     final snap = await FirebaseFirestore.instance
         .collection('layanan')
@@ -142,7 +152,7 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
     );
   }
 
-  // ── biaya tambahan ────────────────────────────────────────────────────────────
+  // ── biaya tambahan ────────────────────────────────────────────────────────
   void _showTambahBiayaSheet() {
     final nominalCtrl = TextEditingController();
     final keteranganCtrl = TextEditingController();
@@ -168,7 +178,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Handle
               Center(
                 child: Container(
                   width: 40,
@@ -193,8 +202,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                 ],
               ),
               const SizedBox(height: 20),
-
-              // Keterangan
               Text(
                 'Keterangan',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -227,8 +234,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                 ),
               ),
               const SizedBox(height: 14),
-
-              // Nominal
               Text(
                 'Nominal (Rp)',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -284,8 +289,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                 ),
               ),
               const SizedBox(height: 14),
-
-              // QTY stepper
               Text(
                 'Qty',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -345,8 +348,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                   ],
                 ),
               ),
-
-              // Preview subtotal
               const SizedBox(height: 12),
               Builder(
                 builder: (_) {
@@ -389,7 +390,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                   );
                 },
               ),
-
               const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
@@ -453,12 +453,354 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
     );
   }
 
+  // ── Sheet Diskon ──────────────────────────────────────────────────────────
+  void _showDiskonSheet() {
+    final nominalCtrl = TextEditingController(
+      text: _diskonNominal > 0 ? _diskonNominal.toString() : '',
+    );
+    final catatanCtrl = TextEditingController(text: _diskonCatatan);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) => Container(
+          decoration: BoxDecoration(
+            color: Theme.of(context).scaffoldBackgroundColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 20,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Handle
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).dividerColor,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Icon(
+                    Icons.local_offer_outlined,
+                    color: Colors.red.shade400,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Tambah Diskon',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Diskon akan mengurangi total tagihan pelanggan',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Theme.of(context).hintColor,
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Nominal diskon
+              Text(
+                'Nominal Diskon (Rp)',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: nominalCtrl,
+                keyboardType: TextInputType.number,
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  CurrencyInputFormatter(),
+                ],
+                onChanged: (_) => setS(() {}),
+                decoration: InputDecoration(
+                  hintText: 'Contoh: 10.000',
+                  hintStyle: TextStyle(
+                    color: Colors.grey.shade400,
+                    fontSize: 13,
+                  ),
+                  filled: true,
+                  fillColor: Theme.of(context).cardColor,
+                  prefixIcon: SizedBox(
+                    width: 48,
+                    child: Center(
+                      child: Text(
+                        'Rp',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.red.shade400,
+                        ),
+                      ),
+                    ),
+                  ),
+                  prefixIconConstraints: const BoxConstraints(
+                    minWidth: 48,
+                    minHeight: 48,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.grey.shade300),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(
+                      color: Colors.red.shade400,
+                      width: 1.5,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // Catatan diskon
+              Text(
+                'Catatan (Opsional)',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: catatanCtrl,
+                decoration: InputDecoration(
+                  hintText: 'Contoh: Pelanggan setia, Promo, dll',
+                  hintStyle: TextStyle(
+                    color: Colors.grey.shade400,
+                    fontSize: 13,
+                  ),
+                  filled: true,
+                  fillColor: Theme.of(context).cardColor,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.grey.shade300),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(
+                      color: Colors.red.shade400,
+                      width: 1.5,
+                    ),
+                  ),
+                ),
+              ),
+
+              // Preview pengurangan
+              const SizedBox(height: 14),
+              Builder(
+                builder: (_) {
+                  final nominal =
+                      int.tryParse(
+                        nominalCtrl.text
+                            .replaceAll('.', '')
+                            .replaceAll(',', ''),
+                      ) ??
+                      0;
+                  final setelahDiskon = (_grandTotalSebelumDiskon - nominal)
+                      .clamp(0, _grandTotalSebelumDiskon);
+                  if (nominal <= 0) return const SizedBox.shrink();
+                  return Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.red.withOpacity(0.2)),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Total sebelum diskon',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                            Text(
+                              _formatRupiah(_grandTotalSebelumDiskon),
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Diskon',
+                              style: TextStyle(
+                                color: Colors.red.shade400,
+                                fontSize: 12,
+                              ),
+                            ),
+                            Text(
+                              '- ${_formatRupiah(nominal)}',
+                              style: TextStyle(
+                                color: Colors.red.shade400,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Divider(height: 12, color: Colors.red.withOpacity(0.2)),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'Total akhir',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                            Text(
+                              _formatRupiah(setelahDiskon),
+                              style: TextStyle(
+                                color: kPrimary,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  if (_diskonNominal > 0) ...[
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () {
+                          setState(() {
+                            _diskonNominal = 0;
+                            _diskonCatatan = '';
+                          });
+                          Navigator.pop(ctx);
+                        },
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.red,
+                          side: BorderSide(color: Colors.red.shade300),
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text('Hapus Diskon'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                  ],
+                  Expanded(
+                    flex: 2,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        final nominal =
+                            int.tryParse(
+                              nominalCtrl.text
+                                  .replaceAll('.', '')
+                                  .replaceAll(',', ''),
+                            ) ??
+                            0;
+                        if (nominal <= 0) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Nominal diskon harus lebih dari 0',
+                              ),
+                              backgroundColor: Colors.orange,
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                          return;
+                        }
+                        if (nominal > _grandTotalSebelumDiskon) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Diskon tidak boleh melebihi total',
+                              ),
+                              backgroundColor: Colors.orange,
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                          return;
+                        }
+                        setState(() {
+                          _diskonNominal = nominal;
+                          _diskonCatatan = catatanCtrl.text.trim();
+                        });
+                        Navigator.pop(ctx);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red.shade400,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text(
+                        'Terapkan',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   // ── Hapus item ────────────────────────────────────────────────────────────
   void _hapusItem(int idx) {
     setState(() => _items.removeAt(idx));
   }
 
-  // ── dropdwon tanggal ────────────────────────────────────────────────────────────
+  // ── Date picker sheet ─────────────────────────────────────────────────────
   void _showDatePickerSheet() {
     final now = DateTime.now();
     final firstDay = DateTime(now.year, now.month, 1);
@@ -488,7 +830,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Handle
               Center(
                 child: Container(
                   width: 40,
@@ -500,8 +841,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-
-              // Judul
               Row(
                 children: [
                   Icon(
@@ -527,8 +866,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-
-              // Header bulan
               Container(
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 decoration: BoxDecoration(
@@ -547,8 +884,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-
-              // Label hari
               Row(
                 children: dayLabels
                     .map(
@@ -570,8 +905,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                     .toList(),
               ),
               const SizedBox(height: 8),
-
-              // Grid tanggal
               GridView.builder(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
@@ -593,7 +926,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                       tempSelected!.month == now.month &&
                       tempSelected!.year == now.year;
                   final isSunday = date.weekday == DateTime.sunday;
-
                   return GestureDetector(
                     onTap: () => setS(() {
                       tempSelected = isSelected ? null : date;
@@ -639,8 +971,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                 },
               ),
               const SizedBox(height: 16),
-
-              // Preview jam jika ada pilihan
               if (tempSelected != null)
                 Container(
                   width: double.infinity,
@@ -672,10 +1002,7 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                     ],
                   ),
                 ),
-
               const SizedBox(height: 16),
-
-              // Tombol aksi
               Row(
                 children: [
                   Expanded(
@@ -767,7 +1094,7 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
           FirebaseAuth.instance.currentUser?.displayName?.split('|')[0] ??
           'Admin';
 
-      // Generate nomor struk MDN
+      // Generate nomor struk
       final counterRef = firestore.collection('counters').doc('pelanggan');
       final String nomorStruk = await firestore
           .runTransaction<String>((tx) async {
@@ -788,7 +1115,7 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
 
       final firstItem = _items.first;
 
-      // Simpan dokumen order utama
+      // Simpan dokumen order utama — include diskon
       final orderRef = await firestore.collection('order').add({
         'nomor_pelanggan': nomorStruk,
         'nama_pelanggan': _selectedNama,
@@ -809,6 +1136,10 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
         'status': 'antrian',
         'status_bayar': _statusBayar,
         'dp_amount': dpInt,
+        // ── Diskon ──────────────────────────
+        'diskon_nominal': _diskonNominal,
+        'diskon_catatan': _diskonCatatan,
+        // ── Harga final setelah diskon ───────
         'harga_total': _grandTotalFinal,
         'jumlah_item': _items.length,
       });
@@ -831,8 +1162,9 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
       // Simpan keuangan
       await firestore.collection('keuangan').add({
         'nomor_pelanggan': nomorStruk,
-        'biaya': _grandTotal,
+        'biaya': _grandTotalFinal,
         'dp_amount': dpInt,
+        'diskon_nominal': _diskonNominal,
         'status_bayar': _statusBayar,
         'waktu_transaksi': FieldValue.serverTimestamp(),
       });
@@ -840,46 +1172,30 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
       if (!context.mounted) return;
       setState(() => _isSubmitting = false);
 
-      final String tanggalStr = DateFormat(
-        'dd MMM yyyy HH:mm',
-      ).format(_waktuOrderFinal);
-
-      // ── Data struk dengan KEY KONSISTEN ke ThermalPrinterService ──────────
-      final Map<String, dynamic> strukData = {
-        // Info outlet
-        'nama_laundry': OutletSettings.namaMadeenalaundry,
-        'alamat': OutletSettings.alamat,
-        'no_hp_laundry': OutletSettings.noHpMadeenalaundry,
-        // Info order
-        'no_order': nomorStruk,
-        'waktu': tanggalStr,
-        'pelanggan': _selectedNama ?? '-',
-        'no_hp': _selectedHp ?? '-',
+      // Data untuk dikirim ke OrderDetailScreen
+      final savedOrderData = {
+        'nomor_pelanggan': nomorStruk,
+        'nama_pelanggan': _selectedNama,
+        'no_hp': _selectedHp ?? '',
+        'layanan_id': firstItem['layanan_id'] ?? '',
+        'layanan_nama': firstItem['layanan_nama'] ?? '',
+        'layanan_tipe': firstItem['layanan_tipe'] ?? '',
+        'harga_satuan': firstItem['harga_satuan'] ?? 0,
+        'jenis_pakaian': firstItem['jenis_pakaian'] ?? '',
+        'berat_kg': firstItem['berat_kg'] ?? 0,
+        'catatan': _catatanOrderCtrl.text.trim(),
         'admin': adminFinal,
-        // Items (multi)
-        'items': List<Map<String, dynamic>>.from(_items),
-        // Biaya tambahan
-        'biaya_tambahan': List<Map<String, dynamic>>.from(_biayaTambahan),
-        // Total & bayar
-        'grand_total': _grandTotalFinal,
-        'dp_amount': dpInt,
-        'sisa_tagihan': _statusBayar == 'lunas'
-            ? 0
-            : (_grandTotalFinal - dpInt).clamp(0, _grandTotalFinal),
-        'sudah_lunas': _statusBayar == 'lunas',
-        'estimasi': _estimasiTerpanjang,
-        // Untuk tampilan dialog (backward compat)
-        'nama': _selectedNama ?? '-',
-        'nomor': nomorStruk,
-        'hp': _selectedHp ?? '-',
+        'waktu_order': Timestamp.fromDate(_waktuOrderFinal),
+        'estimasi_selesai': _estimasiTerpanjang,
+        'durasi_jam': firstItem['durasi_jam'] ?? 24,
+        'status': 'antrian',
         'status_bayar': _statusBayar,
-        'dp': dpInt,
-        'tanggal': tanggalStr,
-        'tanggal_cetak': tanggalStr,
+        'dp_amount': dpInt,
+        'diskon_nominal': _diskonNominal,
+        'diskon_catatan': _diskonCatatan,
+        'harga_total': _grandTotalFinal,
+        'jumlah_item': _items.length,
       };
-
-      // Tampilkan struk visual
-      _showStrukPopup(strukData);
 
       // Reset form
       setState(() {
@@ -891,7 +1207,20 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
         _catatanOrderCtrl.clear();
         _customTanggal = null;
         _biayaTambahan = [];
+        _diskonNominal = 0;
+        _diskonCatatan = '';
       });
+
+      // ── Navigate langsung ke OrderDetailScreen (cetak ada di sana) ──────
+      if (context.mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) =>
+                OrderDetailScreen(docId: orderRef.id, data: savedOrderData),
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) setState(() => _isSubmitting = false);
       if (context.mounted) {
@@ -903,906 +1232,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
         );
       }
     }
-  }
-
-  // ── Struk visual (popup) ──────────────────────────────────────────────────
-  Widget _buildStrukWidget(Map<String, dynamic> data) {
-    final String nama = data['nama']?.toString() ?? '-';
-    final String nomor = data['nomor']?.toString() ?? '-';
-    final String hp = data['hp']?.toString() ?? '-';
-    final List items = data['items'] as List? ?? [];
-    final List biayaTambahanList = data['biaya_tambahan'] as List? ?? [];
-    final int grandTotal = _toInt(data['grand_total']);
-    final String estimasi = data['estimasi']?.toString() ?? '-';
-    final String tanggal = data['tanggal']?.toString() ?? '-';
-    final String admin = data['admin']?.toString() ?? '-';
-    final String statusBayar =
-        data['status_bayar']?.toString() ?? 'belum_bayar';
-    final int dp = _toInt(data['dp']);
-    final String namaToko = OutletSettings.namaMadeenalaundry;
-    final String noHpToko = OutletSettings.noHpMadeenalaundry;
-
-    String labelStatus;
-    Color colorStatus;
-    switch (statusBayar) {
-      case 'lunas':
-        labelStatus = 'LUNAS';
-        colorStatus = Colors.green;
-        break;
-      case 'dp':
-        labelStatus = 'DP';
-        colorStatus = Colors.orange;
-        break;
-      default:
-        labelStatus = 'BELUM BAYAR';
-        colorStatus = Colors.red;
-    }
-
-    String satuan(String tipe) => tipe == 'kiloan'
-        ? 'kg'
-        : tipe == 'meter'
-        ? 'm²'
-        : 'pcs';
-
-    int subtotalItem(Map item) {
-      try {
-        final b = (item['berat_kg'] as num).toDouble();
-        final h = (item['harga_satuan'] as num).toInt();
-        return (b * h).toInt();
-      } catch (_) {
-        return 0;
-      }
-    }
-
-    String beratStr(dynamic berat) {
-      final d = (berat as num?)?.toDouble() ?? 0;
-      return d % 1 == 0
-          ? d.toStringAsFixed(0)
-          : NumberFormat('#,##0.##', 'id_ID').format(d);
-    }
-
-    // Hitung total biaya tambahan
-    int totalBiayaTambahan = 0;
-    for (final b in biayaTambahanList) {
-      try {
-        totalBiayaTambahan +=
-            ((b['nominal'] as num).toInt() * (b['qty'] as num).toInt());
-      } catch (_) {}
-    }
-
-    return Material(
-      color: Colors.transparent,
-      child: Container(
-        width: 320,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(8),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.12),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // HEADER
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
-              decoration: BoxDecoration(
-                color: kPrimary,
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(8),
-                  topRight: Radius.circular(8),
-                ),
-              ),
-              child: Column(
-                children: [
-                  Text(
-                    namaToko.toUpperCase(),
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 1.5,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '📞 $noHpToko',
-                    style: const TextStyle(color: Colors.white70, fontSize: 11),
-                  ),
-                  const SizedBox(height: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Text(
-                      'STRUK PRODUKSI',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.5,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            _dashedLine(),
-
-            // INFO ORDER
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              child: Column(
-                children: [
-                  _strukRow('No. Struk', nomor, bold: true),
-                  _strukRow('Tanggal', tanggal),
-                  _strukRow('Admin', admin),
-                ],
-              ),
-            ),
-            _dashedLine(),
-
-            // DATA PELANGGAN
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'DATA PELANGGAN',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey,
-                      letterSpacing: 1,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  _strukRow('Nama', nama, bold: true),
-                  _strukRow('No. HP', hp),
-                ],
-              ),
-            ),
-            _dashedLine(),
-
-            // DETAIL ITEM-ITEM
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'DETAIL ORDER',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey,
-                      letterSpacing: 1,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  ...items.asMap().entries.map((e) {
-                    final i = e.key;
-                    final item = e.value as Map;
-                    final tipe = item['layanan_tipe']?.toString() ?? '';
-                    final sat = satuan(tipe);
-                    final sub = subtotalItem(item);
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (items.length > 1)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 2),
-                            child: Text(
-                              'Item ${i + 1}',
-                              style: const TextStyle(
-                                fontSize: 10,
-                                color: Colors.grey,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        _strukRow(
-                          'Layanan',
-                          item['layanan_nama']?.toString() ?? '-',
-                        ),
-                        if ((item['jenis_pakaian']?.toString() ?? '')
-                            .isNotEmpty)
-                          _strukRow(
-                            'Jenis',
-                            item['jenis_pakaian']?.toString() ?? '-',
-                          ),
-                        _strukRow(
-                          'Berat/Ukuran',
-                          '${beratStr(item['berat_kg'])} $sat',
-                        ),
-                        _strukRow(
-                          'Harga Satuan',
-                          'Rp ${NumberFormat('#,###', 'id_ID').format((item['harga_satuan'] as num?)?.toInt() ?? 0)} / $sat',
-                        ),
-                        _strukRow(
-                          'Subtotal',
-                          NumberFormat.currency(
-                            locale: 'id_ID',
-                            symbol: 'Rp ',
-                            decimalDigits: 0,
-                          ).format(sub),
-                        ),
-                        if (i < items.length - 1)
-                          const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 4),
-                            child: Divider(height: 1, color: Colors.grey),
-                          ),
-                      ],
-                    );
-                  }),
-                  _strukRow('Est. Selesai', estimasi, color: kPrimary),
-                ],
-              ),
-            ),
-
-            // BIAYA TAMBAHAN (jika ada)
-            if (biayaTambahanList.isNotEmpty) ...[
-              _dashedLine(),
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 10,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'BIAYA TAMBAHAN',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey,
-                        letterSpacing: 1,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    ...biayaTambahanList.map((b) {
-                      final bMap = b as Map;
-                      final nominal = (bMap['nominal'] as num).toInt();
-                      final qty = (bMap['qty'] as num).toInt();
-                      final subtotal = nominal * qty;
-                      return _strukRow(
-                        '${bMap['keterangan']} (${qty}×)',
-                        NumberFormat.currency(
-                          locale: 'id_ID',
-                          symbol: 'Rp ',
-                          decimalDigits: 0,
-                        ).format(subtotal),
-                      );
-                    }),
-                    _strukRow(
-                      'Total Tambahan',
-                      NumberFormat.currency(
-                        locale: 'id_ID',
-                        symbol: 'Rp ',
-                        decimalDigits: 0,
-                      ).format(totalBiayaTambahan),
-                      bold: true,
-                      color: Colors.purple,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-
-            _dashedLine(),
-
-            // TOTAL & STATUS
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'TOTAL',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black87,
-                        ),
-                      ),
-                      Text(
-                        NumberFormat.currency(
-                          locale: 'id_ID',
-                          symbol: 'Rp ',
-                          decimalDigits: 0,
-                        ).format(grandTotal),
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
-                          color: kPrimary,
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (statusBayar == 'dp' && dp > 0) ...[
-                    const SizedBox(height: 4),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'DP Dibayar',
-                          style: TextStyle(fontSize: 12, color: Colors.grey),
-                        ),
-                        Text(
-                          NumberFormat.currency(
-                            locale: 'id_ID',
-                            symbol: 'Rp ',
-                            decimalDigits: 0,
-                          ).format(dp),
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.orange,
-                          ),
-                        ),
-                      ],
-                    ),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'Sisa',
-                          style: TextStyle(fontSize: 12, color: Colors.grey),
-                        ),
-                        Text(
-                          NumberFormat.currency(
-                            locale: 'id_ID',
-                            symbol: 'Rp ',
-                            decimalDigits: 0,
-                          ).format((grandTotal - dp).clamp(0, grandTotal)),
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.red,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Status Bayar',
-                        style: TextStyle(fontSize: 12, color: Colors.grey),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 3,
-                        ),
-                        decoration: BoxDecoration(
-                          color: colorStatus.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: colorStatus.withOpacity(0.4),
-                          ),
-                        ),
-                        child: Text(
-                          labelStatus,
-                          style: TextStyle(
-                            color: colorStatus,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Status Order',
-                        style: TextStyle(fontSize: 12, color: Colors.grey),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 3,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.orange.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: Colors.orange.withOpacity(0.4),
-                          ),
-                        ),
-                        child: const Text(
-                          'ANTRIAN',
-                          style: TextStyle(
-                            color: Colors.orange,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            _dashedLine(),
-
-            // FOOTER
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-              child: Column(
-                children: [
-                  Text(
-                    'Terima kasih telah mempercayakan\ncucian Anda kepada $namaToko',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey,
-                      height: 1.5,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    '★ Simpan struk ini sebagai bukti pengambilan ★',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: kPrimary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _dashedLine() {
-    return Row(
-      children: List.generate(
-        40,
-        (i) => Expanded(
-          child: Container(
-            height: 1,
-            color: i % 2 == 0 ? Colors.grey.shade300 : Colors.transparent,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _strukRow(
-    String label,
-    String value, {
-    bool bold = false,
-    Color? color,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2.5),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 110,
-            child: Text(
-              label,
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-          ),
-          const Text(': ', style: TextStyle(color: Colors.grey)),
-          Expanded(
-            child: Text(
-              value,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: bold ? FontWeight.bold : FontWeight.w500,
-                color: color ?? Colors.black87,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showStrukPopup(Map<String, dynamic> data) {
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (ctx) => Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Flexible(
-              child: SingleChildScrollView(child: _buildStrukWidget(data)),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () {
-                  Navigator.of(ctx).pop();
-                  _showCetakDialog(data);
-                },
-                icon: const Icon(Icons.print_outlined, size: 22),
-                label: const Text(
-                  'Print Struk',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: kPrimary,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text(
-                'Tutup',
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showCetakDialog(Map<String, dynamic> data) {
-    // ── Ambil semua field dari data (key konsisten) ────────────────────────
-    final String nama = data['pelanggan']?.toString() ?? '-';
-    final String nomor = data['no_order']?.toString() ?? '-';
-    final String hp = data['no_hp']?.toString() ?? '-';
-    final String tanggal = data['waktu']?.toString() ?? '-';
-    final String admin = data['admin']?.toString() ?? '-';
-    final String estimasi = data['estimasi']?.toString() ?? '-';
-    final int grandTotal = _toInt(data['grand_total']);
-    final int dp = _toInt(data['dp_amount']);
-    final bool sudahLunas = data['sudah_lunas'] == true;
-    final int sisa = _toInt(data['sisa_tagihan']);
-
-    final List<Map<String, dynamic>> itemsTyped = (data['items'] as List? ?? [])
-        .map((e) => Map<String, dynamic>.from(e as Map))
-        .toList();
-
-    final List<Map<String, dynamic>> biayaTambahanList =
-        (data['biaya_tambahan'] as List? ?? [])
-            .map((e) => Map<String, dynamic>.from(e as Map))
-            .toList();
-
-    showDialog(
-      context: context,
-      builder: (ctx) => Dialog(
-        backgroundColor: Theme.of(context).cardColor,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                // Header
-                Text(
-                  OutletSettings.namaMadeenalaundry,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  OutletSettings.alamat,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                Text(
-                  'Telp: ${OutletSettings.noHpMadeenalaundry}',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '══════════════════════════',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                Text(
-                  'STRUK CUSTOMER',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.bold),
-                ),
-                Text(
-                  '══════════════════════════',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 8),
-
-                // Info order
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _cetakRow('No', nomor),
-                      _cetakRow('Tgl', tanggal),
-                      _cetakRow('Pelanggan', nama),
-                      _cetakRow('HP', hp.isNotEmpty ? hp : '-'),
-                    ],
-                  ),
-                ),
-                const Divider(),
-
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'LAYANAN',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                const Divider(),
-
-                // Multi-item
-                ...itemsTyped.asMap().entries.map((entry) {
-                  final i = entry.key;
-                  final item = entry.value;
-                  final tipe = item['layanan_tipe']?.toString() ?? '';
-                  final satuan = tipe == 'kiloan'
-                      ? 'kg'
-                      : tipe == 'meter'
-                      ? 'm²'
-                      : 'pcs';
-                  final berat = item['berat_kg'];
-                  final harga = item['harga_satuan'];
-                  int subtotal = 0;
-                  try {
-                    subtotal =
-                        ((berat as num).toDouble() * (harga as num).toInt())
-                            .toInt();
-                  } catch (_) {}
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '${i + 1}. ${item['layanan_nama'] ?? '-'}',
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(fontWeight: FontWeight.w600),
-                          ),
-                          Text(
-                            '   $berat $satuan   ${_formatRupiah(harga)}',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                          Text(
-                            '   = ${_formatRupiah(subtotal)}',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }),
-
-                // Biaya tambahan (jika ada)
-                if (biayaTambahanList.isNotEmpty) ...[
-                  const Divider(),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'BIAYA TAMBAHAN',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  const Divider(),
-                  ...biayaTambahanList.map((b) {
-                    final nominal = _toInt(b['nominal']);
-                    final qty = _toInt(b['qty'] ?? 1);
-                    final subtotal = nominal * qty;
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '${b['keterangan']} (${qty}×)',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                            Text(
-                              '   = ${_formatRupiah(subtotal)}',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }),
-                ],
-
-                const Divider(),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'TOTAL: ${_formatRupiah(grandTotal)}',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Dibayar: ${dp > 0 ? _formatRupiah(dp) : 'Rp 0'}',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      Text(
-                        'Sisa: ${_formatRupiah(sisa)}',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      Text(
-                        'Status: ${sudahLunas ? 'LUNAS' : 'BELUM LUNAS'}',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: sudahLunas ? Colors.green : Colors.red,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Est Selesai: $estimasi',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ),
-                Text(
-                  '══════════════════════════',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Terima kasih.',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      Text(
-                        'Dicetak oleh: $admin',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: kPrimary,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                        child: const Text('Tutup'),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.pop(ctx);
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => PrintScreen(
-                                // Teruskan seluruh data (sudah key konsisten)
-                                data: data,
-                              ),
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.print, size: 16),
-                        label: const Text('Cetak'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: kPrimary,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // Helper row untuk dialog cetak
-  Widget _cetakRow(String label, String val) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 1),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 80,
-            child: Text(label, style: Theme.of(context).textTheme.bodySmall),
-          ),
-          Text(': ', style: Theme.of(context).textTheme.bodySmall),
-          Expanded(
-            child: Text(
-              val,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
   // ── BUILD ─────────────────────────────────────────────────────────────────
@@ -1993,7 +1422,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                       )
                     : null,
                 children: [
-                  // List item yang sudah ditambahkan
                   if (_items.isEmpty)
                     Container(
                       padding: const EdgeInsets.symmetric(vertical: 20),
@@ -2107,7 +1535,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                                 ],
                                 _miniPill(tipe, chipColor),
                                 const Spacer(),
-                                // Tombol hapus
                                 GestureDetector(
                                   onTap: () => _hapusItem(idx),
                                   child: Container(
@@ -2185,8 +1612,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                     }),
 
                   const SizedBox(height: 8),
-
-                  // Tombol tambah layanan (SAMA PERSIS dengan OrderDetailScreen)
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
@@ -2213,7 +1638,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                     ),
                   ),
 
-                  // Total preview (muncul jika ada item)
                   if (_items.isNotEmpty) ...[
                     const SizedBox(height: 12),
                     Container(
@@ -2252,7 +1676,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    // Estimasi selesai
                     Row(
                       children: [
                         Icon(
@@ -2280,7 +1703,7 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
               ),
               const SizedBox(height: 16),
 
-              // ── GROUP TANGGAL ORDER ───────────────────────────────────────────────
+              // ── GROUP TANGGAL ORDER ───────────────────────────────────
               _buildCardGroup(
                 title: 'Tanggal Order',
                 icon: Icons.calendar_today_outlined,
@@ -2380,7 +1803,7 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
               ),
               const SizedBox(height: 16),
 
-              // ── GROUP BIAYA TAMBAHAN ──────────────────────────────────────────────
+              // ── GROUP BIAYA TAMBAHAN ──────────────────────────────────
               _buildCardGroup(
                 title: 'Biaya Tambahan',
                 icon: Icons.add_card_outlined,
@@ -2412,11 +1835,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                       child: Center(
                         child: Column(
                           children: [
-                            Icon(
-                              Icons.receipt_outlined,
-                              size: 36,
-                              color: Colors.grey.shade300,
-                            ),
                             const SizedBox(height: 6),
                             Text(
                               'Belum ada biaya tambahan',
@@ -2564,7 +1982,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                     ),
                   ),
 
-                  // Total biaya tambahan
                   if (_biayaTambahan.isNotEmpty) ...[
                     const SizedBox(height: 10),
                     Container(
@@ -2604,13 +2021,232 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                 ],
               ),
               const SizedBox(height: 16),
+
+              // ══════════════════════════════════════════════════════════
+              // GROUP DISKON — di atas card pembayaran
+              // ══════════════════════════════════════════════════════════
+              _buildCardGroup(
+                title: 'Diskon',
+                icon: Icons.local_offer_outlined,
+                isDark: isDark,
+                trailingWidget: _diskonNominal > 0
+                    ? Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          '- ${_formatRupiah(_diskonNominal)}',
+                          style: TextStyle(
+                            color: Colors.red.shade600,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      )
+                    : null,
+                children: [
+                  // ── Tombol/card diskon — selalu sebagai button ──────
+                  GestureDetector(
+                    onTap: _showDiskonSheet,
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _diskonNominal > 0
+                            ? Colors.red.withOpacity(0.05)
+                            : Theme.of(context).cardColor,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: _diskonNominal > 0
+                              ? Colors.red.withOpacity(0.4)
+                              : Theme.of(context).dividerColor,
+                          width: _diskonNominal > 0 ? 1.5 : 1,
+                        ),
+                      ),
+                      child: _diskonNominal == 0
+                          ? Row(
+                              children: [
+                                Icon(
+                                  Icons.local_offer_outlined,
+                                  color: Colors.red.shade400,
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  'Tambahkan Diskon',
+                                  style: TextStyle(
+                                    color: Theme.of(context).hintColor,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                const Spacer(),
+                                Icon(
+                                  Icons.chevron_right_rounded,
+                                  color: Theme.of(context).hintColor,
+                                ),
+                              ],
+                            )
+                          : Row(
+                              children: [
+                                Container(
+                                  width: 36,
+                                  height: 36,
+                                  decoration: BoxDecoration(
+                                    color: Colors.red.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Icon(
+                                    Icons.local_offer_rounded,
+                                    color: Colors.red.shade500,
+                                    size: 18,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        '- ${_formatRupiah(_diskonNominal)}',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                          color: Colors.red.shade600,
+                                        ),
+                                      ),
+                                      if (_diskonCatatan.isNotEmpty)
+                                        Text(
+                                          _diskonCatatan,
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: Theme.of(context).hintColor,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.red.withOpacity(0.08),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    'Ubah',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.red.shade500,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                    ),
+                  ),
+
+                  // Preview kalkulasi diskon jika sudah diisi
+                  if (_diskonNominal > 0) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.04),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.red.withOpacity(0.15)),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Subtotal',
+                                style: Theme.of(
+                                  context,
+                                ).textTheme.bodySmall?.copyWith(fontSize: 12),
+                              ),
+                              Text(
+                                _formatRupiah(_grandTotalSebelumDiskon),
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Diskon',
+                                style: TextStyle(
+                                  color: Colors.red.shade400,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              Text(
+                                '- ${_formatRupiah(_diskonNominal)}',
+                                style: TextStyle(
+                                  color: Colors.red.shade400,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Divider(
+                            height: 14,
+                            color: Colors.red.withOpacity(0.2),
+                          ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Total Akhir',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                  color: kPrimary,
+                                ),
+                              ),
+                              Text(
+                                _formatRupiah(_grandTotalFinal),
+                                style: TextStyle(
+                                  color: kPrimary,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 16),
+
               // ── GROUP 3: PEMBAYARAN ───────────────────────────────────
               _buildCardGroup(
                 title: 'Pembayaran',
                 icon: Icons.payments_outlined,
                 isDark: isDark,
                 children: [
-                  // Status bayar
                   Text(
                     'Status Pembayaran',
                     style: Theme.of(context).textTheme.bodyLarge?.copyWith(
@@ -2644,8 +2280,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                       ),
                     ],
                   ),
-
-                  // Kolom DP (AnimatedSize)
                   AnimatedSize(
                     duration: const Duration(milliseconds: 250),
                     curve: Curves.easeInOut,
@@ -2721,8 +2355,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                           )
                         : const SizedBox.shrink(),
                   ),
-
-                  // Topologi status
                   const SizedBox(height: 14),
                   _buildStatusTopologi(),
                 ],
@@ -2752,7 +2384,7 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                             Icon(Icons.receipt_long_outlined, size: 20),
                             SizedBox(width: 10),
                             Text(
-                              'SIMPAN & CETAK STRUK',
+                              'SIMPAN & LIHAT ORDER',
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 16,
@@ -2767,130 +2399,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildDatePicker(bool isDark) {
-    final now = DateTime.now();
-    final firstDay = DateTime(now.year, now.month, 1);
-    final lastDay = DateTime(now.year, now.month + 1, 0);
-    final totalDays = lastDay.day;
-    // Senin = 0 ... Minggu = 6 (offset awal)
-    final startWeekday = (firstDay.weekday - 1) % 7;
-
-    const dayLabels = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
-
-    return Column(
-      children: [
-        // Header bulan
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.calendar_month_outlined, color: kPrimary, size: 16),
-            const SizedBox(width: 6),
-            Text(
-              DateFormat('MMMM yyyy', 'id_ID').format(now),
-              style: TextStyle(
-                color: kPrimary,
-                fontWeight: FontWeight.bold,
-                fontSize: 13,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        // Label hari
-        Row(
-          children: dayLabels
-              .map(
-                (d) => Expanded(
-                  child: Center(
-                    child: Text(
-                      d,
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: d == 'Min'
-                            ? Colors.red.shade400
-                            : Colors.grey.shade500,
-                      ),
-                    ),
-                  ),
-                ),
-              )
-              .toList(),
-        ),
-        const SizedBox(height: 6),
-        // Grid tanggal
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 7,
-            childAspectRatio: 1,
-            mainAxisSpacing: 4,
-            crossAxisSpacing: 2,
-          ),
-          itemCount: startWeekday + totalDays,
-          itemBuilder: (_, index) {
-            if (index < startWeekday) return const SizedBox();
-            final day = index - startWeekday + 1;
-            final date = DateTime(now.year, now.month, day);
-            final isToday = day == now.day;
-            final isSelected =
-                _customTanggal != null &&
-                _customTanggal!.day == day &&
-                _customTanggal!.month == now.month &&
-                _customTanggal!.year == now.year;
-            final isSunday = date.weekday == DateTime.sunday;
-
-            return GestureDetector(
-              onTap: () {
-                setState(() {
-                  if (isSelected) {
-                    _customTanggal = null;
-                  } else {
-                    _customTanggal = date;
-                  }
-                });
-              },
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
-                margin: const EdgeInsets.all(1),
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? kPrimary
-                      : isToday
-                      ? kPrimary.withOpacity(0.12)
-                      : Colors.transparent,
-                  shape: BoxShape.circle,
-                  border: isToday && !isSelected
-                      ? Border.all(color: kPrimary.withOpacity(0.5), width: 1)
-                      : null,
-                ),
-                child: Center(
-                  child: Text(
-                    '$day',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: isSelected || isToday
-                          ? FontWeight.bold
-                          : FontWeight.normal,
-                      color: isSelected
-                          ? Colors.white
-                          : isSunday
-                          ? Colors.red.shade400
-                          : isDark
-                          ? Colors.white70
-                          : Colors.black87,
-                    ),
-                  ),
-                ),
-              ),
-            );
-          },
-        ),
-      ],
     );
   }
 
@@ -3086,7 +2594,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
     );
   }
 
-  // ── Helper _toInt (tambahkan di class _AddOrderScreenState) ───────────────
   int _toInt(dynamic val) {
     if (val == null) return 0;
     if (val is int) return val;
@@ -3160,7 +2667,6 @@ class _LayananPickerSheetState extends State<_LayananPickerSheet> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Handle
           Center(
             child: Container(
               width: 40,
@@ -3179,8 +2685,6 @@ class _LayananPickerSheetState extends State<_LayananPickerSheet> {
             ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 16),
-
-          // Filter chips
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
@@ -3196,8 +2700,6 @@ class _LayananPickerSheetState extends State<_LayananPickerSheet> {
             ),
           ),
           const SizedBox(height: 16),
-
-          // List layanan
           ConstrainedBox(
             constraints: BoxConstraints(
               maxHeight: MediaQuery.of(context).size.height * 0.45,
@@ -3310,7 +2812,7 @@ class _LayananPickerSheetState extends State<_LayananPickerSheet> {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  BOTTOM SHEET: Input Detail Item (berat/jumlah + catatan + kalkulator)
+//  BOTTOM SHEET: Input Detail Item
 // ════════════════════════════════════════════════════════════════════════════
 class _ItemDetailSheet extends StatefulWidget {
   final Layanan layanan;
@@ -3322,7 +2824,6 @@ class _ItemDetailSheet extends StatefulWidget {
 }
 
 class _ItemDetailSheetState extends State<_ItemDetailSheet> {
-  // FIX: gunakan double agar nilai desimal (2.4) tersimpan dengan benar
   double _jumlah = 1.0;
   final _catatanCtrl = TextEditingController();
   final _jumlahPakaianCtrl = TextEditingController(text: '0');
@@ -3349,11 +2850,9 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
     return DateFormat('dd-MM-yyyy').format(selesai);
   }
 
-  // ── Kalkulator P × L ─────────────────────────────────────────────────────
   Future<void> _showKalkulator() async {
     final pCtrl = TextEditingController();
     final lCtrl = TextEditingController();
-    // FIX: gunakan double? agar nilai kalkulator dapat disimpan sepenuhnya
     double? hasilDouble;
 
     await showDialog(
@@ -3363,7 +2862,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
           void hitung() {
             final p = double.tryParse(pCtrl.text) ?? 0;
             final l = double.tryParse(lCtrl.text) ?? 0;
-            // FIX: simpan hasil penuh sebagai double, bukan diformat
             setS(() => hasilDouble = p * l);
           }
 
@@ -3426,7 +2924,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
                         text: TextSpan(
                           children: [
                             TextSpan(
-                              // FIX: tampilkan dengan format desimal yang benar
                               text: hasil > 0
                                   ? NumberFormat(
                                       '#,##0.##',
@@ -3484,12 +2981,8 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
               ElevatedButton(
                 onPressed: hasil > 0
                     ? () {
-                        // FIX UTAMA: Simpan nilai double penuh (2.4), bukan dibulatkan ke int
-                        // Gunakan hasilDouble langsung, bukan parse dari string yang diformat
-                        final nilaiAsli = hasilDouble!;
-                        // Bulatkan ke 2 desimal saja
                         final nilaiRapi = double.parse(
-                          nilaiAsli.toStringAsFixed(2),
+                          hasilDouble!.toStringAsFixed(2),
                         );
                         setState(() => _jumlah = nilaiRapi);
                         Navigator.pop(ctx);
@@ -3554,7 +3047,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
     final primary = Theme.of(context).colorScheme.primary;
     final isKarpet = widget.layanan.tipe == 'meter';
     final satuan = _satuanLabel;
-    // FIX: tampilkan sesuai tipe — desimal untuk kiloan & meter, bulat untuk satuan
     final jumlahStr =
         widget.layanan.tipe == 'kiloan' || widget.layanan.tipe == 'meter'
         ? (_jumlah % 1 == 0
@@ -3578,7 +3070,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Handle
             Center(
               child: Container(
                 width: 40,
@@ -3590,8 +3081,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // Header
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -3633,8 +3122,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
               ],
             ),
             const SizedBox(height: 24),
-
-            // Jumlah / Berat
             Text(
               'Jumlah / Berat',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -3643,8 +3130,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
               ),
             ),
             const SizedBox(height: 10),
-
-            // Stepper
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
               decoration: BoxDecoration(
@@ -3653,7 +3138,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
               ),
               child: Row(
                 children: [
-                  // Minus
                   GestureDetector(
                     onTap: () {
                       if (_jumlah > _min) {
@@ -3679,7 +3163,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
                       ),
                     ),
                   ),
-                  // Nilai
                   Expanded(
                     child: Center(
                       child: RichText(
@@ -3700,7 +3183,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
                       ),
                     ),
                   ),
-                  // Plus
                   GestureDetector(
                     onTap: () => setState(
                       () => _jumlah = double.parse(
@@ -3721,8 +3203,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
               ),
             ),
             const SizedBox(height: 12),
-
-            // Kalkulator P × L (hanya jika meter)
             if (isKarpet) ...[
               SizedBox(
                 width: double.infinity,
@@ -3747,8 +3227,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
               ),
               const SizedBox(height: 16),
             ],
-
-            // Catatan
             Text(
               'Catatan (Opsional)',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -3780,8 +3258,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // Jumlah Pakaian (opsional)
             Text(
               'Jumlah Pakaian (Opsional)',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -3814,8 +3290,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
               ),
             ),
             const SizedBox(height: 20),
-
-            // Subtotal
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -3836,8 +3310,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
               ],
             ),
             const SizedBox(height: 16),
-
-            // Tombol Tambah ke Order
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
@@ -3846,7 +3318,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
                   'layanan_tipe': widget.layanan.tipe,
                   'layanan_id': widget.layanan.id,
                   'jenis_pakaian': '',
-                  // FIX: kirim sebagai double agar nilai desimal (2.4) tidak terpotong
                   'berat_kg': _jumlah,
                   'harga_satuan': widget.layanan.harga,
                   'estimasi_selesai': _hitungEstimasi(),

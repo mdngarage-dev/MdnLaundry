@@ -128,71 +128,116 @@ class ManageAdminAccessScreen extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Model izin — untuk nambah izin baru cukup tambah item di sini
+// Tambah field group di _Permission
 class _Permission {
-  final String key; // key di Firestore
-  final String label; // teks yang tampil
-  final String subtitle; // keterangan
+  final String key;
+  final String label;
+  final String subtitle;
   final IconData icon;
-  final bool ownerOnly;
+  final String group; // ← TAMBAH INI
 
   const _Permission({
     required this.key,
     required this.label,
     required this.subtitle,
     required this.icon,
-    this.ownerOnly = false,
+    required this.group, // ← TAMBAH INI
   });
 }
 
-// ── Daftar izin — TAMBAH IZIN BARU DI SINI ───────────────────────────────────
 const List<_Permission> _allPermissions = [
+  // ── Laporan ────────────────────────────────────────────────────────────
   _Permission(
     key: 'can_access_ringkasan',
     label: 'Ringkasan Outlet',
     subtitle: 'Analisis performa bisnis lengkap',
     icon: Icons.grid_view_rounded,
+    group: 'Laporan',
   ),
   _Permission(
     key: 'can_access_harian',
     label: 'Laporan Harian',
     subtitle: 'Ringkasan transaksi hari ini',
     icon: Icons.calendar_today_rounded,
+    group: 'Laporan',
   ),
   _Permission(
     key: 'can_access_lispengeluaran',
     label: 'Pengeluaran',
     subtitle: 'Laporan detail pengeluaran',
     icon: Icons.shopping_bag_outlined,
+    group: 'Laporan',
   ),
+
+  // ── Order ──────────────────────────────────────────────────────────────
   _Permission(
-    key: 'can_access_layanan',
-    label: 'Daftar Layanan',
-    subtitle: 'Ubah Layanan Laundry',
-    icon: Icons.local_laundry_service_outlined,
-  ),
-  _Permission(
-    key: 'can_access_outlet',
-    label: 'Kelola Outlet',
-    subtitle: 'Nama, Alamat, No. HP, dan Logo Outlet',
-    icon: Icons.store_outlined,
-  ),
-  _Permission(
-    key: 'can_access_admin',
-    label: 'Kelola Admin',
-    subtitle: 'Izin & Kelola Akses admin',
-    icon: Icons.admin_panel_settings_outlined,
+    key: 'can_eit_layanan',
+    label: 'Edit Pesanan',
+    subtitle: 'Di halaman detail order',
+    icon: Icons.edit_outlined,
+    group: 'Order',
   ),
   _Permission(
     key: 'can_hapus_order',
     label: 'Hapus Order',
     subtitle: 'Izin menghapus order',
     icon: Icons.delete_outline_rounded,
+    group: 'Order',
   ),
   _Permission(
     key: 'can_hapus_pelanggan',
     label: 'Hapus No Pelanggan',
-    subtitle: 'Izin menghapus Nomor',
-    icon: Icons.delete_outline_rounded,
+    subtitle: 'Izin menghapus nomor pelanggan',
+    icon: Icons.person_remove_outlined,
+    group: 'Order',
+  ),
+
+  // ── Pengaturan Outlet ──────────────────────────────────────────────────
+  _Permission(
+    key: 'can_access_layanan',
+    label: 'Daftar Layanan',
+    subtitle: 'Ubah layanan laundry',
+    icon: Icons.local_laundry_service_outlined,
+    group: 'Pengaturan Outlet',
+  ),
+  _Permission(
+    key: 'can_access_outlet',
+    label: 'Kelola Outlet',
+    subtitle: 'Nama, Alamat, No. HP, dan Logo Outlet',
+    icon: Icons.store_outlined,
+    group: 'Pengaturan Outlet',
+  ),
+  _Permission(
+    key: 'can_access_togle_nohp',
+    label: 'Tampilkan No HP Outlet',
+    subtitle: 'Nomor HP outlet muncul di struk',
+    icon: Icons.phone_outlined,
+    group: 'Pengaturan Outlet',
+  ),
+  _Permission(
+    key: 'can_access_togle_alamat',
+    label: 'Tampilkan Alamat Outlet',
+    subtitle: 'Alamat outlet muncul di struk',
+    icon: Icons.location_on_outlined,
+    group: 'Pengaturan Outlet',
+  ),
+
+  // ── Keuangan ───────────────────────────────────────────────────────────
+  _Permission(
+    key: 'can_kelola_rekening',
+    label: 'Kelola Rekening',
+    subtitle: 'Tambah, Hapus, Edit Rekening di Struk',
+    icon: Icons.atm_outlined,
+    group: 'Keuangan',
+  ),
+
+  // ── Sistem ─────────────────────────────────────────────────────────────
+  _Permission(
+    key: 'can_access_admin',
+    label: 'Kelola Admin',
+    subtitle: 'Izin & Kelola Akses Admin',
+    icon: Icons.admin_panel_settings_outlined,
+    group: 'Sistem',
   ),
 ];
 
@@ -326,94 +371,113 @@ class _EditAdminPermissionScreenState extends State<EditAdminPermissionScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                // ── Label section ──────────────────────────────────────
-                Text(
-                  "IZIN AKSES",
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).primaryColor,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-                const SizedBox(height: 10),
-
-                // ── Card izin ──────────────────────────────────────────
-                Container(
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).cardColor,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: Theme.of(context).dividerColor.withOpacity(0.5),
-                    ),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: Column(
-                      children: _allPermissions.map((p) {
-                        final isLast = p == _allPermissions.last;
-                        return Column(
-                          children: [
-                            CheckboxListTile(
-                              value: _permissions[p.key] ?? false,
-                              onChanged: (val) {
-                                setState(() {
-                                  _permissions[p.key] = val ?? false;
-                                });
-                              },
-                              title: Text(
-                                p.label,
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  color: Theme.of(
-                                    context,
-                                  ).textTheme.bodyLarge?.color,
-                                ),
-                              ),
-                              subtitle: Text(
-                                p.subtitle,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Theme.of(context).hintColor,
-                                ),
-                              ),
-                              secondary: Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: Theme.of(
-                                    context,
-                                  ).primaryColor.withOpacity(0.08),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Icon(
-                                  p.icon,
-                                  color: Theme.of(context).primaryColor,
-                                  size: 22,
-                                ),
-                              ),
-                              activeColor: Theme.of(context).primaryColor,
-                              controlAffinity: ListTileControlAffinity.trailing,
-                            ),
-                            if (!isLast)
-                              Divider(
-                                height: 1,
-                                thickness: 1,
-                                color: Theme.of(
-                                  context,
-                                ).dividerColor.withOpacity(0.5),
-                                indent: 56,
-                                endIndent: 16,
-                              ),
-                          ],
-                        );
-                      }).toList(),
-                    ),
-                  ),
-                ),
-              ],
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+              children: _buildGroupedSections(context),
             ),
     );
+  }
+
+  List<Widget> _buildGroupedSections(BuildContext context) {
+    // Ambil urutan group tanpa duplikat
+    final groups = <String>[];
+    for (final p in _allPermissions) {
+      if (!groups.contains(p.group)) groups.add(p.group);
+    }
+
+    final widgets = <Widget>[];
+
+    for (final group in groups) {
+      final items = _allPermissions.where((p) => p.group == group).toList();
+
+      // ── Label section ──────────────────────────────────────────────────
+      widgets.add(
+        Padding(
+          padding: const EdgeInsets.only(top: 8, bottom: 8, left: 2),
+          child: Text(
+            group.toUpperCase(),
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: Theme.of(context).primaryColor,
+              letterSpacing: 1.2,
+            ),
+          ),
+        ),
+      );
+
+      // ── Card per group ─────────────────────────────────────────────────
+      widgets.add(
+        Container(
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: Theme.of(context).dividerColor.withOpacity(0.5),
+            ),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Column(
+              children: items.asMap().entries.map((entry) {
+                final idx = entry.key;
+                final p = entry.value;
+                final isLast = idx == items.length - 1;
+                return Column(
+                  children: [
+                    CheckboxListTile(
+                      value: _permissions[p.key] ?? false,
+                      onChanged: (val) =>
+                          setState(() => _permissions[p.key] = val ?? false),
+                      title: Text(
+                        p.label,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: Theme.of(context).textTheme.bodyLarge?.color,
+                        ),
+                      ),
+                      subtitle: Text(
+                        p.subtitle,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).hintColor,
+                        ),
+                      ),
+                      secondary: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Theme.of(
+                            context,
+                          ).primaryColor.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(
+                          p.icon,
+                          color: Theme.of(context).primaryColor,
+                          size: 22,
+                        ),
+                      ),
+                      activeColor: Theme.of(context).primaryColor,
+                      controlAffinity: ListTileControlAffinity.trailing,
+                    ),
+                    if (!isLast)
+                      Divider(
+                        height: 1,
+                        thickness: 1,
+                        color: Theme.of(context).dividerColor.withOpacity(0.5),
+                        indent: 56,
+                        endIndent: 16,
+                      ),
+                  ],
+                );
+              }).toList(),
+            ),
+          ),
+        ),
+      );
+
+      widgets.add(const SizedBox(height: 4));
+    }
+
+    return widgets;
   }
 }

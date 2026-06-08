@@ -33,6 +33,7 @@ export '../laporan/main.dart';
 export '../laporan/form_pengeluaran_page.dart';
 export 'package:mdnlaundry_project/screens/settings/outlet/layanan.dart';
 export 'package:mdnlaundry_project/screens/settings/outlet/daftar_pelanggan.dart';
+export 'package:mdnlaundry_project/screens/settings/outlet/printer_setting.dart';
 
 export 'package:mdnlaundry_project/screens/settings/outlet/main.dart';
 export 'package:mdnlaundry_project/screens/settings/outlet/admin.dart';

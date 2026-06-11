@@ -13,6 +13,7 @@ class AddOrderScreen extends StatefulWidget {
 
 class _AddOrderScreenState extends State<AddOrderScreen> {
   final _formKey = GlobalKey<FormState>();
+  DateTime _viewMonth = DateTime(DateTime.now().year, DateTime.now().month, 1);
 
   // ── Pelanggan ─────────────────────────────────────────────────────────────
   String? _selectedNama;
@@ -105,31 +106,15 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
   }
 
   // ── Buka picker layanan ───────────────────────────────────────────────────
-  Future<void> _openTambahLayanan() async {
-    final snap = await FirebaseFirestore.instance
-        .collection('layanan')
-        .orderBy('nama')
-        .get();
-    final layananList = snap.docs.map((d) => Layanan.fromFirestore(d)).toList();
 
+  Future<void> _openTambahLayanan() async {
     if (!mounted) return;
-    if (layananList.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Belum ada layanan. Tambah layanan terlebih dahulu.'),
-          backgroundColor: Colors.orange,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => _LayananPickerSheet(
-        layananList: layananList,
         onSelected: (layanan) {
           Navigator.pop(ctx);
           Future.delayed(const Duration(milliseconds: 200), () {
@@ -140,6 +125,7 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
               backgroundColor: Colors.transparent,
               builder: (ctx2) => _ItemDetailSheet(
                 layanan: layanan,
+                customTanggal: _customTanggal,
                 onAdd: (item) {
                   Navigator.pop(ctx2);
                   setState(() => _items.add(item));
@@ -800,23 +786,408 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
     setState(() => _items.removeAt(idx));
   }
 
+  String get _estimasiDariCustom {
+    if (_items.isEmpty) return '-';
+    if (_customTanggal == null) return _estimasiTerpanjang;
+    final lastItem = _items.last;
+    final durasi = (lastItem['durasi_jam'] as num?)?.toInt() ?? 24;
+    final base = DateTime(
+      _customTanggal!.year,
+      _customTanggal!.month,
+      _customTanggal!.day,
+      18,
+      0,
+    );
+    return DateFormat('dd-MM-yyyy').format(base.add(Duration(hours: durasi)));
+  }
+
   // ── Date picker sheet ─────────────────────────────────────────────────────
   void _showDatePickerSheet() {
     final now = DateTime.now();
-    final firstDay = DateTime(now.year, now.month, 1);
-    final lastDay = DateTime(now.year, now.month + 1, 0);
-    final totalDays = lastDay.day;
-    final startWeekday = (firstDay.weekday - 1) % 7;
-    const dayLabels = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
+    // Mulai dari bulan tanggal yang sudah dipilih, atau bulan sekarang
 
     DateTime? tempSelected = _customTanggal;
+
+    const dayLabels = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setS) => Container(
+        builder: (ctx, setS) {
+          final firstDay = DateTime(_viewMonth.year, _viewMonth.month, 1);
+          final lastDay = DateTime(_viewMonth.year, _viewMonth.month + 1, 0);
+          final totalDays = lastDay.day;
+          final startWeekday = (firstDay.weekday - 1) % 7;
+
+          return Container(
+            decoration: BoxDecoration(
+              color: Theme.of(context).scaffoldBackgroundColor,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(24),
+              ),
+            ),
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 20,
+              bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Handle bar
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).dividerColor,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.calendar_month_outlined,
+                      color: kPrimary,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Pilih Tanggal Order',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Jika dipilih, jam order otomatis menjadi 18:00',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).hintColor,
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // ── Navigasi bulan & tahun ──────────────────────────────
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: kPrimary.withOpacity(0.07),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      // Tombol bulan sebelumnya
+                      IconButton(
+                        onPressed: () => setS(() {
+                          _viewMonth = DateTime(
+                            _viewMonth.year,
+                            _viewMonth.month - 1,
+                            1,
+                          );
+                        }),
+                        icon: Icon(Icons.chevron_left_rounded, color: kPrimary),
+                        splashRadius: 20,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                          minWidth: 36,
+                          minHeight: 36,
+                        ),
+                      ),
+
+                      // Tap untuk buka dialog pilih tahun & bulan
+                      GestureDetector(
+                        onTap: () {
+                          Navigator.pop(
+                            ctx,
+                          ); // tutup dulu bottom sheet kalender
+                          Future.delayed(const Duration(milliseconds: 300), () {
+                            if (!mounted) return;
+                            _showYearMonthPicker(context, _viewMonth, (picked) {
+                              setState(
+                                () => _viewMonth = picked,
+                              ); // update state utama
+                              Future.delayed(
+                                const Duration(milliseconds: 200),
+                                () {
+                                  if (!mounted) return;
+                                  _showDatePickerSheet(); // buka lagi kalender dengan bulan baru
+                                },
+                              );
+                            });
+                          });
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: kPrimary.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                DateFormat(
+                                  'MMMM yyyy',
+                                  'id_ID',
+                                ).format(_viewMonth),
+                                style: TextStyle(
+                                  color: kPrimary,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Icon(
+                                Icons.arrow_drop_down_rounded,
+                                color: kPrimary,
+                                size: 18,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      // Tombol bulan berikutnya
+                      IconButton(
+                        onPressed: () => setS(() {
+                          _viewMonth = DateTime(
+                            _viewMonth.year,
+                            _viewMonth.month + 1,
+                            1,
+                          );
+                        }),
+                        icon: Icon(
+                          Icons.chevron_right_rounded,
+                          color: kPrimary,
+                        ),
+                        splashRadius: 20,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                          minWidth: 36,
+                          minHeight: 36,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // Header hari
+                Row(
+                  children: dayLabels
+                      .map(
+                        (d) => Expanded(
+                          child: Center(
+                            child: Text(
+                              d,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: d == 'Min'
+                                    ? Colors.red.shade400
+                                    : Colors.grey.shade500,
+                              ),
+                            ),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
+                const SizedBox(height: 8),
+
+                // Grid tanggal
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 7,
+                    childAspectRatio: 1,
+                    mainAxisSpacing: 4,
+                    crossAxisSpacing: 2,
+                  ),
+                  itemCount: startWeekday + totalDays,
+                  itemBuilder: (_, index) {
+                    if (index < startWeekday) return const SizedBox();
+                    final day = index - startWeekday + 1;
+                    final date = DateTime(
+                      _viewMonth.year,
+                      _viewMonth.month,
+                      day,
+                    );
+                    final isToday =
+                        date.year == now.year &&
+                        date.month == now.month &&
+                        date.day == now.day;
+                    final isSelected =
+                        tempSelected != null &&
+                        tempSelected!.day == day &&
+                        tempSelected!.month == _viewMonth.month &&
+                        tempSelected!.year == _viewMonth.year;
+                    final isSunday = date.weekday == DateTime.sunday;
+                    return GestureDetector(
+                      onTap: () => setS(() {
+                        tempSelected = isSelected ? null : date;
+                      }),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        margin: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? kPrimary
+                              : isToday
+                              ? kPrimary.withOpacity(0.12)
+                              : Colors.transparent,
+                          shape: BoxShape.circle,
+                          border: isToday && !isSelected
+                              ? Border.all(
+                                  color: kPrimary.withOpacity(0.5),
+                                  width: 1,
+                                )
+                              : null,
+                        ),
+                        child: Center(
+                          child: Text(
+                            '$day',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: isSelected || isToday
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                              color: isSelected
+                                  ? Colors.white
+                                  : isSunday
+                                  ? Colors.red.shade400
+                                  : Theme.of(context).brightness ==
+                                        Brightness.dark
+                                  ? Colors.white70
+                                  : Colors.black87,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 16),
+
+                // Preview tanggal terpilih
+                if (tempSelected != null)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: kPrimary.withOpacity(0.07),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: kPrimary.withOpacity(0.25)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.access_time_rounded,
+                          color: kPrimary,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '${DateFormat('dd MMM yyyy', 'id_ID').format(tempSelected!)}  •  18:00',
+                          style: TextStyle(
+                            color: kPrimary,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                const SizedBox(height: 16),
+
+                // Tombol aksi
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () {
+                          setState(() => _customTanggal = null);
+                          Navigator.pop(ctx);
+                        },
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.grey,
+                          side: BorderSide(color: Colors.grey.shade300),
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text('Reset'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 2,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          setState(() => _customTanggal = tempSelected);
+                          Navigator.pop(ctx);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: kPrimary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: Text(
+                          tempSelected != null
+                              ? 'Gunakan Tanggal Ini'
+                              : 'Pakai Sekarang',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _showYearMonthPicker(
+    BuildContext ctx,
+    DateTime current,
+    void Function(DateTime) onPicked,
+  ) async {
+    int selectedYear = current.year;
+    int selectedMonth = current.month;
+    final now = DateTime.now();
+
+    await showModalBottomSheet(
+      context: context, // pakai context utama, bukan ctx
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (bCtx) => StatefulBuilder(
+        builder: (bCtx, setD) => Container(
           decoration: BoxDecoration(
             color: Theme.of(context).scaffoldBackgroundColor,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
@@ -825,11 +1196,12 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
             left: 20,
             right: 20,
             top: 20,
-            bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+            bottom: MediaQuery.of(bCtx).viewInsets.bottom + 24,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Handle bar
               Center(
                 child: Container(
                   width: 40,
@@ -850,119 +1222,131 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    'Pilih Tanggal Order',
+                    'Pilih Bulan & Tahun',
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 4),
-              Text(
-                'Jika dipilih, jam order otomatis menjadi 18:00',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Theme.of(context).hintColor,
-                ),
-              ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
+
+              // ── Pilih Tahun ──────────────────────────────────────────
               Container(
-                padding: const EdgeInsets.symmetric(vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: kPrimary.withOpacity(0.07),
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                child: Center(
-                  child: Text(
-                    DateFormat('MMMM yyyy', 'id_ID').format(now),
-                    style: TextStyle(
-                      color: kPrimary,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Tahun',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: dayLabels
-                    .map(
-                      (d) => Expanded(
-                        child: Center(
+                    Row(
+                      children: [
+                        IconButton(
+                          onPressed: () => setD(() => selectedYear--),
+                          icon: Icon(
+                            Icons.chevron_left_rounded,
+                            color: kPrimary,
+                          ),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 32,
+                            minHeight: 32,
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: kPrimary.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
                           child: Text(
-                            d,
+                            '$selectedYear',
                             style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: d == 'Min'
-                                  ? Colors.red.shade400
-                                  : Colors.grey.shade500,
+                              color: kPrimary,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
                             ),
                           ),
                         ),
-                      ),
-                    )
-                    .toList(),
+                        IconButton(
+                          onPressed: () => setD(() => selectedYear++),
+                          icon: Icon(
+                            Icons.chevron_right_rounded,
+                            color: kPrimary,
+                          ),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 32,
+                            minHeight: 32,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 16),
+
+              // ── Grid 12 bulan ────────────────────────────────────────
               GridView.builder(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 7,
-                  childAspectRatio: 1,
-                  mainAxisSpacing: 4,
-                  crossAxisSpacing: 2,
+                  crossAxisCount: 4,
+                  childAspectRatio: 1.6,
+                  mainAxisSpacing: 8,
+                  crossAxisSpacing: 8,
                 ),
-                itemCount: startWeekday + totalDays,
-                itemBuilder: (_, index) {
-                  if (index < startWeekday) return const SizedBox();
-                  final day = index - startWeekday + 1;
-                  final date = DateTime(now.year, now.month, day);
-                  final isToday = day == now.day;
-                  final isSelected =
-                      tempSelected != null &&
-                      tempSelected!.day == day &&
-                      tempSelected!.month == now.month &&
-                      tempSelected!.year == now.year;
-                  final isSunday = date.weekday == DateTime.sunday;
+                itemCount: 12,
+                itemBuilder: (_, i) {
+                  final m = i + 1;
+                  final isSelected = m == selectedMonth;
+                  final isCurrentMonth =
+                      m == now.month && selectedYear == now.year;
                   return GestureDetector(
-                    onTap: () => setS(() {
-                      tempSelected = isSelected ? null : date;
-                    }),
+                    onTap: () => setD(() => selectedMonth = m),
                     child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 150),
-                      margin: const EdgeInsets.all(2),
+                      duration: const Duration(milliseconds: 120),
                       decoration: BoxDecoration(
                         color: isSelected
                             ? kPrimary
-                            : isToday
-                            ? kPrimary.withOpacity(0.12)
+                            : isCurrentMonth
+                            ? kPrimary.withOpacity(0.1)
                             : Colors.transparent,
-                        shape: BoxShape.circle,
-                        border: isToday && !isSelected
-                            ? Border.all(
-                                color: kPrimary.withOpacity(0.5),
-                                width: 1,
-                              )
-                            : null,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: isSelected
+                              ? kPrimary
+                              : isCurrentMonth
+                              ? kPrimary.withOpacity(0.4)
+                              : Colors.grey.withOpacity(0.2),
+                        ),
                       ),
                       child: Center(
                         child: Text(
-                          '$day',
+                          DateFormat('MMM', 'id_ID').format(DateTime(2000, m)),
                           style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: isSelected || isToday
+                            fontSize: 12,
+                            fontWeight: isSelected
                                 ? FontWeight.bold
                                 : FontWeight.normal,
                             color: isSelected
                                 ? Colors.white
-                                : isSunday
-                                ? Colors.red.shade400
-                                : Theme.of(context).brightness ==
-                                      Brightness.dark
-                                ? Colors.white70
-                                : Colors.black87,
+                                : Theme.of(context).textTheme.bodyMedium?.color,
                           ),
                         ),
                       ),
@@ -970,47 +1354,14 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                   );
                 },
               ),
-              const SizedBox(height: 16),
-              if (tempSelected != null)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: kPrimary.withOpacity(0.07),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: kPrimary.withOpacity(0.25)),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.access_time_rounded,
-                        color: kPrimary,
-                        size: 16,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '${DateFormat('dd MMM yyyy', 'id_ID').format(tempSelected!)}  •  18:00',
-                        style: TextStyle(
-                          color: kPrimary,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
+
+              // Tombol aksi
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: () {
-                        setState(() => _customTanggal = null);
-                        Navigator.pop(ctx);
-                      },
+                      onPressed: () => Navigator.pop(bCtx),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: Colors.grey,
                         side: BorderSide(color: Colors.grey.shade300),
@@ -1019,7 +1370,7 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      child: const Text('Reset'),
+                      child: const Text('Batal'),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -1027,8 +1378,8 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                     flex: 2,
                     child: ElevatedButton(
                       onPressed: () {
-                        setState(() => _customTanggal = tempSelected);
-                        Navigator.pop(ctx);
+                        onPicked(DateTime(selectedYear, selectedMonth, 1));
+                        Navigator.pop(bCtx);
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: kPrimary,
@@ -1038,16 +1389,15 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      child: Text(
-                        tempSelected != null
-                            ? 'Gunakan Tanggal Ini'
-                            : 'Pakai Sekarang',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      child: const Text(
+                        'Pilih',
+                        style: TextStyle(fontWeight: FontWeight.bold),
                       ),
                     ),
                   ),
                 ],
               ),
+              const SizedBox(height: 8),
             ],
           ),
         ),
@@ -1102,7 +1452,11 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
             final int next = (snap.data()?['last'] ?? 0) + 1;
             tx.set(counterRef, {'last': next});
             final tgl = DateFormat('yyMMdd').format(DateTime.now());
-            return 'MDN$tgl${next.toString().padLeft(3, '0')}';
+
+            final prefix = PrinterSettings.customNota.trim().isEmpty
+                ? 'MDN'
+                : PrinterSettings.customNota.trim();
+            return '$prefix$tgl${next.toString().padLeft(3, '0')}';
           })
           .timeout(const Duration(seconds: 10));
 
@@ -1131,7 +1485,7 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
         'waktu_order': _customTanggal != null
             ? Timestamp.fromDate(_waktuOrderFinal)
             : FieldValue.serverTimestamp(),
-        'estimasi_selesai': _estimasiTerpanjang,
+        'estimasi_selesai': _estimasiDariCustom,
         'durasi_jam': firstItem['durasi_jam'] ?? 24,
         'status': 'antrian',
         'status_bayar': _statusBayar,
@@ -1152,10 +1506,27 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
       }
 
       // Simpan subcollection items
+      // Simpan subcollection items
       for (final item in _items) {
         final itemData = Map<String, dynamic>.from(item);
         itemData.remove('_itemDocId');
         itemData['created_at'] = FieldValue.serverTimestamp();
+
+        // Hitung ulang estimasi sesuai customTanggal
+        if (_customTanggal != null) {
+          final durasi = (item['durasi_jam'] as num?)?.toInt() ?? 24;
+          final base = DateTime(
+            _customTanggal!.year,
+            _customTanggal!.month,
+            _customTanggal!.day,
+            18,
+            0,
+          );
+          itemData['estimasi_selesai'] = DateFormat(
+            'dd-MM-yyyy',
+          ).format(base.add(Duration(hours: durasi)));
+        }
+
         await orderRef.collection('items').add(itemData);
       }
 
@@ -1186,7 +1557,7 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
         'catatan': _catatanOrderCtrl.text.trim(),
         'admin': adminFinal,
         'waktu_order': Timestamp.fromDate(_waktuOrderFinal),
-        'estimasi_selesai': _estimasiTerpanjang,
+        'estimasi_selesai': _estimasiDariCustom,
         'durasi_jam': firstItem['durasi_jam'] ?? 24,
         'status': 'antrian',
         'status_bayar': _statusBayar,
@@ -1676,28 +2047,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.event_available_outlined,
-                          color: kPrimary,
-                          size: 16,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Est. Selesai: ',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                        Text(
-                          _estimasiTerpanjang,
-                          style: TextStyle(
-                            color: kPrimary,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
                   ],
                 ],
               ),
@@ -1798,6 +2147,29 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                         ],
                       ),
                     ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.event_available_outlined,
+                        color: kPrimary,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Est. Selesai: ',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      Text(
+                        _estimasiDariCustom,
+                        style: TextStyle(
+                          color: kPrimary,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -2158,35 +2530,57 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                   ),
 
                   // Preview kalkulasi diskon jika sudah diisi
-                  if (_diskonNominal > 0) ...[
-                    const SizedBox(height: 10),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.red.withOpacity(0.04),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: Colors.red.withOpacity(0.15)),
-                      ),
-                      child: Column(
-                        children: [
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // ── GROUP 3: PEMBAYARAN ───────────────────────────────────
+              _buildCardGroup(
+                title: 'Pembayaran',
+                icon: Icons.payments_outlined,
+                isDark: isDark,
+                children: [
+                  // ── Ringkasan Total ───────────────────────────────────────
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    margin: const EdgeInsets.only(bottom: 14),
+                    decoration: BoxDecoration(
+                      color: kPrimary.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: kPrimary.withOpacity(0.15)),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Total Layanan',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                            Text(
+                              _formatRupiah(_grandTotal),
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ],
+                        ),
+                        if (_biayaTambahan.isNotEmpty) ...[
+                          const SizedBox(height: 4),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Text(
-                                'Subtotal',
-                                style: Theme.of(
-                                  context,
-                                ).textTheme.bodySmall?.copyWith(fontSize: 12),
+                                'Biaya Tambahan',
+                                style: Theme.of(context).textTheme.bodySmall,
                               ),
                               Text(
-                                _formatRupiah(_grandTotalSebelumDiskon),
+                                _formatRupiah(_totalBiayaTambahan),
                                 style: const TextStyle(fontSize: 12),
                               ),
                             ],
                           ),
+                        ],
+                        if (_diskonNominal > 0) ...[
                           const SizedBox(height: 4),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2208,45 +2602,32 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                               ),
                             ],
                           ),
-                          Divider(
-                            height: 14,
-                            color: Colors.red.withOpacity(0.2),
-                          ),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                'Total Akhir',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
-                                  color: kPrimary,
-                                ),
-                              ),
-                              Text(
-                                _formatRupiah(_grandTotalFinal),
-                                style: TextStyle(
-                                  color: kPrimary,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 15,
-                                ),
-                              ),
-                            ],
-                          ),
                         ],
-                      ),
+                        Divider(height: 14, color: kPrimary.withOpacity(0.15)),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Total Akhir',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                                color: kPrimary,
+                              ),
+                            ),
+                            Text(
+                              _formatRupiah(_grandTotalFinal),
+                              style: TextStyle(
+                                color: kPrimary,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
-                  ],
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // ── GROUP 3: PEMBAYARAN ───────────────────────────────────
-              _buildCardGroup(
-                title: 'Pembayaran',
-                icon: Icons.payments_outlined,
-                isDark: isDark,
-                children: [
+                  ),
                   Text(
                     'Status Pembayaran',
                     style: Theme.of(context).textTheme.bodyLarge?.copyWith(
@@ -2611,12 +2992,9 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
 //  BOTTOM SHEET: Pilih Layanan
 // ════════════════════════════════════════════════════════════════════════════
 class _LayananPickerSheet extends StatefulWidget {
-  final List<Layanan> layananList;
   final void Function(Layanan) onSelected;
-  const _LayananPickerSheet({
-    required this.layananList,
-    required this.onSelected,
-  });
+
+  const _LayananPickerSheet({required this.onSelected});
 
   @override
   State<_LayananPickerSheet> createState() => _LayananPickerSheetState();
@@ -2624,6 +3002,69 @@ class _LayananPickerSheet extends StatefulWidget {
 
 class _LayananPickerSheetState extends State<_LayananPickerSheet> {
   String _filterTipe = 'semua';
+  final _searchCtrl = TextEditingController();
+  String _searchQuery = '';
+  List<Layanan> _layananList = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLayanan();
+  }
+
+  Future<void> _loadLayanan() async {
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('layanan')
+          .orderBy('nama')
+          .get();
+      if (mounted) {
+        setState(() {
+          _layananList = snap.docs
+              .map((d) => Layanan.fromFirestore(d))
+              .toList();
+          _isLoading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _showTambahLayananPopup() async {
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => LayananFormSheet(
+        existing: null,
+        onSave: (nama, tipe, harga, durasiJam) async {
+          await FirebaseFirestore.instance.collection('layanan').add({
+            'nama': nama,
+            'tipe': tipe,
+            'harga': harga,
+            'durasi_jam': durasiJam,
+          });
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Layanan "$nama" berhasil ditambahkan'),
+                backgroundColor: Colors.green,
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            );
+          }
+        },
+      ),
+    );
+    await _loadLayanan();
+  }
 
   Color _tipeColor(String tipe) {
     switch (tipe) {
@@ -2652,11 +3093,21 @@ class _LayananPickerSheetState extends State<_LayananPickerSheet> {
   }
 
   @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
-    final filtered = _filterTipe == 'semua'
-        ? widget.layananList
-        : widget.layananList.where((l) => l.tipe == _filterTipe).toList();
+    final filtered = _layananList.where((l) {
+      final matchTipe = _filterTipe == 'semua' || l.tipe == _filterTipe;
+      final matchSearch =
+          _searchQuery.isEmpty ||
+          l.nama.toLowerCase().contains(_searchQuery.toLowerCase());
+      return matchTipe && matchSearch;
+    }).toList();
 
     return Container(
       decoration: BoxDecoration(
@@ -2684,7 +3135,56 @@ class _LayananPickerSheetState extends State<_LayananPickerSheet> {
               context,
             ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
           ),
+          const SizedBox(height: 12),
+
+          // Search
+          TextField(
+            controller: _searchCtrl,
+            onChanged: (val) => setState(() => _searchQuery = val),
+            decoration: InputDecoration(
+              hintText: 'Cari layanan...',
+              hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+              prefixIcon: Icon(
+                Icons.search_rounded,
+                color: Colors.grey.shade400,
+                size: 20,
+              ),
+              suffixIcon: _searchQuery.isNotEmpty
+                  ? GestureDetector(
+                      onTap: () => setState(() {
+                        _searchCtrl.clear();
+                        _searchQuery = '';
+                      }),
+                      child: Icon(
+                        Icons.close_rounded,
+                        color: Colors.grey.shade400,
+                        size: 18,
+                      ),
+                    )
+                  : null,
+              filled: true,
+              fillColor: Theme.of(context).cardColor,
+              contentPadding: const EdgeInsets.symmetric(
+                vertical: 10,
+                horizontal: 16,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.grey.shade200),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: primary, width: 1.5),
+              ),
+            ),
+          ),
           const SizedBox(height: 16),
+
+          // Filter chips
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
@@ -2700,82 +3200,128 @@ class _LayananPickerSheetState extends State<_LayananPickerSheet> {
             ),
           ),
           const SizedBox(height: 16),
-          ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(context).size.height * 0.45,
-            ),
-            child: ListView.builder(
-              shrinkWrap: true,
-              itemCount: filtered.length,
-              itemBuilder: (ctx, i) {
-                final l = filtered[i];
-                final color = _tipeColor(l.tipe);
-                final satuan = l.tipe == 'kiloan'
-                    ? 'kg'
-                    : l.tipe == 'meter'
-                    ? 'm²'
-                    : 'pcs';
-                return GestureDetector(
-                  onTap: () => widget.onSelected(l),
-                  child: Container(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).cardColor,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: color.withOpacity(0.25)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.04),
-                          blurRadius: 6,
-                        ),
-                      ],
+
+          // Content
+          if (_isLoading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 40),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (filtered.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 30),
+              child: Center(
+                child: Column(
+                  children: [
+                    Icon(
+                      Icons.search_off_rounded,
+                      size: 40,
+                      color: Colors.grey.shade300,
                     ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: color.withOpacity(0.12),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Icon(
-                            _tipeIcon(l.tipe),
-                            color: color,
-                            size: 20,
-                          ),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                l.nama,
-                                style: Theme.of(context).textTheme.bodyLarge
-                                    ?.copyWith(fontWeight: FontWeight.bold),
-                              ),
-                              Text(
-                                'Rp ${NumberFormat('#,###', 'id_ID').format(l.harga.round())} / $satuan  •  ${_durasiLabel(l.durasiJam)}',
-                                style: Theme.of(
-                                  context,
-                                ).textTheme.bodySmall?.copyWith(fontSize: 12),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Icon(
-                          Icons.chevron_right_rounded,
-                          color: Colors.grey.shade400,
-                        ),
-                      ],
+                    const SizedBox(height: 8),
+                    Text(
+                      _searchQuery.isNotEmpty
+                          ? 'Layanan "$_searchQuery" tidak ditemukan'
+                          : 'Belum ada layanan',
+                      style: TextStyle(
+                        color: Colors.grey.shade400,
+                        fontSize: 13,
+                      ),
                     ),
-                  ),
-                );
-              },
+                    const SizedBox(height: 16),
+                    ElevatedButton.icon(
+                      onPressed: _showTambahLayananPopup,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Theme.of(context).primaryColor,
+                        foregroundColor: Colors.white,
+                      ),
+                      icon: const Icon(Icons.add),
+                      label: const Text(
+                        'Tambah Layanan',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.45,
+              ),
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: filtered.length,
+                itemBuilder: (ctx, i) {
+                  final l = filtered[i];
+                  final color = _tipeColor(l.tipe);
+                  final satuan = l.tipe == 'kiloan'
+                      ? 'kg'
+                      : l.tipe == 'meter'
+                      ? 'm²'
+                      : 'pcs';
+                  return GestureDetector(
+                    onTap: () => widget.onSelected(l),
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).cardColor,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: color.withOpacity(0.25)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.04),
+                            blurRadius: 6,
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: color.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Icon(
+                              _tipeIcon(l.tipe),
+                              color: color,
+                              size: 20,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  l.nama,
+                                  style: Theme.of(context).textTheme.bodyLarge
+                                      ?.copyWith(fontWeight: FontWeight.bold),
+                                ),
+                                Text(
+                                  'Rp ${NumberFormat('#,###', 'id_ID').format(l.harga.round())} / $satuan  •  ${_durasiLabel(l.durasiJam)}',
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.bodySmall?.copyWith(fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(
+                            Icons.chevron_right_rounded,
+                            color: Colors.grey.shade400,
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -2817,7 +3363,12 @@ class _LayananPickerSheetState extends State<_LayananPickerSheet> {
 class _ItemDetailSheet extends StatefulWidget {
   final Layanan layanan;
   final void Function(Map<String, dynamic>) onAdd;
-  const _ItemDetailSheet({required this.layanan, required this.onAdd});
+  final DateTime? customTanggal;
+  const _ItemDetailSheet({
+    required this.layanan,
+    required this.onAdd,
+    this.customTanggal,
+  });
 
   @override
   State<_ItemDetailSheet> createState() => _ItemDetailSheetState();
@@ -2827,6 +3378,9 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
   double _jumlah = 1.0;
   final _catatanCtrl = TextEditingController();
   final _jumlahPakaianCtrl = TextEditingController(text: '0');
+
+  final _jumlahManualCtrl = TextEditingController();
+  bool _isManualMode = false;
 
   double get _step => widget.layanan.tipe == 'kiloan' ? 0.5 : 1.0;
   double get _min => widget.layanan.tipe == 'kiloan' ? 0.5 : 1.0;
@@ -2845,9 +3399,34 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
   int get _subtotal => (_jumlah * widget.layanan.harga).round();
 
   String _hitungEstimasi() {
-    final now = DateTime.now();
-    final selesai = now.add(Duration(hours: widget.layanan.durasiJam));
+    final baseDate = widget.customTanggal != null
+        ? DateTime(
+            widget.customTanggal!.year,
+            widget.customTanggal!.month,
+            widget.customTanggal!.day,
+            18,
+            0,
+          )
+        : DateTime.now();
+    final selesai = baseDate.add(Duration(hours: widget.layanan.durasiJam));
     return DateFormat('dd-MM-yyyy').format(selesai);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // Sinkron nilai awal ke controller manual
+    _jumlahManualCtrl.text = _jumlah % 1 == 0
+        ? _jumlah.toStringAsFixed(0)
+        : _jumlah.toStringAsFixed(2);
+  }
+
+  @override
+  void dispose() {
+    _catatanCtrl.dispose();
+    _jumlahPakaianCtrl.dispose();
+    _jumlahManualCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _showKalkulator() async {
@@ -2950,7 +3529,11 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
                       if (hasil > 0) ...[
                         const SizedBox(height: 8),
                         Text(
-                          '≈ ${NumberFormat.currency(locale: 'id_ID', symbol: 'Rp ', decimalDigits: 0).format((widget.layanan.harga * hasil).round())}',
+                          NumberFormat.currency(
+                            locale: 'id_ID',
+                            symbol: 'Rp ',
+                            decimalDigits: 0,
+                          ).format((widget.layanan.harga * hasil).round()),
                           style: const TextStyle(
                             color: kPrimary,
                             fontSize: 14,
@@ -2984,7 +3567,12 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
                         final nilaiRapi = double.parse(
                           hasilDouble!.toStringAsFixed(2),
                         );
-                        setState(() => _jumlah = nilaiRapi);
+                        setState(() {
+                          _jumlah = nilaiRapi;
+                          _jumlahManualCtrl.text = nilaiRapi % 1 == 0
+                              ? nilaiRapi.toStringAsFixed(0)
+                              : nilaiRapi.toStringAsFixed(2);
+                        });
                         Navigator.pop(ctx);
                       }
                     : null,
@@ -3036,13 +3624,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
   }
 
   @override
-  void dispose() {
-    _catatanCtrl.dispose();
-    _jumlahPakaianCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
     final isKarpet = widget.layanan.tipe == 'meter';
@@ -3053,6 +3634,12 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
               ? _jumlah.toStringAsFixed(0)
               : NumberFormat('#,##0.##', 'id_ID').format(_jumlah))
         : _jumlah.toStringAsFixed(0);
+
+    // Keterangan estimasi dari mana dihitung
+    final estimasiInfo = _hitungEstimasi();
+    final baseLabel = widget.customTanggal != null
+        ? 'dari tgl ${DateFormat('dd MMM', 'id_ID').format(widget.customTanggal!)}'
+        : 'dari sekarang';
 
     return Container(
       decoration: BoxDecoration(
@@ -3081,6 +3668,8 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
               ),
             ),
             const SizedBox(height: 16),
+
+            // Header nama layanan
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -3122,6 +3711,7 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
               ],
             ),
             const SizedBox(height: 24),
+
             Text(
               'Jumlah / Berat',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -3130,79 +3720,252 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
               ),
             ),
             const SizedBox(height: 10),
+
+            // ── PERUBAHAN 3: Kontrol jumlah dengan mode manual ────────
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
               decoration: BoxDecoration(
                 color: Theme.of(context).cardColor,
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: Row(
-                children: [
-                  GestureDetector(
-                    onTap: () {
-                      if (_jumlah > _min) {
-                        setState(
-                          () => _jumlah = double.parse(
-                            (_jumlah - _step).toStringAsFixed(2),
+              child: _isManualMode
+                  // ── Mode ketik manual ─────────────────────────────
+                  ? Row(
+                      children: [
+                        // Tombol kurang (tetap bisa pakai)
+                        GestureDetector(
+                          onTap: () {
+                            if (_jumlah > _min) {
+                              final newVal = double.parse(
+                                (_jumlah - _step).toStringAsFixed(2),
+                              );
+                              setState(() {
+                                _jumlah = newVal;
+                                _jumlahManualCtrl.text = newVal % 1 == 0
+                                    ? newVal.toStringAsFixed(0)
+                                    : newVal.toStringAsFixed(2);
+                              });
+                            }
+                          },
+                          child: Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade100,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              Icons.remove,
+                              color: _jumlah > _min
+                                  ? Colors.black87
+                                  : Colors.grey.shade400,
+                            ),
                           ),
-                        );
-                      }
-                    },
-                    child: Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade100,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        Icons.remove,
-                        color: _jumlah > _min
-                            ? Colors.black87
-                            : Colors.grey.shade400,
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: Center(
-                      child: RichText(
-                        text: TextSpan(
-                          children: [
-                            TextSpan(
-                              text: jumlahStr,
+                        ),
+
+                        // Input manual
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            child: TextField(
+                              controller: _jumlahManualCtrl,
+                              autofocus: true,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              inputFormatters: [
+                                FilteringTextInputFormatter.allow(
+                                  RegExp(r'^\d+\.?\d{0,3}'),
+                                ),
+                              ],
+                              textAlign: TextAlign.center,
                               style: Theme.of(context).textTheme.headlineSmall
                                   ?.copyWith(fontWeight: FontWeight.bold),
+                              decoration: InputDecoration(
+                                suffixText: satuan,
+                                suffixStyle: TextStyle(
+                                  color: Colors.grey.shade500,
+                                  fontSize: 14,
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  vertical: 8,
+                                  horizontal: 4,
+                                ),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: BorderSide(
+                                    color: primary,
+                                    width: 2,
+                                  ),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: BorderSide(
+                                    color: primary.withOpacity(0.4),
+                                  ),
+                                ),
+                              ),
+                              onChanged: (val) {
+                                final parsed = double.tryParse(val);
+                                if (parsed != null && parsed >= _min) {
+                                  setState(() => _jumlah = parsed);
+                                }
+                              },
+                              onSubmitted: (_) =>
+                                  setState(() => _isManualMode = false),
                             ),
-                            TextSpan(
-                              text: '  $satuan',
-                              style: Theme.of(context).textTheme.bodyMedium
-                                  ?.copyWith(color: Colors.grey.shade500),
-                            ),
-                          ],
+                          ),
                         ),
-                      ),
+
+                        // Tombol tambah (tetap bisa pakai)
+                        GestureDetector(
+                          onTap: () {
+                            final newVal = double.parse(
+                              (_jumlah + _step).toStringAsFixed(2),
+                            );
+                            setState(() {
+                              _jumlah = newVal;
+                              _jumlahManualCtrl.text = newVal % 1 == 0
+                                  ? newVal.toStringAsFixed(0)
+                                  : newVal.toStringAsFixed(2);
+                            });
+                          },
+                          child: Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade100,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.add, color: Colors.black87),
+                          ),
+                        ),
+                      ],
+                    )
+                  // ── Mode tampilan normal ──────────────────────────
+                  : Row(
+                      children: [
+                        GestureDetector(
+                          onTap: () {
+                            if (_jumlah > _min) {
+                              final newVal = double.parse(
+                                (_jumlah - _step).toStringAsFixed(2),
+                              );
+                              setState(() {
+                                _jumlah = newVal;
+                                _jumlahManualCtrl.text = newVal % 1 == 0
+                                    ? newVal.toStringAsFixed(0)
+                                    : newVal.toStringAsFixed(2);
+                              });
+                            }
+                          },
+                          child: Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade100,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              Icons.remove,
+                              color: _jumlah > _min
+                                  ? Colors.black87
+                                  : Colors.grey.shade400,
+                            ),
+                          ),
+                        ),
+
+                        // Tap nilai → masuk mode manual
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => setState(() {
+                              _isManualMode = true;
+                              _jumlahManualCtrl.text = _jumlah % 1 == 0
+                                  ? _jumlah.toStringAsFixed(0)
+                                  : _jumlah.toStringAsFixed(2);
+                            }),
+                            child: Column(
+                              children: [
+                                RichText(
+                                  text: TextSpan(
+                                    children: [
+                                      TextSpan(
+                                        text: jumlahStr,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .headlineSmall
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                      ),
+                                      TextSpan(
+                                        text: '  $satuan',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium
+                                            ?.copyWith(
+                                              color: Colors.grey.shade500,
+                                            ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                // Hint kecil
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.edit_outlined,
+                                      size: 10,
+                                      color: primary.withOpacity(0.6),
+                                    ),
+                                    const SizedBox(width: 3),
+                                    Text(
+                                      'Ketuk untuk edit manual',
+                                      style: TextStyle(
+                                        fontSize: 9,
+                                        color: primary.withOpacity(0.6),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+
+                        GestureDetector(
+                          onTap: () {
+                            final newVal = double.parse(
+                              (_jumlah + _step).toStringAsFixed(2),
+                            );
+                            setState(() {
+                              _jumlah = newVal;
+                              _jumlahManualCtrl.text = newVal % 1 == 0
+                                  ? newVal.toStringAsFixed(0)
+                                  : newVal.toStringAsFixed(2);
+                            });
+                          },
+                          child: Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade100,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.add, color: Colors.black87),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                  GestureDetector(
-                    onTap: () => setState(
-                      () => _jumlah = double.parse(
-                        (_jumlah + _step).toStringAsFixed(2),
-                      ),
-                    ),
-                    child: Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade100,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.add, color: Colors.black87),
-                    ),
-                  ),
-                ],
-              ),
             ),
             const SizedBox(height: 12),
+
             if (isKarpet) ...[
               SizedBox(
                 width: double.infinity,
@@ -3227,6 +3990,7 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
               ),
               const SizedBox(height: 16),
             ],
+
             Text(
               'Catatan (Opsional)',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -3258,6 +4022,7 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
               ),
             ),
             const SizedBox(height: 16),
+
             Text(
               'Jumlah Pakaian (Opsional)',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -3289,7 +4054,59 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
                 ),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
+
+            // ── PERUBAHAN 2: Preview estimasi (mengikuti tanggal order) ─
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: kPrimary.withOpacity(0.06),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: kPrimary.withOpacity(0.2)),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.event_available_outlined,
+                    color: kPrimary,
+                    size: 16,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Estimasi Selesai',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: kPrimary.withOpacity(0.7),
+                          ),
+                        ),
+                        Text(
+                          estimasiInfo,
+                          style: TextStyle(
+                            color: kPrimary,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    baseLabel,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: kPrimary.withOpacity(0.6),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -3310,6 +4127,7 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
               ],
             ),
             const SizedBox(height: 16),
+
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
@@ -3320,6 +4138,7 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
                   'jenis_pakaian': '',
                   'berat_kg': _jumlah,
                   'harga_satuan': widget.layanan.harga,
+                  'durasi_jam': widget.layanan.durasiJam,
                   'estimasi_selesai': _hitungEstimasi(),
                   'catatan': _catatanCtrl.text.trim(),
                   'jumlah_pakaian': int.tryParse(_jumlahPakaianCtrl.text) ?? 0,

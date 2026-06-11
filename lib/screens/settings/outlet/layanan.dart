@@ -32,18 +32,19 @@ class Layanan {
   }
 
   Map<String, dynamic> toMap() => {
-        'nama': nama,
-        'tipe': tipe,
-        'harga': harga,
-        'durasi_jam': durasiJam,
-      };
+    'nama': nama,
+    'tipe': tipe,
+    'harga': harga,
+    'durasi_jam': durasiJam,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MAIN SCREEN
 // ─────────────────────────────────────────────────────────────────────────────
 class LayananScreen extends StatefulWidget {
-  const LayananScreen({super.key});
+  final bool autoOpenForm;
+  const LayananScreen({super.key, this.autoOpenForm = false});
 
   @override
   State<LayananScreen> createState() => _LayananScreenState();
@@ -107,6 +108,14 @@ class _LayananScreenState extends State<LayananScreen> {
     return '$jam Jam';
   }
 
+  @override
+  void initState() {
+    super.initState();
+    if (widget.autoOpenForm) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _openForm());
+    }
+  }
+
   // ── hapus layanan ─────────────────────────────────────────────────────────
   Future<void> _deleteLayanan(Layanan layanan) async {
     final confirmed = await showDialog<bool>(
@@ -117,8 +126,9 @@ class _LayananScreenState extends State<LayananScreen> {
         title: Text(
           'Hapus Layanan',
           style: TextStyle(
-              color: Theme.of(ctx).textTheme.bodyLarge?.color,
-              fontWeight: FontWeight.bold),
+            color: Theme.of(ctx).textTheme.bodyLarge?.color,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         content: Text(
           'Yakin ingin menghapus layanan "${layanan.nama}"?',
@@ -127,13 +137,17 @@ class _LayananScreenState extends State<LayananScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: Text('Batal',
-                style: TextStyle(color: Theme.of(ctx).primaryColor)),
+            child: Text(
+              'Batal',
+              style: TextStyle(color: Theme.of(ctx).primaryColor),
+            ),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child:
-                const Text('Hapus', style: TextStyle(color: Colors.redAccent)),
+            child: const Text(
+              'Hapus',
+              style: TextStyle(color: Colors.redAccent),
+            ),
           ),
         ],
       ),
@@ -147,8 +161,9 @@ class _LayananScreenState extends State<LayananScreen> {
             content: Text('Layanan "${layanan.nama}" dihapus'),
             backgroundColor: Colors.redAccent,
             behavior: SnackBarBehavior.floating,
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
           ),
         );
       }
@@ -161,7 +176,7 @@ class _LayananScreenState extends State<LayananScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => _LayananFormSheet(
+      builder: (ctx) => LayananFormSheet(
         existing: existing,
         onSave: (nama, tipe, harga, durasiJam) async {
           final data = {
@@ -181,13 +196,16 @@ class _LayananScreenState extends State<LayananScreen> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text(existing == null
-                    ? 'Layanan "$nama" berhasil ditambahkan'
-                    : 'Layanan "$nama" berhasil diperbarui'),
+                content: Text(
+                  existing == null
+                      ? 'Layanan "$nama" berhasil ditambahkan'
+                      : 'Layanan "$nama" berhasil diperbarui',
+                ),
                 backgroundColor: Colors.green,
                 behavior: SnackBarBehavior.floating,
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
             );
           }
@@ -223,17 +241,17 @@ class _LayananScreenState extends State<LayananScreen> {
             boxShadow: isSelected
                 ? [
                     BoxShadow(
-                        color: color.withOpacity(0.35),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3))
+                      color: color.withOpacity(0.35),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
+                    ),
                   ]
                 : [],
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon,
-                  color: isSelected ? Colors.white : color, size: 22),
+              Icon(icon, color: isSelected ? Colors.white : color, size: 22),
               const SizedBox(height: 4),
               Text(
                 '$count',
@@ -267,11 +285,13 @@ class _LayananScreenState extends State<LayananScreen> {
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('Daftar Layanan',
-            style:
-                TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: const Text(
+          'Daftar Layanan',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
         centerTitle: true,
-        backgroundColor: Theme.of(context).appBarTheme.backgroundColor ??
+        backgroundColor:
+            Theme.of(context).appBarTheme.backgroundColor ??
             Theme.of(context).primaryColor,
         elevation: 2,
         iconTheme: const IconThemeData(color: Colors.white),
@@ -286,30 +306,30 @@ class _LayananScreenState extends State<LayananScreen> {
         onPressed: () => _openForm(),
         backgroundColor: Theme.of(context).primaryColor,
         icon: const Icon(Icons.add, color: Colors.white),
-        label: const Text('Tambah Layanan',
-            style:
-                TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        label: const Text(
+          'Tambah Layanan',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
       ),
       body: StreamBuilder<QuerySnapshot>(
-        stream: _firestore
-            .collection('layanan')
-            .orderBy('nama')
-            .snapshots(),
+        stream: _firestore.collection('layanan').orderBy('nama').snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
 
           final allDocs = snapshot.data?.docs ?? [];
-          final allLayanan =
-              allDocs.map((d) => Layanan.fromFirestore(d)).toList();
+          final allLayanan = allDocs
+              .map((d) => Layanan.fromFirestore(d))
+              .toList();
 
-          final countSatuan =
-              allLayanan.where((l) => l.tipe == 'satuan').length;
-          final countKiloan =
-              allLayanan.where((l) => l.tipe == 'kiloan').length;
-          final countMeter =
-              allLayanan.where((l) => l.tipe == 'meter').length;
+          final countSatuan = allLayanan
+              .where((l) => l.tipe == 'satuan')
+              .length;
+          final countKiloan = allLayanan
+              .where((l) => l.tipe == 'kiloan')
+              .length;
+          final countMeter = allLayanan.where((l) => l.tipe == 'meter').length;
           final countSemua = allLayanan.length;
 
           final filtered = _filterTipe == 'semua'
@@ -320,8 +340,7 @@ class _LayananScreenState extends State<LayananScreen> {
             children: [
               // ── Summary Cards ───────────────────────────────────────────
               Padding(
-                padding:
-                    const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                 child: Row(
                   children: [
                     _buildSummaryCard(
@@ -331,8 +350,7 @@ class _LayananScreenState extends State<LayananScreen> {
                       color: Theme.of(context).primaryColor,
                       icon: Icons.grid_view_rounded,
                       isSelected: _filterTipe == 'semua',
-                      onTap: () =>
-                          setState(() => _filterTipe = 'semua'),
+                      onTap: () => setState(() => _filterTipe = 'semua'),
                     ),
                     _buildSummaryCard(
                       context: context,
@@ -341,8 +359,7 @@ class _LayananScreenState extends State<LayananScreen> {
                       color: Colors.blue,
                       icon: Icons.scale_outlined,
                       isSelected: _filterTipe == 'kiloan',
-                      onTap: () =>
-                          setState(() => _filterTipe = 'kiloan'),
+                      onTap: () => setState(() => _filterTipe = 'kiloan'),
                     ),
                     _buildSummaryCard(
                       context: context,
@@ -351,8 +368,7 @@ class _LayananScreenState extends State<LayananScreen> {
                       color: Colors.green,
                       icon: Icons.tag_outlined,
                       isSelected: _filterTipe == 'satuan',
-                      onTap: () =>
-                          setState(() => _filterTipe = 'satuan'),
+                      onTap: () => setState(() => _filterTipe = 'satuan'),
                     ),
                     _buildSummaryCard(
                       context: context,
@@ -361,8 +377,7 @@ class _LayananScreenState extends State<LayananScreen> {
                       color: Colors.orange,
                       icon: Icons.straighten_outlined,
                       isSelected: _filterTipe == 'meter',
-                      onTap: () =>
-                          setState(() => _filterTipe = 'meter'),
+                      onTap: () => setState(() => _filterTipe = 'meter'),
                     ),
                   ],
                 ),
@@ -375,17 +390,20 @@ class _LayananScreenState extends State<LayananScreen> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.local_laundry_service_outlined,
-                                size: 64,
-                                color: Theme.of(context)
-                                    .hintColor
-                                    .withOpacity(0.4)),
+                            Icon(
+                              Icons.local_laundry_service_outlined,
+                              size: 64,
+                              color: Theme.of(
+                                context,
+                              ).hintColor.withOpacity(0.4),
+                            ),
                             const SizedBox(height: 12),
                             Text(
                               'Belum ada layanan',
                               style: TextStyle(
-                                  color: Theme.of(context).hintColor,
-                                  fontSize: 16),
+                                color: Theme.of(context).hintColor,
+                                fontSize: 16,
+                              ),
                             ),
                           ],
                         ),
@@ -402,17 +420,17 @@ class _LayananScreenState extends State<LayananScreen> {
                               color: Theme.of(ctx).cardColor,
                               borderRadius: BorderRadius.circular(16),
                               border: Border.all(
-                                color: Theme.of(ctx)
-                                    .dividerColor
-                                    .withOpacity(0.4),
+                                color: Theme.of(
+                                  ctx,
+                                ).dividerColor.withOpacity(0.4),
                               ),
                               boxShadow: [
                                 BoxShadow(
                                   color: Colors.black.withOpacity(
-                                      Theme.of(ctx).brightness ==
-                                              Brightness.dark
-                                          ? 0.25
-                                          : 0.04),
+                                    Theme.of(ctx).brightness == Brightness.dark
+                                        ? 0.25
+                                        : 0.04,
+                                  ),
                                   blurRadius: 8,
                                   offset: const Offset(0, 2),
                                 ),
@@ -420,63 +438,70 @@ class _LayananScreenState extends State<LayananScreen> {
                             ),
                             child: ListTile(
                               contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 16, vertical: 6),
+                                horizontal: 16,
+                                vertical: 6,
+                              ),
                               leading: Container(
                                 padding: const EdgeInsets.all(10),
                                 decoration: BoxDecoration(
                                   color: color.withOpacity(0.12),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
-                                child: Icon(_tipeIcon(l.tipe),
-                                    color: color, size: 22),
+                                child: Icon(
+                                  _tipeIcon(l.tipe),
+                                  color: color,
+                                  size: 22,
+                                ),
                               ),
                               title: Text(
                                 l.nama,
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 15,
-                                  color: Theme.of(ctx)
-                                      .textTheme
-                                      .bodyLarge
-                                      ?.color,
+                                  color: Theme.of(
+                                    ctx,
+                                  ).textTheme.bodyLarge?.color,
                                 ),
                               ),
                               subtitle: Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment.start,
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   const SizedBox(height: 4),
                                   Row(
                                     children: [
                                       Container(
-                                        padding:
-                                            const EdgeInsets.symmetric(
-                                                horizontal: 8, vertical: 3),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 3,
+                                        ),
                                         decoration: BoxDecoration(
                                           color: color.withOpacity(0.1),
-                                          borderRadius:
-                                              BorderRadius.circular(6),
+                                          borderRadius: BorderRadius.circular(
+                                            6,
+                                          ),
                                         ),
                                         child: Text(
                                           _tipeLabel(l.tipe),
                                           style: TextStyle(
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w600,
-                                              color: color),
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                            color: color,
+                                          ),
                                         ),
                                       ),
                                       const SizedBox(width: 8),
-                                      Icon(Icons.access_time_outlined,
-                                          size: 13,
-                                          color:
-                                              Theme.of(ctx).hintColor),
+                                      Icon(
+                                        Icons.access_time_outlined,
+                                        size: 13,
+                                        color: Theme.of(ctx).hintColor,
+                                      ),
                                       const SizedBox(width: 3),
                                       Text(
                                         _formatDurasi(l.durasiJam),
                                         style: TextStyle(
-                                            fontSize: 12,
-                                            color:
-                                                Theme.of(ctx).hintColor),
+                                          fontSize: 12,
+                                          color: Theme.of(ctx).hintColor,
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -496,23 +521,23 @@ class _LayananScreenState extends State<LayananScreen> {
                                 children: [
                                   // Tombol Edit
                                   IconButton(
-                                    icon: Icon(Icons.edit_outlined,
-                                        color:
-                                            Theme.of(ctx).primaryColor,
-                                        size: 20),
+                                    icon: Icon(
+                                      Icons.edit_outlined,
+                                      color: Theme.of(ctx).primaryColor,
+                                      size: 20,
+                                    ),
                                     tooltip: 'Edit',
-                                    onPressed: () =>
-                                        _openForm(existing: l),
+                                    onPressed: () => _openForm(existing: l),
                                   ),
                                   // Tombol Hapus
                                   IconButton(
                                     icon: const Icon(
-                                        Icons.delete_outline,
-                                        color: Colors.redAccent,
-                                        size: 20),
+                                      Icons.delete_outline,
+                                      color: Colors.redAccent,
+                                      size: 20,
+                                    ),
                                     tooltip: 'Hapus',
-                                    onPressed: () =>
-                                        _deleteLayanan(l),
+                                    onPressed: () => _deleteLayanan(l),
                                   ),
                                 ],
                               ),
@@ -532,18 +557,23 @@ class _LayananScreenState extends State<LayananScreen> {
 // ─────────────────────────────────────────────────────────────────────────────
 // BOTTOM SHEET FORM (Tambah / Edit)
 // ─────────────────────────────────────────────────────────────────────────────
-class _LayananFormSheet extends StatefulWidget {
+class LayananFormSheet extends StatefulWidget {
   final Layanan? existing;
   final Future<void> Function(
-      String nama, String tipe, double harga, int durasiJam) onSave;
+    String nama,
+    String tipe,
+    double harga,
+    int durasiJam,
+  )
+  onSave;
 
-  const _LayananFormSheet({this.existing, required this.onSave});
+  const LayananFormSheet({this.existing, required this.onSave});
 
   @override
-  State<_LayananFormSheet> createState() => _LayananFormSheetState();
+  State<LayananFormSheet> createState() => LayananFormSheetState();
 }
 
-class _LayananFormSheetState extends State<_LayananFormSheet> {
+class LayananFormSheetState extends State<LayananFormSheet> {
   final _namaCtrl = TextEditingController();
   final _hargaCtrl = TextEditingController();
   final _durasiCtrl = TextEditingController();
@@ -555,6 +585,7 @@ class _LayananFormSheetState extends State<_LayananFormSheet> {
   @override
   void initState() {
     super.initState();
+
     if (widget.existing != null) {
       final e = widget.existing!;
       _namaCtrl.text = e.nama;
@@ -606,9 +637,9 @@ class _LayananFormSheetState extends State<_LayananFormSheet> {
       return;
     }
     if (harga <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Harga harus lebih dari 0')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Harga harus lebih dari 0')));
       return;
     }
     if (durasi <= 0) {
@@ -624,9 +655,9 @@ class _LayananFormSheetState extends State<_LayananFormSheet> {
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Gagal menyimpan: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Gagal menyimpan: $e')));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -634,7 +665,11 @@ class _LayananFormSheetState extends State<_LayananFormSheet> {
   }
 
   Widget _buildTipeChip(
-      String value, String label, IconData icon, Color color) {
+    String value,
+    String label,
+    IconData icon,
+    Color color,
+  ) {
     final selected = _tipe == value;
     return Expanded(
       child: GestureDetector(
@@ -647,12 +682,13 @@ class _LayananFormSheetState extends State<_LayananFormSheet> {
             color: selected ? color : color.withOpacity(0.08),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-                color: selected ? color : color.withOpacity(0.3), width: 1.5),
+              color: selected ? color : color.withOpacity(0.3),
+              width: 1.5,
+            ),
           ),
           child: Column(
             children: [
-              Icon(icon,
-                  color: selected ? Colors.white : color, size: 20),
+              Icon(icon, color: selected ? Colors.white : color, size: 20),
               const SizedBox(height: 4),
               Text(
                 label,
@@ -676,8 +712,7 @@ class _LayananFormSheetState extends State<_LayananFormSheet> {
     return Container(
       decoration: BoxDecoration(
         color: Theme.of(context).scaffoldBackgroundColor,
-        borderRadius:
-            const BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
       padding: EdgeInsets.only(
         left: 20,
@@ -730,11 +765,23 @@ class _LayananFormSheetState extends State<_LayananFormSheet> {
             Row(
               children: [
                 _buildTipeChip(
-                    'kiloan', 'Kiloan', Icons.scale_outlined, Colors.blue),
+                  'kiloan',
+                  'Kiloan',
+                  Icons.scale_outlined,
+                  Colors.blue,
+                ),
                 _buildTipeChip(
-                    'satuan', 'Satuan', Icons.tag_outlined, Colors.green),
-                _buildTipeChip('meter', 'Meter', Icons.straighten_outlined,
-                    Colors.orange),
+                  'satuan',
+                  'Satuan',
+                  Icons.tag_outlined,
+                  Colors.green,
+                ),
+                _buildTipeChip(
+                  'meter',
+                  'Meter',
+                  Icons.straighten_outlined,
+                  Colors.orange,
+                ),
               ],
             ),
             const SizedBox(height: 16),
@@ -746,8 +793,11 @@ class _LayananFormSheetState extends State<_LayananFormSheet> {
               controller: _hargaCtrl,
               keyboardType: TextInputType.number,
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: _inputDecoration(context, 'cth. 7000',
-                  prefix: const Text('Rp  ')),
+              decoration: _inputDecoration(
+                context,
+                'cth. 7000',
+                prefix: const Text('Rp  '),
+              ),
             ),
             const SizedBox(height: 16),
 
@@ -761,9 +811,7 @@ class _LayananFormSheetState extends State<_LayananFormSheet> {
                   child: TextField(
                     controller: _durasiCtrl,
                     keyboardType: TextInputType.number,
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly
-                    ],
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                     onChanged: (_) => setState(() {}),
                     decoration: _inputDecoration(context, '1'),
                     textAlign: TextAlign.center,
@@ -798,7 +846,8 @@ class _LayananFormSheetState extends State<_LayananFormSheet> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Theme.of(context).primaryColor,
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14)),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                   elevation: 0,
                 ),
                 child: _isLoading
@@ -806,14 +855,17 @@ class _LayananFormSheetState extends State<_LayananFormSheet> {
                         width: 22,
                         height: 22,
                         child: CircularProgressIndicator(
-                            color: Colors.white, strokeWidth: 2),
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
                       )
                     : Text(
                         isEdit ? 'Simpan Perubahan' : 'Tambah Layanan',
                         style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16),
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
                       ),
               ),
             ),
@@ -824,15 +876,13 @@ class _LayananFormSheetState extends State<_LayananFormSheet> {
     );
   }
 
-  Widget _buildDurasiToggle(
-      BuildContext context, String value, String label) {
+  Widget _buildDurasiToggle(BuildContext context, String value, String label) {
     final selected = _satuanDurasi == value;
     return GestureDetector(
       onTap: () => setState(() => _satuanDurasi = value),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        padding:
-            const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         decoration: BoxDecoration(
           color: selected
               ? Theme.of(context).primaryColor
@@ -868,37 +918,44 @@ class _LayananFormSheetState extends State<_LayananFormSheet> {
         ),
         children: const [
           TextSpan(
-              text: ' *', style: TextStyle(color: Colors.redAccent)),
+            text: ' *',
+            style: TextStyle(color: Colors.redAccent),
+          ),
         ],
       ),
     );
   }
 
-  InputDecoration _inputDecoration(BuildContext context, String hint,
-      {Widget? prefix}) {
+  InputDecoration _inputDecoration(
+    BuildContext context,
+    String hint, {
+    Widget? prefix,
+  }) {
     return InputDecoration(
       hintText: hint,
       prefix: prefix,
-      hintStyle:
-          TextStyle(color: Theme.of(context).hintColor.withOpacity(0.6)),
+      hintStyle: TextStyle(color: Theme.of(context).hintColor.withOpacity(0.6)),
       filled: true,
       fillColor: Theme.of(context).cardColor,
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
         borderSide: BorderSide(
-            color: Theme.of(context).dividerColor.withOpacity(0.4)),
+          color: Theme.of(context).dividerColor.withOpacity(0.4),
+        ),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
         borderSide: BorderSide(
-            color: Theme.of(context).dividerColor.withOpacity(0.4)),
+          color: Theme.of(context).dividerColor.withOpacity(0.4),
+        ),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
         borderSide: BorderSide(
-            color: Theme.of(context).primaryColor, width: 1.8),
+          color: Theme.of(context).primaryColor,
+          width: 1.8,
+        ),
       ),
     );
   }

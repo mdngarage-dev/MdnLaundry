@@ -201,6 +201,13 @@ const List<_Permission> _allPermissions = [
     group: 'Pengaturan Outlet',
   ),
   _Permission(
+    key: 'can_access_rak',
+    label: 'Rak Monitoring',
+    subtitle: 'Pantau rak penyimpanan barang',
+    icon: Icons.shelves,
+    group: 'Pengaturan Outlet',
+  ),
+  _Permission(
     key: 'can_access_outlet',
     label: 'Kelola Outlet',
     subtitle: 'Nama, Alamat, No. HP, dan Logo Outlet',
@@ -219,6 +226,14 @@ const List<_Permission> _allPermissions = [
     label: 'Tampilkan Alamat Outlet',
     subtitle: 'Alamat outlet muncul di struk',
     icon: Icons.location_on_outlined,
+    group: 'Pengaturan Outlet',
+  ),
+
+  _Permission(
+    key: 'can_access_nota',
+    label: 'Tampilkan Kolom Custom Nota',
+    subtitle: 'Custom Nota di struk',
+    icon: Icons.book_online_outlined,
     group: 'Pengaturan Outlet',
   ),
 

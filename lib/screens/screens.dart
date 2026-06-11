@@ -31,6 +31,9 @@ export '../settings/about.dart';
 export '../settings/theme_provider.dart';
 export '../laporan/main.dart';
 export '../laporan/form_pengeluaran_page.dart';
+export 'package:mdnlaundry_project/screens/rak_monitoring.dart';
+export 'package:mdnlaundry_project/screens/order_detail.dart';
+
 export 'package:mdnlaundry_project/screens/settings/outlet/layanan.dart';
 export 'package:mdnlaundry_project/screens/settings/outlet/daftar_pelanggan.dart';
 export 'package:mdnlaundry_project/screens/settings/outlet/printer_setting.dart';

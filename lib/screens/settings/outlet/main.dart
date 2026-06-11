@@ -185,6 +185,32 @@ class OutletSettingScreen extends StatelessWidget {
 
                       // Menu yang hanya muncul untuk owner (hanya Admin yang diizinkan)
                       FutureBuilder<bool>(
+                        future: canAccess('can_access_rak'),
+                        builder: (context, snapshot) {
+                          if (!(snapshot.data ?? false)) {
+                            return const SizedBox.shrink();
+                          }
+                          return _buildGroupedMenuItem(
+                            context: context,
+                            icon: Icons.shelves,
+                            title: "Rak Monitoring",
+                            subtitle: "Pantau rak penyimpanan barang",
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) =>
+                                      const RakMonitoringScreen(),
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      ),
+                      _buildDivider(context),
+
+                      // Menu yang hanya muncul untuk owner (hanya Admin yang diizinkan)
+                      FutureBuilder<bool>(
                         future: canAccess('can_access_layanan'),
                         builder: (context, snapshot) {
                           if (!(snapshot.data ?? false)) {

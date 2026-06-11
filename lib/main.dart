@@ -63,6 +63,7 @@ void main() async {
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
   NotifLaundryService().inisialisasiNotifikasi();
   await OutletSettingsService.load();
+  await PrinterSettingsService.load();
 
   runApp(
     ChangeNotifierProvider(

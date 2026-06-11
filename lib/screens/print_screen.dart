@@ -3,7 +3,13 @@ import 'screens.dart';
 
 class PrintScreen extends StatefulWidget {
   final Map<String, dynamic> data;
-  const PrintScreen({super.key, required this.data});
+  final String jenisCetak; // 'customer' atau 'produksi'
+
+  const PrintScreen({
+    super.key,
+    required this.data,
+    this.jenisCetak = 'customer', // default customer
+  });
 
   @override
   State<PrintScreen> createState() => _PrintScreenState();
@@ -15,6 +21,8 @@ class _PrintScreenState extends State<PrintScreen> {
   bool _isBluetoothOn = false;
   bool _isPrinting = false;
 
+  bool get _isProduksi => widget.jenisCetak == 'produksi';
+
   @override
   void initState() {
     super.initState();
@@ -24,7 +32,6 @@ class _PrintScreenState extends State<PrintScreen> {
   Future<void> _checkAndGetDevices() async {
     bool isOn = await _printerService.isBluetoothOn();
     setState(() => _isBluetoothOn = isOn);
-
     if (isOn) {
       List<BluetoothDevice> paired = await _printerService.getPairedDevices();
       setState(() => _devices = paired);
@@ -35,11 +42,20 @@ class _PrintScreenState extends State<PrintScreen> {
     if (_isPrinting) return;
     setState(() => _isPrinting = true);
     try {
-      await _printerService.printStruk(device, widget.data);
+      // ← Arahkan ke method yang sesuai
+      if (_isProduksi) {
+        await _printerService.printStrukProduksi(device, widget.data);
+      } else {
+        await _printerService.printStruk(device, widget.data);
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Struk berhasil dicetak'),
+          SnackBar(
+            content: Text(
+              _isProduksi
+                  ? 'Struk produksi berhasil dicetak'
+                  : 'Struk customer berhasil dicetak',
+            ),
             backgroundColor: Colors.green,
             behavior: SnackBarBehavior.floating,
           ),
@@ -67,15 +83,21 @@ class _PrintScreenState extends State<PrintScreen> {
       body: Column(
         children: [
           _buildInfoCard(),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             child: Row(
               children: [
-                Icon(Icons.bluetooth, color: kPrimary),
-                SizedBox(width: 10),
+                Icon(
+                  Icons.bluetooth,
+                  color: _isProduksi ? Colors.orange.shade700 : kPrimary,
+                ),
+                const SizedBox(width: 10),
                 Text(
-                  "Pilih Printer",
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  'Pilih Printer',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
                 ),
               ],
             ),
@@ -90,7 +112,7 @@ class _PrintScreenState extends State<PrintScreen> {
             child: OutlinedButton.icon(
               onPressed: _checkAndGetDevices,
               icon: const Icon(Icons.refresh),
-              label: const Text("Refresh Daftar Printer"),
+              label: const Text('Refresh Daftar Printer'),
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size(double.infinity, 50),
                 shape: RoundedRectangleBorder(
@@ -112,19 +134,22 @@ class _PrintScreenState extends State<PrintScreen> {
         color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(15),
       ),
-      child: const Column(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            "Cara Print",
-            style: TextStyle(fontWeight: FontWeight.bold, color: kPrimary),
+            'Cara Print',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: _isProduksi ? Colors.orange.shade700 : kPrimary,
+            ),
           ),
-          SizedBox(height: 10),
-          Text(
-            "1. Nyalakan printer Bluetooth\n"
-            "2. Pair printer dari Settings → Bluetooth HP\n"
-            "3. Pilih printer dari daftar di bawah\n"
-            "4. Tekan 'Connect' untuk mencetak",
+          const SizedBox(height: 10),
+          const Text(
+            '1. Nyalakan printer Bluetooth\n'
+            '2. Pair printer dari Settings → Bluetooth HP\n'
+            '3. Pilih printer dari daftar di bawah\n'
+            '4. Tekan \'Connect\' untuk mencetak',
           ),
         ],
       ),
@@ -139,10 +164,10 @@ class _PrintScreenState extends State<PrintScreen> {
           Icon(Icons.bluetooth_disabled, size: 80, color: Colors.grey.shade400),
           const SizedBox(height: 10),
           const Text(
-            "Bluetooth Belum Aktif",
+            'Bluetooth Belum Aktif',
             style: TextStyle(fontWeight: FontWeight.bold),
           ),
-          const Text("Mohon aktifkan Bluetooth untuk mencari printer"),
+          const Text('Mohon aktifkan Bluetooth untuk mencari printer'),
         ],
       ),
     );
@@ -150,8 +175,9 @@ class _PrintScreenState extends State<PrintScreen> {
 
   Widget _buildDeviceList() {
     if (_devices.isEmpty) {
-      return const Center(child: Text("Tidak ada printer yang ter-pairing"));
+      return const Center(child: Text('Tidak ada printer yang ter-pairing'));
     }
+    final activeColor = _isProduksi ? Colors.orange.shade700 : kPrimary;
     return ListView.builder(
       itemCount: _devices.length,
       itemBuilder: (context, index) {
@@ -163,31 +189,31 @@ class _PrintScreenState extends State<PrintScreen> {
             borderRadius: BorderRadius.circular(12),
           ),
           child: ListTile(
-            leading: const CircleAvatar(
-              backgroundColor: kPrimary,
-              child: Icon(Icons.print, color: Colors.white),
+            leading: CircleAvatar(
+              backgroundColor: activeColor,
+              child: const Icon(Icons.print, color: Colors.white),
             ),
-            title: Text(device.name ?? "Unknown"),
-            subtitle: Text(device.address ?? ""),
+            title: Text(device.name ?? 'Unknown'),
+            subtitle: Text(device.address ?? ''),
             trailing: _isPrinting
-                ? const SizedBox(
+                ? SizedBox(
                     width: 24,
                     height: 24,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      color: kPrimary,
+                      color: activeColor,
                     ),
                   )
                 : ElevatedButton(
                     onPressed: () => _onPrint(device),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: kPrimary,
+                      backgroundColor: activeColor,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
                     ),
-                    child: const Text("Connect"),
+                    child: const Text('Connect'),
                   ),
           ),
         );
@@ -196,6 +222,7 @@ class _PrintScreenState extends State<PrintScreen> {
   }
 
   PreferredSizeWidget _buildAppBar(BuildContext context) {
+    final activeColor = _isProduksi ? Colors.orange.shade700 : kPrimary;
     return PreferredSize(
       preferredSize: const Size.fromHeight(kToolbarHeight),
       child: ClipRRect(
@@ -204,11 +231,14 @@ class _PrintScreenState extends State<PrintScreen> {
           bottomRight: Radius.circular(20),
         ),
         child: AppBar(
-          title: const Text(
-            'Struk Customer',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          title: Text(
+            _isProduksi ? 'Struk Produksi' : 'Struk Customer',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
           ),
-          backgroundColor: kPrimary,
+          backgroundColor: activeColor,
           foregroundColor: Colors.white,
           elevation: 2,
           centerTitle: true,

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import '../screens/screens.dart';
 import 'package:qr/qr.dart';
@@ -15,32 +16,68 @@ class ThermalPrinterService {
     return await bluetooth.isOn ?? false;
   }
 
-  /// Generate QR string → PNG temp file → return path-nya
-  /// Caller wajib delete file setelah print
-  Future<String?> _generateQrTempFile(String data, {int sizePx = 200}) async {
+  // ─────────────────────────────────────────────────────────────────────────
+  // Helper: connect aman ke printer
+  // Disconnect dulu kalau ada koneksi stale, baru connect baru.
+  // Mencegah error "connect_error, read failed, socket might closed or timeout"
+  // akibat socket sebelumnya tidak ditutup dengan benar (mis. print macet).
+  // ─────────────────────────────────────────────────────────────────────────
+  Future<void> _ensureConnected(BluetoothDevice device) async {
     try {
-      final qrCode = QrCode.fromData(
-        data: data,
-        errorCorrectLevel: QrErrorCorrectLevel.M,
-      );
+      final bool? isConnected = await bluetooth.isConnected;
+      if (isConnected ?? false) {
+        try {
+          await bluetooth.disconnect();
+          await Future.delayed(const Duration(milliseconds: 300));
+        } catch (_) {}
+      }
+      await bluetooth.connect(device);
+      await Future.delayed(const Duration(milliseconds: 300));
+    } catch (e) {
+      debugPrint('[ThermalPrinter] Gagal connect: $e');
+      rethrow;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Generate QR PNG dari string — pure 1-bit, module-based sizing
+  // modulePixels: jumlah px per modul (4 = aman 58mm, 5 = 80mm)
+  // quiet: border putih dalam satuan modul
+  //
+  // Untuk data panjang (mis. string QRIS EMV ~150-200 char), error correction
+  // diturunkan ke L agar jumlah modul tidak terlalu besar, sehingga sizePx
+  // tetap wajar untuk printer thermal dan tidak menyebabkan buffer overflow.
+  // ─────────────────────────────────────────────────────────────────────────
+  Future<String?> _generateQrTempFile(
+    String data, {
+    int modulePixels = 4,
+    int quiet = 2,
+  }) async {
+    try {
+      final int errorLevel = data.length > 100
+          ? QrErrorCorrectLevel.L
+          : QrErrorCorrectLevel.M;
+
+      final qrCode = QrCode.fromData(data: data, errorCorrectLevel: errorLevel);
       final qrImage = QrImage(qrCode);
       final int moduleCount = qrCode.moduleCount;
+      final int totalModules = moduleCount + quiet * 2;
+      final int sizePx = totalModules * modulePixels;
 
       final imgLib.Image image = imgLib.Image(width: sizePx, height: sizePx);
       imgLib.fill(image, color: imgLib.ColorRgb8(255, 255, 255));
 
-      final double moduleSize = sizePx / moduleCount;
       for (int row = 0; row < moduleCount; row++) {
         for (int col = 0; col < moduleCount; col++) {
           if (qrImage.isDark(row, col)) {
-            final int x1 = (col * moduleSize).floor();
-            final int y1 = (row * moduleSize).floor();
-            final int x2 = ((col + 1) * moduleSize).ceil();
-            final int y2 = ((row + 1) * moduleSize).ceil();
-            for (int y = y1; y < y2; y++) {
-              for (int x = x1; x < x2; x++) {
-                if (x < sizePx && y < sizePx) {
-                  image.setPixel(x, y, imgLib.ColorRgb8(0, 0, 0));
+            final int x0 = (col + quiet) * modulePixels;
+            final int y0 = (row + quiet) * modulePixels;
+            for (int dy = 0; dy < modulePixels; dy++) {
+              for (int dx = 0; dx < modulePixels; dx++) {
+                final int px = x0 + dx;
+                final int py = y0 + dy;
+                if (px < sizePx && py < sizePx) {
+                  image.setPixel(px, py, imgLib.ColorRgb8(0, 0, 0));
                 }
               }
             }
@@ -48,7 +85,23 @@ class ThermalPrinterService {
         }
       }
 
-      final List<int> pngBytes = imgLib.encodePng(image);
+      // Threshold pure 1-bit — cegah abu-abu yang bikin printer overflow hitam
+      final imgLib.Image bwImage = imgLib.grayscale(image);
+      for (int y = 0; y < bwImage.height; y++) {
+        for (int x = 0; x < bwImage.width; x++) {
+          final pixel = bwImage.getPixel(x, y);
+          final lum = imgLib.getLuminance(pixel);
+          bwImage.setPixel(
+            x,
+            y,
+            lum < 128
+                ? imgLib.ColorRgb8(0, 0, 0)
+                : imgLib.ColorRgb8(255, 255, 255),
+          );
+        }
+      }
+
+      final List<int> pngBytes = imgLib.encodePng(bwImage);
       final String tempPath =
           '${Directory.systemTemp.path}/qr_${DateTime.now().millisecondsSinceEpoch}.png';
       final File tempFile = File(tempPath);
@@ -64,12 +117,20 @@ class ThermalPrinterService {
     }
   }
 
-  /// Print QR langsung dari string, auto cleanup temp file
-  Future<void> _printQrCode(String data, {int sizePx = 200}) async {
-    final String? path = await _generateQrTempFile(data, sizePx: sizePx);
+  // ─────────────────────────────────────────────────────────────────────────
+  // Print QR dari string (generate lokal)
+  // modulePixels 4 = 58mm, 5 = 80mm (untuk data pendek seperti no_order)
+  // Delay dinaikkan dari 800ms -> 1500ms agar printer selesai render
+  // sebelum command berikutnya dikirim.
+  // ─────────────────────────────────────────────────────────────────────────
+  Future<void> _printQrCode(String data, {int modulePixels = 4}) async {
+    final String? path = await _generateQrTempFile(
+      data,
+      modulePixels: modulePixels,
+    );
     if (path != null) {
       bluetooth.printImage(path);
-      await Future.delayed(const Duration(milliseconds: 400));
+      await Future.delayed(const Duration(milliseconds: 1500));
       try {
         await File(path).delete();
       } catch (_) {}
@@ -78,20 +139,114 @@ class ThermalPrinterService {
     }
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // Cetak Struk PRODUKSI (internal laundry)
-  // Key yang dipakai dari data:
-  //   no_order, pelanggan, estimasi,
-  //   items → List<Map> (layanan_nama, layanan_tipe, berat_kg, catatan)
-  // ─────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // Print QR rekening
+  // Prioritas 1: qr_string → generate lokal (paling reliable, pasti bisa scan)
+  // Prioritas 2: qr_url   → download + resize + threshold 1-bit
+  //
+  // qr_string dari QRIS biasanya panjang (~150-200 char) sehingga modulnya
+  // banyak. modulePixels diperkecil khusus untuk data panjang agar sizePx
+  // tetap wajar untuk printer thermal dan tidak macet saat dicetak.
+  // ─────────────────────────────────────────────────────────────────────────
+  Future<void> _printQrRekening(
+    String qrString,
+    String qrUrl, {
+    required bool is80mm,
+  }) async {
+    if (qrString.isNotEmpty) {
+      if (qrString.length > 100) {
+        await _printQrCodeSplit(qrString, modulePixels: is80mm ? 8 : 6);
+      } else {
+        await _printQrCode(qrString, modulePixels: is80mm ? 5 : 4);
+      }
+      return;
+    }
+
+    if (qrUrl.isNotEmpty) {
+      try {
+        final HttpClient client = HttpClient();
+        client.connectionTimeout = const Duration(seconds: 10);
+        final HttpClientRequest req = await client.getUrl(Uri.parse(qrUrl));
+        req.headers.set('Accept', 'image/*');
+        final HttpClientResponse resp = await req.close();
+
+        if (resp.statusCode == 200) {
+          final List<int> qrBytes = [];
+          await for (final chunk in resp) {
+            qrBytes.addAll(chunk);
+          }
+          client.close();
+
+          if (qrBytes.isNotEmpty) {
+            imgLib.Image? src = imgLib.decodeImage(Uint8List.fromList(qrBytes));
+            if (src != null) {
+              final int targetSize = is80mm ? 180 : 120;
+
+              imgLib.Image resized = imgLib.copyResize(
+                src,
+                width: targetSize,
+                height: targetSize,
+                interpolation: imgLib.Interpolation.average,
+              );
+
+              resized = imgLib.grayscale(resized);
+              for (int y = 0; y < resized.height; y++) {
+                for (int x = 0; x < resized.width; x++) {
+                  final pixel = resized.getPixel(x, y);
+                  final lum = imgLib.getLuminance(pixel);
+                  resized.setPixel(
+                    x,
+                    y,
+                    lum < 160
+                        ? imgLib.ColorRgb8(0, 0, 0)
+                        : imgLib.ColorRgb8(255, 255, 255),
+                  );
+                }
+              }
+
+              final List<int> resizedBytes = imgLib.encodePng(resized);
+              final String tempPath =
+                  '${Directory.systemTemp.path}/qr_${DateTime.now().millisecondsSinceEpoch}.png';
+              final File tempFile = File(tempPath);
+              await tempFile.writeAsBytes(resizedBytes, flush: true);
+
+              if (await tempFile.exists() && (await tempFile.length()) > 0) {
+                bluetooth.printImage(tempPath);
+                await Future.delayed(const Duration(milliseconds: 2500));
+                await tempFile.delete();
+              } else {
+                bluetooth.printCustom('[QR gagal disimpan]', 1, 1);
+              }
+            } else {
+              bluetooth.printCustom('[QR tidak dapat didekode]', 1, 1);
+            }
+          } else {
+            client.close();
+            bluetooth.printCustom('[QR kosong]', 1, 1);
+          }
+        } else {
+          client.close();
+          bluetooth.printCustom('[QR tidak tersedia]', 1, 1);
+        }
+      } catch (e, stackTrace) {
+        debugPrint('[ThermalPrinter] Gagal cetak QR ($qrUrl): $e');
+        debugPrint('$stackTrace');
+        bluetooth.printCustom('[QR tidak tersedia]', 1, 1);
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // STRUK PRODUKSI
+  // QR tracking SELALU cetak — tidak dipengaruhi setting tampilkanQrStruk
+  // modulePixels dinaikkan (5->8 / 4->6) agar QR fisik lebih besar, karena
+  // noOrder adalah string pendek -> QR versi rendah -> modul sedikit.
+  // ─────────────────────────────────────────────────────────────────────────
   Future<void> printStrukProduksi(
     BluetoothDevice device,
     Map<String, dynamic> data,
   ) async {
-    bool? isConnected = await bluetooth.isConnected;
-    if (!(isConnected ?? false)) {
-      await bluetooth.connect(device);
-    }
+    await _ensureConnected(device);
 
     final bool is80mm = PrinterSettings.ukuranKertas == 80;
     final int lineWidth = is80mm ? 48 : 32;
@@ -103,29 +258,23 @@ class ThermalPrinterService {
     final String estimasi = data['estimasi']?.toString() ?? '-';
     final List<Map<String, dynamic>> items = _toListMap(data['items']);
 
-    // ── Jarak atas ────────────────────────────────────────────────
     bluetooth.printNewLine();
     bluetooth.printNewLine();
 
-    // ── HEADER ────────────────────────────────────────────────────
     bluetooth.printCustom('STRUK PRODUKSI', 3, 1);
     bluetooth.printCustom(doubleLine, 1, 1);
 
-    // ── QR GEDE + NO ORDER ────────────────────────────────────────
-    if (PrinterSettings.tampilkanQrStruk) {
-      await _printQrCode(noOrder, sizePx: is80mm ? 200 : 150);
-      bluetooth.printNewLine();
-      bluetooth.printCustom(noOrder, 1, 1);
-      bluetooth.printCustom("Scan untuk cek status", 1, 1);
-      bluetooth.printCustom(divider, 1, 1);
-    }
+    // QR tracking — SELALU CETAK, tidak bisa dimatikan dari setting
+    await _printQrCode(noOrder, modulePixels: is80mm ? 8 : 6);
+    bluetooth.printNewLine();
+    bluetooth.printCustom(noOrder, 1, 1);
+    bluetooth.printCustom('Scan untuk cek status', 1, 1);
+    bluetooth.printCustom(divider, 1, 1);
 
-    // ── PELANGGAN ─────────────────────────────────────────────────
     bluetooth.printCustom('PELANGGAN :', 1, 0);
     bluetooth.printCustom(pelanggan, 3, 1);
     bluetooth.printCustom(divider, 1, 1);
 
-    // ── CATATAN PER ITEM ──────────────────────────────────────────
     bluetooth.printCustom('INSTRUKSI CUCIAN :', 1, 0);
     bluetooth.printCustom(divider, 1, 1);
 
@@ -167,13 +316,11 @@ class ThermalPrinterService {
         bluetooth.printCustom('- ' * (lineWidth ~/ 2), 1, 1);
       }
     }
-    bluetooth.printCustom(doubleLine, 1, 1);
 
-    // ── ESTIMASI SELESAI ──────────────────────────────────────────
+    bluetooth.printCustom(doubleLine, 1, 1);
     bluetooth.printCustom('EST. SELESAI :', 1, 0);
     bluetooth.printCustom(estimasi, 2, 1);
 
-    // ── Jarak bawah ───────────────────────────────────────────────
     bluetooth.printNewLine();
     bluetooth.printNewLine();
     bluetooth.printNewLine();
@@ -182,51 +329,39 @@ class ThermalPrinterService {
     bluetooth.paperCut();
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // Cetak Struk Order Laundry
-  // Key yang diterima:
-  //   nama_laundry, alamat, no_hp_laundry,
-  //   no_order, waktu, pelanggan, no_hp,
-  //   items           → List<Map<String,dynamic>>
-  //   biaya_tambahan  → List<Map<String,dynamic>>  (opsional)
-  //   grand_total, dp_amount, sisa_tagihan, sudah_lunas,
-  //   estimasi, admin, tanggal_cetak
-  // ─────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // STRUK CUSTOMER
+  // QR tracking ikut setting tampilkanQrStruk
+  // ─────────────────────────────────────────────────────────────────────────
   Future<void> printStruk(
     BluetoothDevice device,
     Map<String, dynamic> data,
   ) async {
-    bool? isConnected = await bluetooth.isConnected;
-    if (!(isConnected ?? false)) {
-      await bluetooth.connect(device);
-    }
+    await _ensureConnected(device);
 
     final bool is80mm = PrinterSettings.ukuranKertas == 80;
     final int lineWidth = is80mm ? 48 : 32;
     final String divider = '-' * lineWidth;
     final String doubleLine = '=' * lineWidth;
 
-    // ── Info outlet ───────────────────────────────────────────────────────
     final String namaOutlet =
         (data['nama_laundry']?.toString().isNotEmpty == true
         ? data['nama_laundry'].toString()
         : OutletSettings.namaMadeenalaundry.isNotEmpty
         ? OutletSettings.namaMadeenalaundry
-        : "Madeena Laundry");
+        : 'Madeena Laundry');
     final String alamat = data['alamat']?.toString() ?? OutletSettings.alamat;
     final String noHpToko =
         data['no_hp_laundry']?.toString() ?? OutletSettings.noHpMadeenalaundry;
     final String logoPath = OutletSettings.logoPath;
 
-    // ── Data order ────────────────────────────────────────────────────────
-    final String noOrder = data['no_order']?.toString() ?? "-";
-    final String waktu = data['waktu']?.toString() ?? "-";
-    final String pelanggan = data['pelanggan']?.toString() ?? "-";
-    final String noHpPelanggan = data['no_hp']?.toString() ?? "-";
-    final String admin = data['admin']?.toString() ?? "-";
-    final String estimasi = data['estimasi']?.toString() ?? "-";
+    final String noOrder = data['no_order']?.toString() ?? '-';
+    final String waktu = data['waktu']?.toString() ?? '-';
+    final String pelanggan = data['pelanggan']?.toString() ?? '-';
+    final String noHpPelanggan = data['no_hp']?.toString() ?? '-';
+    final String admin = data['admin']?.toString() ?? '-';
+    final String estimasi = data['estimasi']?.toString() ?? '-';
 
-    // ── Pesan kaki ────────────────────────────────────────────────────────
     final String pesanKaki = (data['pesan_kaki']?.toString().isNotEmpty == true
         ? data['pesan_kaki'].toString()
         : PrinterSettings.pesanKaki);
@@ -236,103 +371,94 @@ class ThermalPrinterService {
     final int sisaTagihan = _toInt(data['sisa_tagihan']);
     final bool sudahLunas = data['sudah_lunas'] == true;
 
-    // ── Diskon ────────────────────────────────────────────────────────────
     final int diskonNominal = _toInt(data['diskon_nominal']);
     final String diskonCatatan = data['diskon_catatan']?.toString() ?? '';
     final int subtotalSebelumDiskon = _toInt(data['subtotal_sebelum_diskon']);
 
-    // ── Items & biaya tambahan ────────────────────────────────────────────
     final List<Map<String, dynamic>> items = _toListMap(data['items']);
     final List<Map<String, dynamic>> biayaTambahan = _toListMap(
       data['biaya_tambahan'],
     );
-
-    // ── Rekening list ─────────────────────────────────────────────────────
     final List<Map<String, dynamic>> rekeningList = _toListMap(
       data['rekening_list'],
     );
 
-    // ── Baca semua PrinterSettings ────────────────────────────────────────
     final bool namaBesar = PrinterSettings.namaPelangganBesar;
     final bool tampilAlamat = PrinterSettings.tampilkanAlamatOutlet;
     final bool tampilNoHpOutlet = PrinterSettings.tampilkanNoHpOutlet;
     final bool sembunyiNoHpPelanggan = PrinterSettings.sembunyikanNoHpPelanggan;
     final int ukuranLabelPelanggan = PrinterSettings.ukuranLabelPelanggan;
+    final bool tampilQr = PrinterSettings.tampilkanQrStruk;
 
-    // ── Jarak atas ────────────────────────────────────────────────────────
     bluetooth.printNewLine();
     bluetooth.printNewLine();
     bluetooth.printNewLine();
 
-    // ── Logo ──────────────────────────────────────────────────────────────
+    // Logo
     if (logoPath.isNotEmpty) {
       try {
         final File logoFile = File(logoPath);
         if (await logoFile.exists()) {
           bluetooth.printImage(logoPath);
         }
-      } catch (e, stackTrace) {
+      } catch (e) {
         debugPrint('[ThermalPrinter] Gagal cetak logo: $e');
-        debugPrint('$stackTrace');
       }
     }
 
-    // ── HEADER ────────────────────────────────────────────────────────────
+    // Header
     bluetooth.printCustom(namaOutlet, 3, 1);
-
     if (tampilAlamat && alamat.isNotEmpty) {
       for (final baris in _wrapText(alamat, lineWidth)) {
         bluetooth.printCustom(baris, 1, 1);
       }
     }
-
     if (tampilNoHpOutlet && noHpToko.isNotEmpty) {
-      bluetooth.printCustom("Telp: $noHpToko", 1, 1);
+      bluetooth.printCustom('Telp: $noHpToko', 1, 1);
     }
 
     bluetooth.printCustom(doubleLine, 1, 1);
-    bluetooth.printCustom("STRUK CUSTOMER", 2, 1);
+    bluetooth.printCustom('STRUK CUSTOMER', 2, 1);
     bluetooth.printCustom(doubleLine, 1, 1);
 
-    // ── INFO ORDER ────────────────────────────────────────────────────────
-    bluetooth.printCustom("No  : $noOrder", 1, 0);
-    bluetooth.printCustom("Tgl : $waktu", 1, 0);
+    bluetooth.printCustom('No  : $noOrder', 1, 0);
+    bluetooth.printCustom('Tgl : $waktu', 1, 0);
     bluetooth.printCustom(divider, 1, 1);
 
-    // ── QR nomor order ────────────────────────────────────────────────────
-    await _printQrCode(noOrder, sizePx: is80mm ? 200 : 150);
-    bluetooth.printCustom(noOrder, 1, 1);
-    bluetooth.printCustom("Scan untuk cek status", 1, 1);
-    bluetooth.printCustom(divider, 1, 1);
+    // QR tracking customer — ikut setting
+    if (tampilQr) {
+      await _printQrCode(noOrder, modulePixels: is80mm ? 5 : 4);
+      bluetooth.printCustom(noOrder, 1, 1);
+      bluetooth.printCustom('Scan untuk cek status', 1, 1);
+      bluetooth.printCustom(divider, 1, 1);
+    }
 
-    // ── PELANGGAN ─────────────────────────────────────────────────────────
+    // Pelanggan
     if (namaBesar) {
       bluetooth.printCustom(pelanggan, 3, 1);
     } else {
-      bluetooth.printCustom("Pelanggan:", ukuranLabelPelanggan, 0);
+      bluetooth.printCustom('Pelanggan:', ukuranLabelPelanggan, 0);
       bluetooth.printCustom(pelanggan, 1, 0);
     }
-
     if (!sembunyiNoHpPelanggan &&
         noHpPelanggan.isNotEmpty &&
         noHpPelanggan != '-') {
-      bluetooth.printCustom("HP  : $noHpPelanggan", 1, 0);
+      bluetooth.printCustom('HP  : $noHpPelanggan', 1, 0);
     }
-
     bluetooth.printCustom(divider, 1, 1);
 
-    // ── LAYANAN ───────────────────────────────────────────────────────────
-    bluetooth.printCustom("LAYANAN", 1, 0);
+    // Layanan
+    bluetooth.printCustom('LAYANAN', 1, 0);
     bluetooth.printCustom(divider, 1, 1);
 
     for (int i = 0; i < items.length; i++) {
       final item = items[i];
-      final String layananNama = item['layanan_nama']?.toString() ?? "-";
-      final String tipe = item['layanan_tipe']?.toString() ?? "";
+      final String layananNama = item['layanan_nama']?.toString() ?? '-';
+      final String tipe = item['layanan_tipe']?.toString() ?? '';
       final double berat = _toDouble(item['berat_kg']);
       final int hargaSatuan = _toInt(item['harga_satuan']);
       final int subtotal = (berat * hargaSatuan).round();
-      final String catatan = item['catatan']?.toString() ?? "";
+      final String catatan = item['catatan']?.toString() ?? '';
 
       String satuan;
       switch (tipe) {
@@ -351,60 +477,58 @@ class ThermalPrinterService {
           ? berat.toStringAsFixed(0)
           : berat.toStringAsFixed(1);
 
-      bluetooth.printCustom("${i + 1}. $layananNama", 1, 0);
+      bluetooth.printCustom('${i + 1}. $layananNama', 1, 0);
       bluetooth.printCustom(
-        "   $beratStr $satuan   ${_formatRupiah(hargaSatuan)}",
+        '   $beratStr $satuan   ${_formatRupiah(hargaSatuan)}',
         1,
         0,
       );
-      bluetooth.printCustom("   = ${_formatRupiah(subtotal)}", 1, 0);
+      bluetooth.printCustom('   = ${_formatRupiah(subtotal)}', 1, 0);
 
       if (catatan.isNotEmpty) {
-        bluetooth.printCustom("   Catatan:", 1, 0);
+        bluetooth.printCustom('   Catatan:', 1, 0);
         for (final baris in _wrapText(catatan, lineWidth - 4)) {
-          bluetooth.printCustom("   $baris", 1, 0);
+          bluetooth.printCustom('   $baris', 1, 0);
         }
       }
 
       if (i < items.length - 1) {
-        bluetooth.printCustom("- " * (lineWidth ~/ 2), 1, 1);
+        bluetooth.printCustom('- ' * (lineWidth ~/ 2), 1, 1);
       }
     }
-
     bluetooth.printCustom(divider, 1, 1);
 
-    // ── BIAYA TAMBAHAN (jika ada) ─────────────────────────────────────────
+    // Biaya tambahan
     if (biayaTambahan.isNotEmpty) {
-      bluetooth.printCustom("BIAYA TAMBAHAN", 1, 0);
+      bluetooth.printCustom('BIAYA TAMBAHAN', 1, 0);
       bluetooth.printCustom(divider, 1, 1);
       int totalBiayaTambahan = 0;
       for (final b in biayaTambahan) {
-        final String ket = b['keterangan']?.toString() ?? "-";
+        final String ket = b['keterangan']?.toString() ?? '-';
         final int nominal = _toInt(b['nominal']);
         final int rawQty = _toInt(b['qty']);
         final int qty = rawQty > 0 ? rawQty : 1;
         final int subtotal = nominal * qty;
         totalBiayaTambahan += subtotal;
-        bluetooth.printCustom("  $ket (${qty}x)", 1, 0);
-        bluetooth.printCustom("  = ${_formatRupiah(subtotal)}", 1, 0);
+        bluetooth.printCustom('  $ket (${qty}x)', 1, 0);
+        bluetooth.printCustom('  = ${_formatRupiah(subtotal)}', 1, 0);
       }
       bluetooth.printCustom(divider, 1, 1);
       bluetooth.printCustom(
-        "Total Tambahan: ${_formatRupiah(totalBiayaTambahan)}",
+        'Total Tambahan: ${_formatRupiah(totalBiayaTambahan)}',
         1,
         0,
       );
       bluetooth.printCustom(divider, 1, 1);
     }
 
-    // ── TOTAL ─────────────────────────────────────────────────────────────
+    // Total
     int totalLayanan = 0;
     for (final item in items) {
       totalLayanan +=
           (_toDouble(item['berat_kg']) * _toInt(item['harga_satuan'])).round();
     }
-
-    bluetooth.printCustom("Layanan : ${_formatRupiah(totalLayanan)}", 1, 0);
+    bluetooth.printCustom('Layanan : ${_formatRupiah(totalLayanan)}', 1, 0);
 
     if (biayaTambahan.isNotEmpty) {
       final int totalBiaya = biayaTambahan.fold(0, (sum, b) {
@@ -412,57 +536,56 @@ class ThermalPrinterService {
         final int qty = rawQty > 0 ? rawQty : 1;
         return sum + _toInt(b['nominal']) * qty;
       });
-      bluetooth.printCustom("Biaya Tmb: ${_formatRupiah(totalBiaya)}", 1, 0);
+      bluetooth.printCustom('Biaya Tmb: ${_formatRupiah(totalBiaya)}', 1, 0);
     }
 
     if (diskonNominal > 0) {
       bluetooth.printCustom(
-        "Subtotal: ${_formatRupiah(subtotalSebelumDiskon)}",
+        'Subtotal: ${_formatRupiah(subtotalSebelumDiskon)}',
         1,
         0,
       );
       final diskonLabel = diskonCatatan.isNotEmpty
-          ? "Diskon($diskonCatatan)"
-          : "Diskon";
-      final diskonLine = "$diskonLabel: -${_formatRupiah(diskonNominal)}";
+          ? 'Diskon($diskonCatatan)'
+          : 'Diskon';
+      final diskonLine = '$diskonLabel: -${_formatRupiah(diskonNominal)}';
       if (diskonLine.length <= lineWidth) {
         bluetooth.printCustom(diskonLine, 1, 0);
       } else {
-        bluetooth.printCustom("$diskonLabel:", 1, 0);
-        bluetooth.printCustom("  -${_formatRupiah(diskonNominal)}", 1, 0);
+        bluetooth.printCustom('$diskonLabel:', 1, 0);
+        bluetooth.printCustom('  -${_formatRupiah(diskonNominal)}', 1, 0);
       }
     }
 
     bluetooth.printCustom(doubleLine, 1, 1);
-    bluetooth.printCustom("TOTAL   : ${_formatRupiah(grandTotal)}", 1, 0);
+    bluetooth.printCustom('TOTAL   : ${_formatRupiah(grandTotal)}', 1, 0);
     bluetooth.printCustom(doubleLine, 1, 1);
 
-    // ── PEMBAYARAN ────────────────────────────────────────────────────────
+    // Pembayaran
     if (sudahLunas) {
-      bluetooth.printCustom("Dibayar : ${_formatRupiah(grandTotal)}", 1, 0);
-      bluetooth.printCustom("Sisa    : Rp 0", 1, 0);
+      bluetooth.printCustom('Dibayar : ${_formatRupiah(grandTotal)}', 1, 0);
+      bluetooth.printCustom('Sisa    : Rp 0', 1, 0);
     } else {
       bluetooth.printCustom(
-        "Dibayar : ${dpAmount > 0 ? _formatRupiah(dpAmount) : 'Rp 0'}",
+        'Dibayar : ${dpAmount > 0 ? _formatRupiah(dpAmount) : 'Rp 0'}',
         1,
         0,
       );
-      bluetooth.printCustom("Sisa    : ${_formatRupiah(sisaTagihan)}", 1, 0);
+      bluetooth.printCustom('Sisa    : ${_formatRupiah(sisaTagihan)}', 1, 0);
     }
     bluetooth.printCustom(
-      "Status  : ${sudahLunas ? 'LUNAS' : 'BELUM LUNAS'}",
+      'Status  : ${sudahLunas ? 'LUNAS' : 'BELUM LUNAS'}',
       2,
       0,
     );
     bluetooth.printCustom(divider, 1, 1);
 
-    // ── ESTIMASI SELESAI ──────────────────────────────────────────────────
-    bluetooth.printCustom("Est Selesai : $estimasi", 1, 0);
+    bluetooth.printCustom('Est Selesai : $estimasi', 1, 0);
     bluetooth.printCustom(doubleLine, 1, 1);
 
-    // ── REKENING PEMBAYARAN (jika ada) ────────────────────────────────────
+    // Rekening pembayaran
     if (rekeningList.isNotEmpty) {
-      bluetooth.printCustom("PEMBAYARAN VIA", 2, 1);
+      bluetooth.printCustom('PEMBAYARAN VIA', 2, 1);
       bluetooth.printCustom(doubleLine, 1, 1);
 
       for (final rek in rekeningList) {
@@ -472,80 +595,35 @@ class ThermalPrinterService {
         final String qrUrl = rek['qr_url']?.toString() ?? '';
         final String qrString = rek['qr_string']?.toString() ?? '';
 
-        if (namaBank.isNotEmpty) {
-          bluetooth.printCustom(namaBank, 2, 1);
+        final bool adaQr = qrString.isNotEmpty || qrUrl.isNotEmpty;
+
+        if (namaBank.isNotEmpty) bluetooth.printCustom(namaBank, 2, 1);
+        if (noRek.isNotEmpty) bluetooth.printCustom(noRek, 1, 1);
+        if (atasNama.isNotEmpty) bluetooth.printCustom('a.n $atasNama', 1, 1);
+
+        if (adaQr) {
+          await _printQrRekening(qrString, qrUrl, is80mm: is80mm);
+          // buffer ekstra agar printer benar2 selesai sebelum command berikutnya
+          await Future.delayed(const Duration(milliseconds: 500));
+          // Teks "Scan untuk pembayaran" hanya muncul jika ada QR
+          bluetooth.printCustom('Scan untuk pembayaran', 1, 1);
         }
-        if (noRek.isNotEmpty) {
-          bluetooth.printCustom(noRek, 1, 1);
-        }
-        if (atasNama.isNotEmpty) {
-          bluetooth.printCustom("a.n $atasNama", 1, 1);
-        }
-
-        // ── Cetak QR: prioritaskan qr_string, fallback ke qr_url ─────────
-        if (qrString.isNotEmpty) {
-          // Generate QR dari string — lebih reliable, semua printer support
-          await _printQrCode(qrString, sizePx: is80mm ? 200 : 150);
-        } else if (qrUrl.isNotEmpty) {
-          // Fallback: download dari URL lalu cetak sebagai gambar
-          try {
-            final HttpClient client = HttpClient();
-            client.connectionTimeout = const Duration(seconds: 10);
-
-            final HttpClientRequest req = await client.getUrl(Uri.parse(qrUrl));
-            req.headers.set('Accept', 'image/*');
-            final HttpClientResponse resp = await req.close();
-
-            if (resp.statusCode == 200) {
-              final List<int> qrBytes = [];
-              await for (final chunk in resp) {
-                qrBytes.addAll(chunk);
-              }
-              client.close();
-
-              if (qrBytes.isNotEmpty) {
-                final Directory tempDir = Directory.systemTemp;
-                final String tempPath =
-                    '${tempDir.path}/qr_${DateTime.now().millisecondsSinceEpoch}.png';
-                final File tempFile = File(tempPath);
-                await tempFile.writeAsBytes(qrBytes, flush: true);
-
-                if (await tempFile.exists() && (await tempFile.length()) > 0) {
-                  bluetooth.printImage(tempPath);
-                  await Future.delayed(const Duration(milliseconds: 300));
-                  await tempFile.delete();
-                } else {
-                  bluetooth.printCustom("[QR gagal disimpan]", 1, 1);
-                }
-              } else {
-                bluetooth.printCustom("[QR kosong]", 1, 1);
-              }
-            } else {
-              client.close();
-              bluetooth.printCustom("[QR tidak tersedia]", 1, 1);
-            }
-          } catch (e, stackTrace) {
-            debugPrint('[ThermalPrinter] Gagal cetak QR ($qrUrl): $e');
-            debugPrint('$stackTrace');
-            bluetooth.printCustom("[QR tidak tersedia]", 1, 1);
-          }
-        }
+        // Jika tidak ada QR (hanya no rekening) → tidak ada teks scan
 
         bluetooth.printCustom(divider, 1, 1);
       }
     }
 
-    // ── FOOTER ────────────────────────────────────────────────────────────
+    // Footer
     if (pesanKaki.isNotEmpty) {
       for (final baris in _wrapText(pesanKaki, lineWidth)) {
         bluetooth.printCustom(baris, 1, 1);
       }
     } else {
-      bluetooth.printCustom("Terima kasih.", 1, 1);
+      bluetooth.printCustom('Terima kasih.', 1, 1);
     }
-    bluetooth.printCustom("Dicetak oleh : $admin", 1, 0);
+    bluetooth.printCustom('Dicetak oleh : $admin', 1, 0);
 
-    // ── Jarak bawah ───────────────────────────────────────────────────────
     bluetooth.printNewLine();
     bluetooth.printNewLine();
     bluetooth.printNewLine();
@@ -553,6 +631,86 @@ class ThermalPrinterService {
     bluetooth.paperCut();
   }
 
+  Future<void> _printQrCodeSplit(
+    String data, {
+    int modulePixels = 5,
+    int quiet = 2,
+  }) async {
+    try {
+      final int errorLevel = data.length > 100
+          ? QrErrorCorrectLevel.L
+          : QrErrorCorrectLevel.M;
+
+      final qrCode = QrCode.fromData(data: data, errorCorrectLevel: errorLevel);
+      final qrImage = QrImage(qrCode);
+      final int moduleCount = qrCode.moduleCount;
+      final int totalModules = moduleCount + quiet * 2;
+      final int sizePx = totalModules * modulePixels;
+
+      final imgLib.Image full = imgLib.Image(width: sizePx, height: sizePx);
+      imgLib.fill(full, color: imgLib.ColorRgb8(255, 255, 255));
+
+      for (int row = 0; row < moduleCount; row++) {
+        for (int col = 0; col < moduleCount; col++) {
+          if (qrImage.isDark(row, col)) {
+            final int x0 = (col + quiet) * modulePixels;
+            final int y0 = (row + quiet) * modulePixels;
+            for (int dy = 0; dy < modulePixels; dy++) {
+              for (int dx = 0; dx < modulePixels; dx++) {
+                full.setPixel(x0 + dx, y0 + dy, imgLib.ColorRgb8(0, 0, 0));
+              }
+            }
+          }
+        }
+      }
+
+      // Split jadi 2 bagian horizontal (atas & bawah)
+      final int halfHeight = sizePx ~/ 2;
+
+      final imgLib.Image top = imgLib.copyCrop(
+        full,
+        x: 0,
+        y: 0,
+        width: sizePx,
+        height: halfHeight,
+      );
+      final imgLib.Image bottom = imgLib.copyCrop(
+        full,
+        x: 0,
+        y: halfHeight,
+        width: sizePx,
+        height: sizePx - halfHeight,
+      );
+
+      final String pathTop =
+          '${Directory.systemTemp.path}/qr_top_${DateTime.now().millisecondsSinceEpoch}.png';
+      final String pathBottom =
+          '${Directory.systemTemp.path}/qr_bottom_${DateTime.now().millisecondsSinceEpoch}.png';
+
+      await File(pathTop).writeAsBytes(imgLib.encodePng(top), flush: true);
+      await File(
+        pathBottom,
+      ).writeAsBytes(imgLib.encodePng(bottom), flush: true);
+
+      // Print bagian atas
+      bluetooth.printImage(pathTop);
+      await Future.delayed(const Duration(milliseconds: 1500));
+
+      // Print bagian bawah
+      bluetooth.printImage(pathBottom);
+      await Future.delayed(const Duration(milliseconds: 1500));
+
+      try {
+        await File(pathTop).delete();
+      } catch (_) {}
+      try {
+        await File(pathBottom).delete();
+      } catch (_) {}
+    } catch (e) {
+      debugPrint('[ThermalPrinter] Gagal split QR: $e');
+      bluetooth.printCustom('[QR tidak tersedia]', 1, 1);
+    }
+  }
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   int _toInt(dynamic val) {
@@ -589,7 +747,6 @@ class ThermalPrinterService {
     return [];
   }
 
-  /// Format angka ke Rupiah: Rp 33.600
   String _formatRupiah(int val) {
     try {
       final s = val.toString();
@@ -600,15 +757,14 @@ class ThermalPrinterService {
         buf.write(s[i]);
         count++;
       }
-      return "Rp ${buf.toString().split('').reversed.join('')}";
+      return 'Rp ${buf.toString().split('').reversed.join('')}';
     } catch (_) {
-      return "Rp 0";
+      return 'Rp 0';
     }
   }
 
-  /// Wrap teks panjang supaya muat di kertas
   List<String> _wrapText(String text, int maxWidth) {
-    if (text.isEmpty) return ["-"];
+    if (text.isEmpty) return ['-'];
     final List<String> lines = [];
     final words = text.split(' ');
     String current = '';
@@ -622,6 +778,6 @@ class ThermalPrinterService {
       }
     }
     if (current.isNotEmpty) lines.add(current);
-    return lines.isEmpty ? ["-"] : lines;
+    return lines.isEmpty ? ['-'] : lines;
   }
 }

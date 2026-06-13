@@ -429,6 +429,54 @@ class _SettingScreenState extends State<SettingScreen> {
                                         Navigator.pop(context);
                                       },
                                     ),
+
+                                    const Divider(),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 8,
+                                      ),
+                                      child: Text(
+                                        "Warna Tema",
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                          color: Theme.of(
+                                            context,
+                                          ).textTheme.bodyLarge?.color,
+                                        ),
+                                      ),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 8,
+                                      ),
+                                      child: Wrap(
+                                        spacing: 16,
+                                        runSpacing: 12,
+                                        children: List.generate(
+                                          kThemeColorPresets.length,
+                                          (index) {
+                                            final preset =
+                                                kThemeColorPresets[index];
+                                            return _ColorBadge(
+                                              color: preset.light,
+                                              label: preset.label,
+                                              isSelected:
+                                                  themeProvider
+                                                      .seedColorIndex ==
+                                                  index,
+                                              onTap: () {
+                                                themeProvider.changeColor(
+                                                  index,
+                                                );
+                                              },
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                    ),
                                   ],
                                 ),
                               );
@@ -436,7 +484,6 @@ class _SettingScreenState extends State<SettingScreen> {
                           );
                         },
                       ),
-
                       // ── Tentang Aplikasi ───────────────────────────────
                       _buildDivider(context),
                       _buildGroupedMenuItem(
@@ -534,6 +581,54 @@ class _SettingScreenState extends State<SettingScreen> {
           ],
         );
       },
+    );
+  }
+}
+
+class _ColorBadge extends StatelessWidget {
+  final Color color;
+  final String label;
+  final bool isSelected;
+  final VoidCallback? onTap;
+
+  const _ColorBadge({
+    required this.color,
+    required this.label,
+    this.isSelected = false,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              border: isSelected
+                  ? Border.all(color: Colors.black87, width: 2.5)
+                  : Border.all(color: Colors.black12, width: 1),
+            ),
+            child: isSelected
+                ? const Icon(Icons.check, color: Colors.white, size: 20)
+                : null,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: Theme.of(context).textTheme.bodyMedium?.color,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -22,9 +22,7 @@ class PrinterSettings {
   static bool tampilkanQrStruk = true;
   static int ukuranLabelPelanggan = 1;
   static String customNota = '';
-
-  static int ukuranKertas = 58; // ← BARU: 58 atau 80 (mm)
-  // rekening: {nama_bank, no_rekening, atas_nama, qr_url}
+  static int ukuranKertas = 58;
   static List<Map<String, String>> rekeningList = [];
 }
 
@@ -51,8 +49,7 @@ class PrinterSettingsService {
           d['sembunyikan_no_hp_pelanggan'] ?? false;
       PrinterSettings.ukuranLabelPelanggan =
           (d['ukuran_label_pelanggan'] as int?) ?? 1;
-      PrinterSettings.ukuranKertas = // ← BARU
-          (d['ukuran_kertas'] as int?) ?? 58;
+      PrinterSettings.ukuranKertas = (d['ukuran_kertas'] as int?) ?? 58;
       PrinterSettings.tampilkanQrStruk = d['tampilkan_qr_struk'] ?? true;
       final rawRek = d['rekening_list'];
       if (rawRek is List) {
@@ -76,7 +73,7 @@ class PrinterSettingsService {
     required bool namaPelangganBesar,
     required bool sembunyikanNoHpPelanggan,
     required int ukuranLabelPelanggan,
-    required int ukuranKertas, // ← BARU
+    required int ukuranKertas,
     required bool tampilkanQrStruk,
     required String customNota,
     required List<Map<String, String>> rekeningList,
@@ -88,7 +85,7 @@ class PrinterSettingsService {
       'nama_pelanggan_besar': namaPelangganBesar,
       'sembunyikan_no_hp_pelanggan': sembunyikanNoHpPelanggan,
       'ukuran_label_pelanggan': ukuranLabelPelanggan,
-      'ukuran_kertas': ukuranKertas, // ← BARU
+      'ukuran_kertas': ukuranKertas,
       'tampilkan_qr_struk': tampilkanQrStruk,
       'custom_nota': customNota,
       'rekening_list': rekeningList,
@@ -155,7 +152,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
   bool _sembunyikanNoHpPelanggan = false;
   bool _tampilkanQrStruk = true;
   int _ukuranLabelPelanggan = 1;
-  int _ukuranKertas = 58; // ← BARU
+  int _ukuranKertas = 58;
   final _customNotaController = TextEditingController();
 
   List<Map<String, String>> _rekeningList = [];
@@ -182,7 +179,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
       _ukuranLabelPelanggan = PrinterSettings.ukuranLabelPelanggan;
       _customNotaController.text = PrinterSettings.customNota;
       _tampilkanQrStruk = PrinterSettings.tampilkanQrStruk;
-      _ukuranKertas = PrinterSettings.ukuranKertas; // ← BARU
+      _ukuranKertas = PrinterSettings.ukuranKertas;
       _rekeningList = List<Map<String, String>>.from(
         PrinterSettings.rekeningList.map((e) => Map<String, String>.from(e)),
       );
@@ -210,7 +207,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
         sembunyikanNoHpPelanggan: _sembunyikanNoHpPelanggan,
         ukuranLabelPelanggan: _ukuranLabelPelanggan,
         tampilkanQrStruk: _tampilkanQrStruk,
-        ukuranKertas: _ukuranKertas, // ← BARU
+        ukuranKertas: _ukuranKertas,
         customNota: _customNotaController.text.trim(),
         rekeningList: _rekeningList,
       );
@@ -221,7 +218,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
       PrinterSettings.sembunyikanNoHpPelanggan = _sembunyikanNoHpPelanggan;
       PrinterSettings.ukuranLabelPelanggan = _ukuranLabelPelanggan;
       PrinterSettings.tampilkanQrStruk = _tampilkanQrStruk;
-      PrinterSettings.ukuranKertas = _ukuranKertas; // ← BARU
+      PrinterSettings.ukuranKertas = _ukuranKertas;
       PrinterSettings.customNota = _customNotaController.text.trim();
       PrinterSettings.rekeningList = _rekeningList;
 
@@ -263,7 +260,6 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
     try {
       final InputImage inputImage;
       if (kIsWeb) {
-        // Web tidak support MLKit — fallback manual input
         return null;
       } else {
         inputImage = InputImage.fromFilePath((imageFile as File).path);
@@ -282,7 +278,18 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
     }
   }
 
-  // ── Dialog TAMBAH rekening (tanpa QR upload) ──────────────────────────────
+  // ── Validasi: minimal no_rekening ATAU qr_string/qr_file harus diisi ──────
+  bool _isRekeningValid({
+    required String noRek,
+    required String qrString,
+    required dynamic qrFile,
+  }) {
+    return noRek.trim().isNotEmpty ||
+        qrString.trim().isNotEmpty ||
+        qrFile != null;
+  }
+
+  // ── Dialog TAMBAH rekening (dengan QR section) ────────────────────────────
   Future<void> _showTambahRekeningDialog() async {
     final namaBank = TextEditingController();
     final noRek = TextEditingController();
@@ -392,7 +399,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                   const SizedBox(height: 12),
                   _dialogField(
                     noRek,
-                    'Nomor Rekening',
+                    'Nomor Rekening (opsional)',
                     Icons.credit_card_outlined,
                     type: TextInputType.number,
                   ),
@@ -404,7 +411,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                   ),
                   const SizedBox(height: 20),
 
-                  // ── Divider QR ──────────────────────────────────────────
+                  // ── Divider QR ───────────────────────────────────────────
                   Row(
                     children: [
                       Expanded(child: Divider(color: Colors.grey.shade300)),
@@ -422,9 +429,32 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                       Expanded(child: Divider(color: Colors.grey.shade300)),
                     ],
                   ),
+                  const SizedBox(height: 6),
+
+                  // ── Info validasi ────────────────────────────────────────
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: kPrimary.withOpacity(0.06),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      'Minimal isi Nomor Rekening atau QR Code',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: kPrimary.withOpacity(0.8),
+                        fontWeight: FontWeight.w500,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
                   const SizedBox(height: 14),
 
-                  // ── QR Preview ──────────────────────────────────────────
+                  // ── QR Preview ───────────────────────────────────────────
                   Center(child: qrPreview()),
                   const SizedBox(height: 12),
                   Text(
@@ -434,7 +464,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                   ),
                   const SizedBox(height: 12),
 
-                  // ── Tombol Upload & Hapus ───────────────────────────────
+                  // ── Tombol Upload & Hapus ────────────────────────────────
                   Row(
                     children: [
                       Expanded(
@@ -488,7 +518,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                   ),
                   const SizedBox(height: 14),
 
-                  // ── QR String ──────────────────────────────────────────
+                  // ── QR String ────────────────────────────────────────────
                   if (isScanningQr)
                     const Center(child: CircularProgressIndicator())
                   else ...[
@@ -504,7 +534,10 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                     TextField(
                       controller: qrStringCtrl,
                       maxLines: 3,
-                      onChanged: (v) => qrString = v,
+                      onChanged: (v) {
+                        qrString = v;
+                        setS(() {});
+                      },
                       decoration: InputDecoration(
                         hintText: 'Otomatis terisi saat scan, atau isi manual',
                         hintStyle: TextStyle(
@@ -594,7 +627,40 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                 onPressed: isUploadingQr
                     ? null
                     : () async {
-                        if (noRek.text.trim().isEmpty) return;
+                        // ── Validasi: minimal salah satu harus diisi ─────
+                        final valid = _isRekeningValid(
+                          noRek: noRek.text,
+                          qrString: qrString,
+                          qrFile: qrFile,
+                        );
+                        if (!valid) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: const Row(
+                                children: [
+                                  Icon(
+                                    Icons.warning_amber_rounded,
+                                    color: Colors.white,
+                                    size: 18,
+                                  ),
+                                  SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Isi minimal Nomor Rekening atau QR Code',
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              backgroundColor: Colors.orange.shade700,
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                          );
+                          return;
+                        }
+
                         String finalQrUrl = '';
 
                         if (qrFile != null) {
@@ -768,7 +834,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                   const SizedBox(height: 12),
                   _dialogField(
                     noRek,
-                    'Nomor Rekening',
+                    'Nomor Rekening (opsional)',
                     Icons.credit_card_outlined,
                     type: TextInputType.number,
                   ),
@@ -780,7 +846,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                   ),
                   const SizedBox(height: 20),
 
-                  // ── Divider dengan label ─────────────────────────────────
+                  // ── Divider QR ───────────────────────────────────────────
                   Row(
                     children: [
                       Expanded(child: Divider(color: Colors.grey.shade300)),
@@ -800,7 +866,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                   ),
                   const SizedBox(height: 14),
 
-                  // ── QR preview ───────────────────────────────────────────
+                  // ── QR Preview ───────────────────────────────────────────
                   Center(child: qrPreview()),
                   const SizedBox(height: 12),
                   Text(
@@ -810,7 +876,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                   ),
                   const SizedBox(height: 12),
 
-                  // ── Tombol upload & hapus QR ─────────────────────────────
+                  // ── Tombol Upload & Hapus ────────────────────────────────
                   Row(
                     children: [
                       Expanded(
@@ -843,6 +909,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                             qrFile = null;
                             qrUrl = '';
                             qrStringCtrl.clear();
+                            qrString = '';
                           }),
                           icon: const Icon(
                             Icons.delete_outline,
@@ -881,7 +948,10 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                     TextField(
                       controller: qrStringCtrl,
                       maxLines: 3,
-                      onChanged: (v) => qrString = v,
+                      onChanged: (v) {
+                        qrString = v;
+                        setS(() {});
+                      },
                       decoration: InputDecoration(
                         hintText: 'Otomatis terisi saat scan, atau isi manual',
                         hintStyle: TextStyle(
@@ -898,7 +968,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                           borderSide: BorderSide(color: kPrimary, width: 1.5),
                         ),
                         suffixIcon: qrString.isNotEmpty
-                            ? Icon(
+                            ? const Icon(
                                 Icons.check_circle,
                                 color: Colors.green,
                                 size: 18,
@@ -926,7 +996,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                         ),
                         child: Row(
                           children: [
-                            Icon(
+                            const Icon(
                               Icons.check_circle_outline,
                               color: Colors.green,
                               size: 14,
@@ -946,6 +1016,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                       ),
                     ],
                   ],
+
                   if (isUploadingQr) ...[
                     const SizedBox(height: 14),
                     const LinearProgressIndicator(),
@@ -970,7 +1041,41 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                 onPressed: isUploadingQr
                     ? null
                     : () async {
-                        if (noRek.text.trim().isEmpty) return;
+                        // ── Validasi: minimal salah satu harus diisi ─────
+                        final valid = _isRekeningValid(
+                          noRek: noRek.text,
+                          qrString: qrString,
+                          qrFile: qrFile,
+                        );
+                        // Edit: qrUrl yang sudah ada juga dianggap valid
+                        if (!valid && qrUrl.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: const Row(
+                                children: [
+                                  Icon(
+                                    Icons.warning_amber_rounded,
+                                    color: Colors.white,
+                                    size: 18,
+                                  ),
+                                  SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Isi minimal Nomor Rekening atau QR Code',
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              backgroundColor: Colors.orange.shade700,
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                          );
+                          return;
+                        }
+
                         String finalQrUrl = qrUrl;
 
                         if (qrFile != null) {
@@ -1206,7 +1311,6 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                             _isSaved = false;
                           }),
                         ),
-
                         _divider(),
                         _toggleRow(
                           icon: Icons.qr_code_rounded,
@@ -1268,7 +1372,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                             FilteringTextInputFormatter.allow(
                               RegExp(r'[a-zA-Z0-9]'),
                             ),
-                            UpperCaseTextFormatter(), // opsional, biar otomatis kapital
+                            UpperCaseTextFormatter(),
                           ],
                           onChanged: (_) => _markUnsaved(),
                           style: theme.textTheme.bodyLarge?.copyWith(
@@ -1298,8 +1402,6 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                           ),
                         ),
                         _divider(),
-                        // ── Ukuran Label "Pelanggan:" ─────────────────────────
-                        // Hanya tampil jika nama pelanggan TIDAK besar
                         if (!_namaPelangganBesar)
                           Row(
                             children: [
@@ -1465,7 +1567,6 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                               if (i > 0) _divider(),
                               Row(
                                 children: [
-                                  // QR thumbnail
                                   GestureDetector(
                                     onTap: hasQr
                                         ? () => _showQrPreview(rek['qr_url']!)
@@ -1562,11 +1663,13 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                                             ],
                                           ],
                                         ),
-                                        Text(
-                                          rek['no_rekening'] ?? '-',
-                                          style: theme.textTheme.bodySmall
-                                              ?.copyWith(fontSize: 12),
-                                        ),
+                                        if ((rek['no_rekening'] ?? '')
+                                            .isNotEmpty)
+                                          Text(
+                                            rek['no_rekening'] ?? '-',
+                                            style: theme.textTheme.bodySmall
+                                                ?.copyWith(fontSize: 12),
+                                          ),
                                         if ((rek['atas_nama'] ?? '').isNotEmpty)
                                           Text(
                                             'a.n ${rek['atas_nama']}',
@@ -1583,7 +1686,6 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                                       ],
                                     ),
                                   ),
-                                  // ── Edit (info + QR) ───────────────────────
                                   FutureBuilder<bool>(
                                     future: canAccess('can_kelola_rekening'),
                                     builder: (context, snap) {
@@ -1604,7 +1706,6 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                                       );
                                     },
                                   ),
-                                  // ── Edit info saja ─────────────────────────
                                   FutureBuilder<bool>(
                                     future: canAccess('can_kelola_rekening'),
                                     builder: (context, snap) {
@@ -1622,7 +1723,6 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                                       );
                                     },
                                   ),
-                                  // ── Hapus ──────────────────────────────────
                                   FutureBuilder<bool>(
                                     future: canAccess('can_kelola_rekening'),
                                     builder: (context, snap) {
@@ -1705,7 +1805,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
     );
   }
 
-  // ── Paper Size Selector (button card 2×1) ─────────────────────────────────
+  // ── Paper Size Selector ───────────────────────────────────────────────────
   Widget _paperSizeSelector() {
     return Row(
       children: [
@@ -1891,7 +1991,6 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
     required String title,
     required String subtitle,
     required bool value,
-
     required ValueChanged<bool> onChanged,
   }) {
     final theme = Theme.of(context);

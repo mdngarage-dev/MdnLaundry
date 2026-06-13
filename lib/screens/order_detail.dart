@@ -630,8 +630,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     final headerColor = isProduksi
         ? Colors.orange.shade700
         : Theme.of(context).colorScheme.primary;
+    final ScrollController scrollController = ScrollController();
 
-    // Ambil langsung dari printData agar konsisten dengan yang dikirim ke thermal
     final String noOrder = printData['no_order']?.toString() ?? '-';
     final String pelanggan = printData['pelanggan']?.toString() ?? '-';
     final String estimasi = printData['estimasi']?.toString() ?? '-';
@@ -643,608 +643,690 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
 
     showDialog(
       context: context,
-      builder: (ctx) => Dialog(
-        backgroundColor: Theme.of(context).cardColor,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                // ── Badge jenis ────────────────────────────────────────────
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: headerColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: headerColor.withOpacity(0.3)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        isProduksi
-                            ? Icons.local_laundry_service_outlined
-                            : Icons.person_outline_rounded,
-                        size: 13,
-                        color: headerColor,
-                      ),
-                      const SizedBox(width: 5),
-                      Text(
-                        isProduksi
-                            ? 'Preview Struk Produksi'
-                            : 'Preview Struk Customer',
-                        style: TextStyle(
-                          color: headerColor,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 14),
+      builder: (ctx) {
+        // ── Auto scroll ke atas setelah frame pertama ──────────────
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (scrollController.hasClients) {
+            scrollController.jumpTo(0);
+          }
+        });
 
-                // ══════════════════════════════════════════════════════════
-                // PREVIEW PRODUKSI — cerminkan printStrukProduksi()
-                // ══════════════════════════════════════════════════════════
-                if (isProduksi) ...[
-                  Text(
-                    'STRUK PRODUKSI',
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15,
-                    ),
-                  ),
-                  const Divider(),
-
-                  // QR placeholder (preview saja, thermal yang generate asli)
-                  Container(
-                    width: 100,
-                    height: 100,
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey.shade300),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
+        return Dialog(
+          backgroundColor: Theme.of(context).cardColor,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          // ── Gunakan Column agar tombol sticky di bawah ───────────
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // ── Konten struk yang bisa di-scroll ─────────────────
+              Flexible(
+                child: SingleChildScrollView(
+                  controller: scrollController,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
                     child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        Icon(
-                          Icons.qr_code_2_rounded,
-                          size: 48,
-                          color: Colors.grey.shade400,
-                        ),
-                        Text(
-                          'QR: $noOrder',
-                          style: TextStyle(
-                            fontSize: 9,
-                            color: Colors.grey.shade500,
+                        // ── Badge jenis ──────────────────────────────────
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 5,
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-
-                  // No order besar (thermal: printCustom noOrder, size 2)
-                  Text(
-                    noOrder,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const Divider(),
-
-                  // Nama pelanggan besar (thermal: printCustom pelanggan, size 3)
-                  Text(
-                    'PELANGGAN :',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  Text(
-                    pelanggan,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const Divider(),
-
-                  // Instruksi per item (thermal: loop items dengan catatan)
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'INSTRUKSI CUCIAN :',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  const Divider(),
-                  ...items.asMap().entries.map((entry) {
-                    final i = entry.key;
-                    final item = entry.value;
-                    final tipe = item['layanan_tipe']?.toString() ?? '';
-                    final nama = item['layanan_nama']?.toString() ?? '-';
-                    final catatan = item['catatan']?.toString() ?? '';
-
-                    // Satuan sama dengan thermal
-                    String satuan;
-                    switch (tipe) {
-                      case 'kiloan':
-                        satuan = 'kg';
-                        break;
-                      case 'meter':
-                        satuan = 'm²';
-                        break;
-                      default:
-                        satuan = 'pcs';
-                        break;
-                    }
-
-                    final dynamic beratRaw = item['berat_kg'];
-                    final double berat = beratRaw is num
-                        ? beratRaw.toDouble()
-                        : double.tryParse(beratRaw?.toString() ?? '') ?? 0;
-                    final String beratStr = berat % 1 == 0
-                        ? berat.toStringAsFixed(0)
-                        : berat.toStringAsFixed(1);
-
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Nama item besar (thermal: size 2)
-                            Text(
-                              '${i + 1}. $nama ($beratStr $satuan)',
-                              style: Theme.of(context).textTheme.bodyMedium
-                                  ?.copyWith(fontWeight: FontWeight.bold),
+                          decoration: BoxDecoration(
+                            color: headerColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: headerColor.withOpacity(0.3),
                             ),
-                            const SizedBox(height: 3),
-                            // Catatan (thermal: "  >> catatan")
-                            catatan.isNotEmpty
-                                ? Container(
-                                    margin: const EdgeInsets.only(left: 12),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 5,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.orange.withOpacity(0.07),
-                                      borderRadius: BorderRadius.circular(6),
-                                      border: Border.all(
-                                        color: Colors.orange.withOpacity(0.25),
-                                      ),
-                                    ),
-                                    child: Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Icon(
-                                          Icons.arrow_forward_rounded,
-                                          size: 11,
-                                          color: Colors.orange.shade600,
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Expanded(
-                                          child: Text(
-                                            catatan,
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .bodySmall
-                                                ?.copyWith(fontSize: 11),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  )
-                                : Padding(
-                                    padding: const EdgeInsets.only(left: 12),
-                                    child: Text(
-                                      '(tidak ada catatan)',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodySmall
-                                          ?.copyWith(
-                                            fontSize: 11,
-                                            color: Colors.grey.shade400,
-                                            fontStyle: FontStyle.italic,
-                                          ),
-                                    ),
-                                  ),
-                            if (i < items.length - 1)
-                              Divider(
-                                height: 16,
-                                color: Colors.grey.withOpacity(0.3),
-                              ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }),
-
-                  const Divider(),
-                  // Estimasi (thermal: printCustom estimasi, size 2)
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'EST. SELESAI :',
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(fontWeight: FontWeight.w600),
-                        ),
-                        Text(
-                          estimasi,
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.bold),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // ════════════════════════════════════════════════════════════
-                  // PREVIEW CUSTOMER — sama seperti sebelumnya
-                  // ════════════════════════════════════════════════════════════
-                ] else ...[
-                  Text(
-                    OutletSettings.namaMadeenalaundry,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  if (PrinterSettings.tampilkanAlamatOutlet &&
-                      OutletSettings.alamat.isNotEmpty) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      OutletSettings.alamat,
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                  if (PrinterSettings.tampilkanNoHpOutlet &&
-                      OutletSettings.noHpMadeenalaundry.isNotEmpty)
-                    Text(
-                      'Telp: ${OutletSettings.noHpMadeenalaundry}',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '══════════════════════════',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  Text(
-                    'STRUK CUSTOMER',
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Text(
-                    '══════════════════════════',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: 8),
-
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _strRow('No', noOrder),
-                        _strRow('Tgl', printData['waktu']?.toString() ?? '-'),
-                        _strRow('Pelanggan', namaPelangganDisplay),
-                        if (!PrinterSettings.sembunyikanNoHpPelanggan)
-                          _strRow('HP', noHpDisplay),
-                      ],
-                    ),
-                  ),
-                  const Divider(),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'LAYANAN',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  const Divider(),
-                  ...items.asMap().entries.map((entry) {
-                    final i = entry.key;
-                    final item = entry.value;
-                    final tipe = item['layanan_tipe']?.toString() ?? '';
-                    final catatan = item['catatan']?.toString() ?? '';
-
-                    String satuan;
-                    switch (tipe) {
-                      case 'kiloan':
-                        satuan = 'kg';
-                        break;
-                      case 'meter':
-                        satuan = 'm²';
-                        break;
-                      default:
-                        satuan = 'pcs';
-                        break;
-                    }
-
-                    final dynamic beratRaw = item['berat_kg'];
-                    final double berat = beratRaw is num
-                        ? beratRaw.toDouble()
-                        : double.tryParse(beratRaw?.toString() ?? '') ?? 0;
-                    final dynamic hargaRaw = item['harga_satuan'];
-                    final int harga = hargaRaw is num
-                        ? hargaRaw.toInt()
-                        : int.tryParse(hargaRaw?.toString() ?? '') ?? 0;
-                    final int subtotal = (berat * harga).round();
-
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '${i + 1}. ${item['layanan_nama'] ?? '-'}',
-                              style: Theme.of(context).textTheme.bodyMedium
-                                  ?.copyWith(fontWeight: FontWeight.w600),
-                            ),
-                            Text(
-                              '   ${berat % 1 == 0 ? berat.toStringAsFixed(0) : berat.toStringAsFixed(1)} $satuan   ${_formatRupiah(harga)}',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                            Text(
-                              '   = ${_formatRupiah(subtotal)}',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                            if (catatan.isNotEmpty)
-                              Text(
-                                '   Catatan: $catatan',
-                                style: Theme.of(context).textTheme.bodySmall
-                                    ?.copyWith(
-                                      fontStyle: FontStyle.italic,
-                                      color: Colors.grey.shade500,
-                                    ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }),
-
-                  if (biayaTambahan.isNotEmpty) ...[
-                    const Divider(),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        'BIAYA TAMBAHAN',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    const Divider(),
-                    ...biayaTambahan.map((b) {
-                      final int nominal = b['nominal'] is num
-                          ? (b['nominal'] as num).toInt()
-                          : int.tryParse(b['nominal'].toString()) ?? 0;
-                      final int qty = b['qty'] is num
-                          ? (b['qty'] as num).toInt()
-                          : int.tryParse((b['qty'] ?? 1).toString()) ?? 1;
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 4),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              Text(
-                                '${b['keterangan']} (${qty}×)',
-                                style: Theme.of(context).textTheme.bodySmall,
+                              Icon(
+                                isProduksi
+                                    ? Icons.local_laundry_service_outlined
+                                    : Icons.person_outline_rounded,
+                                size: 13,
+                                color: headerColor,
                               ),
+                              const SizedBox(width: 5),
                               Text(
-                                '   = ${_formatRupiah(nominal * qty)}',
-                                style: Theme.of(context).textTheme.bodySmall,
+                                isProduksi
+                                    ? 'Preview Struk Produksi'
+                                    : 'Preview Struk Customer',
+                                style: TextStyle(
+                                  color: headerColor,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ],
                           ),
                         ),
-                      );
-                    }),
-                  ],
+                        const SizedBox(height: 14),
 
-                  const Divider(),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (biayaTambahan.isNotEmpty) ...[
+                        // ════════════════════════════════════════════════
+                        // PREVIEW PRODUKSI
+                        // ════════════════════════════════════════════════
+                        if (isProduksi) ...[
                           Text(
-                            'Layanan  : ${_formatRupiah(_totalLayanan)}',
-                            style: Theme.of(context).textTheme.bodyMedium,
+                            'STRUK PRODUKSI',
+                            style: Theme.of(context).textTheme.bodyLarge
+                                ?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                ),
                           ),
-                          Text(
-                            'Biaya Tmb: ${_formatRupiah(_totalBiayaTambahan)}',
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                        ],
-                        if (_diskonNominal > 0) ...[
-                          Text(
-                            'Subtotal : ${_formatRupiah(_subtotalSebelumDiskon)}',
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                          Text(
-                            'Diskon   : - ${_formatRupiah(_diskonNominal)}'
-                            '${_diskonCatatan.isNotEmpty ? ' ($_diskonCatatan)' : ''}',
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(color: Colors.red.shade600),
-                          ),
-                        ],
-                        Text(
-                          'TOTAL    : ${_formatRupiah(_grandTotal)}',
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(fontWeight: FontWeight.bold),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Divider(),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _sudahLunas && _dpAmount == 0
-                              ? 'Dibayar : ${_formatRupiah(_grandTotal)}'
-                              : 'Dibayar : ${_dpAmount > 0 ? _formatRupiah(_dpAmount) : 'Rp 0'}',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                        Text(
-                          'Sisa    : ${_formatRupiah(_sisaTagihan)}',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                        Text(
-                          'Status  : ${_sudahLunas ? 'LUNAS' : 'BELUM LUNAS'}',
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                color: _sudahLunas ? Colors.green : Colors.red,
-                              ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Divider(),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Est Selesai : $estimasi',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ),
-                  if (PrinterSettings.rekeningList.isNotEmpty) ...[
-                    Text(
-                      '══════════════════════════',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    Text(
-                      'PEMBAYARAN VIA',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    ...PrinterSettings.rekeningList.map((rek) {
-                      final hasQr = (rek['qr_url'] ?? '').isNotEmpty;
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: Column(
-                          children: [
-                            Align(
-                              alignment: Alignment.centerLeft,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    rek['nama_bank'] ?? '',
-                                    style: Theme.of(context).textTheme.bodySmall
-                                        ?.copyWith(fontWeight: FontWeight.bold),
+                          const Divider(),
+
+                          Container(
+                            width: 100,
+                            height: 100,
+                            decoration: BoxDecoration(
+                              border: Border.all(color: Colors.grey.shade300),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.qr_code_2_rounded,
+                                  size: 48,
+                                  color: Colors.grey.shade400,
+                                ),
+                                Text(
+                                  'QR: $noOrder',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    color: Colors.grey.shade500,
                                   ),
-                                  Text(
-                                    rek['no_rekening'] ?? '',
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.bodySmall,
-                                  ),
-                                  if ((rek['atas_nama'] ?? '').isNotEmpty)
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+
+                          Text(
+                            noOrder,
+                            style: Theme.of(context).textTheme.titleLarge
+                                ?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                          const Divider(),
+
+                          Text(
+                            'PELANGGAN :',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                          Text(
+                            pelanggan,
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const Divider(),
+
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'INSTRUKSI CUCIAN :',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          const Divider(),
+                          ...items.asMap().entries.map((entry) {
+                            final i = entry.key;
+                            final item = entry.value;
+                            final tipe = item['layanan_tipe']?.toString() ?? '';
+                            final nama =
+                                item['layanan_nama']?.toString() ?? '-';
+                            final catatan = item['catatan']?.toString() ?? '';
+
+                            String satuan;
+                            switch (tipe) {
+                              case 'kiloan':
+                                satuan = 'kg';
+                                break;
+                              case 'meter':
+                                satuan = 'm²';
+                                break;
+                              default:
+                                satuan = 'pcs';
+                                break;
+                            }
+
+                            final dynamic beratRaw = item['berat_kg'];
+                            final double berat = beratRaw is num
+                                ? beratRaw.toDouble()
+                                : double.tryParse(beratRaw?.toString() ?? '') ??
+                                      0;
+                            final String beratStr = berat % 1 == 0
+                                ? berat.toStringAsFixed(0)
+                                : berat.toStringAsFixed(1);
+
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
                                     Text(
-                                      'a.n ${rek['atas_nama']}',
+                                      '${i + 1}. $nama ($beratStr $satuan)',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    catatan.isNotEmpty
+                                        ? Container(
+                                            margin: const EdgeInsets.only(
+                                              left: 12,
+                                            ),
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 5,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: Colors.orange.withOpacity(
+                                                0.07,
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(6),
+                                              border: Border.all(
+                                                color: Colors.orange
+                                                    .withOpacity(0.25),
+                                              ),
+                                            ),
+                                            child: Row(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Icon(
+                                                  Icons.arrow_forward_rounded,
+                                                  size: 11,
+                                                  color: Colors.orange.shade600,
+                                                ),
+                                                const SizedBox(width: 4),
+                                                Expanded(
+                                                  child: Text(
+                                                    catatan,
+                                                    style: Theme.of(context)
+                                                        .textTheme
+                                                        .bodySmall
+                                                        ?.copyWith(
+                                                          fontSize: 11,
+                                                        ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          )
+                                        : Padding(
+                                            padding: const EdgeInsets.only(
+                                              left: 12,
+                                            ),
+                                            child: Text(
+                                              '(tidak ada catatan)',
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall
+                                                  ?.copyWith(
+                                                    fontSize: 11,
+                                                    color: Colors.grey.shade400,
+                                                    fontStyle: FontStyle.italic,
+                                                  ),
+                                            ),
+                                          ),
+                                    if (i < items.length - 1)
+                                      Divider(
+                                        height: 16,
+                                        color: Colors.grey.withOpacity(0.3),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          }),
+
+                          const Divider(),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'EST. SELESAI :',
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(fontWeight: FontWeight.w600),
+                                ),
+                                Text(
+                                  estimasi,
+                                  style: Theme.of(context).textTheme.titleMedium
+                                      ?.copyWith(fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          // ════════════════════════════════════════════════
+                          // PREVIEW CUSTOMER
+                          // ════════════════════════════════════════════════
+                        ] else ...[
+                          Text(
+                            OutletSettings.namaMadeenalaundry,
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.bodyLarge
+                                ?.copyWith(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                          ),
+                          if (PrinterSettings.tampilkanAlamatOutlet &&
+                              OutletSettings.alamat.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              OutletSettings.alamat,
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                          if (PrinterSettings.tampilkanNoHpOutlet &&
+                              OutletSettings.noHpMadeenalaundry.isNotEmpty)
+                            Text(
+                              'Telp: ${OutletSettings.noHpMadeenalaundry}',
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          const SizedBox(height: 8),
+                          Text(
+                            '══════════════════════════',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          Text(
+                            'STRUK CUSTOMER',
+                            style: Theme.of(context).textTheme.bodyLarge
+                                ?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                          Text(
+                            '══════════════════════════',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          const SizedBox(height: 8),
+
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _strRow('No', noOrder),
+                                _strRow(
+                                  'Tgl',
+                                  printData['waktu']?.toString() ?? '-',
+                                ),
+                                _strRow('Pelanggan', namaPelangganDisplay),
+                                if (!PrinterSettings.sembunyikanNoHpPelanggan)
+                                  _strRow('HP', noHpDisplay),
+                              ],
+                            ),
+                          ),
+                          const Divider(),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'LAYANAN',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          const Divider(),
+                          ...items.asMap().entries.map((entry) {
+                            final i = entry.key;
+                            final item = entry.value;
+                            final tipe = item['layanan_tipe']?.toString() ?? '';
+                            final catatan = item['catatan']?.toString() ?? '';
+
+                            String satuan;
+                            switch (tipe) {
+                              case 'kiloan':
+                                satuan = 'kg';
+                                break;
+                              case 'meter':
+                                satuan = 'm²';
+                                break;
+                              default:
+                                satuan = 'pcs';
+                                break;
+                            }
+
+                            final dynamic beratRaw = item['berat_kg'];
+                            final double berat = beratRaw is num
+                                ? beratRaw.toDouble()
+                                : double.tryParse(beratRaw?.toString() ?? '') ??
+                                      0;
+                            final dynamic hargaRaw = item['harga_satuan'];
+                            final int harga = hargaRaw is num
+                                ? hargaRaw.toInt()
+                                : int.tryParse(hargaRaw?.toString() ?? '') ?? 0;
+                            final int subtotal = (berat * harga).round();
+
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '${i + 1}. ${item['layanan_nama'] ?? '-'}',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                    Text(
+                                      '   ${berat % 1 == 0 ? berat.toStringAsFixed(0) : berat.toStringAsFixed(1)} $satuan   ${_formatRupiah(harga)}',
                                       style: Theme.of(
                                         context,
                                       ).textTheme.bodySmall,
                                     ),
-                                ],
-                              ),
-                            ),
-                            if (hasQr) ...[
-                              const SizedBox(height: 6),
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(6),
-                                child: Image.network(
-                                  rek['qr_url']!,
-                                  width: 160,
-                                  height: 160,
-                                  fit: BoxFit.contain,
-                                  loadingBuilder: (_, child, prog) =>
-                                      prog == null
-                                      ? child
-                                      : const SizedBox(
-                                          width: 160,
-                                          height: 160,
-                                          child: Center(
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
+                                    Text(
+                                      '   = ${_formatRupiah(subtotal)}',
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodySmall,
+                                    ),
+                                    if (catatan.isNotEmpty)
+                                      Text(
+                                        '   Catatan: $catatan',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(
+                                              fontStyle: FontStyle.italic,
+                                              color: Colors.grey.shade500,
                                             ),
-                                          ),
-                                        ),
-                                  errorBuilder: (_, __, ___) => const Icon(
-                                    Icons.qr_code_2_rounded,
-                                    size: 60,
-                                  ),
+                                      ),
+                                  ],
                                 ),
                               ),
-                            ],
+                            );
+                          }),
+
+                          if (biayaTambahan.isNotEmpty) ...[
+                            const Divider(),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                'BIAYA TAMBAHAN',
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                            const Divider(),
+                            ...biayaTambahan.map((b) {
+                              final int nominal = b['nominal'] is num
+                                  ? (b['nominal'] as num).toInt()
+                                  : int.tryParse(b['nominal'].toString()) ?? 0;
+                              final int qty = b['qty'] is num
+                                  ? (b['qty'] as num).toInt()
+                                  : int.tryParse((b['qty'] ?? 1).toString()) ??
+                                        1;
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 4),
+                                child: Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        '${b['keterangan']} (${qty}×)',
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.bodySmall,
+                                      ),
+                                      Text(
+                                        '   = ${_formatRupiah(nominal * qty)}',
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.bodySmall,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            }),
                           ],
-                        ),
-                      );
-                    }),
+
+                          const Divider(),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (biayaTambahan.isNotEmpty) ...[
+                                  Text(
+                                    'Layanan  : ${_formatRupiah(_totalLayanan)}',
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodyMedium,
+                                  ),
+                                  Text(
+                                    'Biaya Tmb: ${_formatRupiah(_totalBiayaTambahan)}',
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodyMedium,
+                                  ),
+                                ],
+                                if (_diskonNominal > 0) ...[
+                                  Text(
+                                    'Subtotal : ${_formatRupiah(_subtotalSebelumDiskon)}',
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodyMedium,
+                                  ),
+                                  Text(
+                                    'Diskon   : - ${_formatRupiah(_diskonNominal)}'
+                                    '${_diskonCatatan.isNotEmpty ? ' ($_diskonCatatan)' : ''}',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(color: Colors.red.shade600),
+                                  ),
+                                ],
+                                Text(
+                                  'TOTAL    : ${_formatRupiah(_grandTotal)}',
+                                  style: Theme.of(context).textTheme.bodyMedium
+                                      ?.copyWith(fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Divider(),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _sudahLunas && _dpAmount == 0
+                                      ? 'Dibayar : ${_formatRupiah(_grandTotal)}'
+                                      : 'Dibayar : ${_dpAmount > 0 ? _formatRupiah(_dpAmount) : 'Rp 0'}',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                                Text(
+                                  'Sisa    : ${_formatRupiah(_sisaTagihan)}',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                                Text(
+                                  'Status  : ${_sudahLunas ? 'LUNAS' : 'BELUM LUNAS'}',
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.bold,
+                                        color: _sudahLunas
+                                            ? Colors.green
+                                            : Colors.red,
+                                      ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Divider(),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'Est Selesai : $estimasi',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ),
+                          if (PrinterSettings.rekeningList.isNotEmpty) ...[
+                            Text(
+                              '══════════════════════════',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                            Text(
+                              'PEMBAYARAN VIA',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 6),
+                            ...PrinterSettings.rekeningList.map((rek) {
+                              final hasQr = (rek['qr_url'] ?? '').isNotEmpty;
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: Column(
+                                  children: [
+                                    Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            rek['nama_bank'] ?? '',
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall
+                                                ?.copyWith(
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                          ),
+                                          Text(
+                                            rek['no_rekening'] ?? '',
+                                            style: Theme.of(
+                                              context,
+                                            ).textTheme.bodySmall,
+                                          ),
+                                          if ((rek['atas_nama'] ?? '')
+                                              .isNotEmpty)
+                                            Text(
+                                              'a.n ${rek['atas_nama']}',
+                                              style: Theme.of(
+                                                context,
+                                              ).textTheme.bodySmall,
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                    if (hasQr) ...[
+                                      const SizedBox(height: 6),
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(6),
+                                        child: Image.network(
+                                          rek['qr_url']!,
+                                          width: 160,
+                                          height: 160,
+                                          fit: BoxFit.contain,
+                                          loadingBuilder: (_, child, prog) =>
+                                              prog == null
+                                              ? child
+                                              : const SizedBox(
+                                                  width: 160,
+                                                  height: 160,
+                                                  child: Center(
+                                                    child:
+                                                        CircularProgressIndicator(
+                                                          strokeWidth: 2,
+                                                        ),
+                                                  ),
+                                                ),
+                                          errorBuilder: (_, __, ___) =>
+                                              const Icon(
+                                                Icons.qr_code_2_rounded,
+                                                size: 60,
+                                              ),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              );
+                            }),
+                          ],
+                          Text(
+                            '══════════════════════════',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          if (PrinterSettings.pesanKaki.isNotEmpty) ...[
+                            Text(
+                              PrinterSettings.pesanKaki,
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                            const SizedBox(height: 4),
+                          ] else
+                            Text(
+                              'Terima kasih.',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'Dicetak oleh: $_admin',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ),
+                        ],
+
+                        const SizedBox(height: 16),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+              // ── Tombol Tutup & Cetak — STICKY di bawah ───────────
+              Container(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).cardColor,
+                  borderRadius: const BorderRadius.only(
+                    bottomLeft: Radius.circular(20),
+                    bottomRight: Radius.circular(20),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.06),
+                      blurRadius: 8,
+                      offset: const Offset(0, -3),
+                    ),
                   ],
-                  Text(
-                    '══════════════════════════',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  if (PrinterSettings.pesanKaki.isNotEmpty) ...[
-                    Text(
-                      PrinterSettings.pesanKaki,
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    const SizedBox(height: 4),
-                  ] else
-                    Text(
-                      'Terima kasih.',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Dicetak oleh: $_admin',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ),
-                ],
-
-                const SizedBox(height: 20),
-
-                // ── Tombol Tutup & Cetak ────────────────────────────────────
-                Row(
+                ),
+                child: Row(
                   children: [
                     Expanded(
                       child: OutlinedButton(
@@ -1286,12 +1368,12 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                     ),
                   ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ),
-      ),
-    );
+        );
+      },
+    ).then((_) => scrollController.dispose());
   }
 
   // ── Konfirmasi Status ─────────────────────────────────────────────────────

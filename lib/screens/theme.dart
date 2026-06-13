@@ -101,37 +101,34 @@ BoxDecoration cardDecoration() {
 }
 
 // ─── LIGHT THEME ──────────────────────────────────────────────────────────────
-ThemeData lightTheme() {
+ThemeData lightTheme({Color seed = kPrimary}) {
   return ThemeData(
     brightness: Brightness.light,
-    primaryColor: kPrimary,
+    primaryColor: seed,
     scaffoldBackgroundColor: kPrimaryLight,
     cardColor: kCardWhite,
     canvasColor: kCardWhite,
     hintColor: kTextLight,
 
-    colorScheme: const ColorScheme.light(
-      primary: kPrimary,
+    colorScheme: ColorScheme.light(
+      primary: seed,
       secondary: kAccentBlue,
       surface: kCardWhite,
       onPrimary: Colors.white,
       onSurface: kTextDark,
-      // Border & divider
-      outline: Color(0xFFD4E6F5),
-      // Highlight range selection (date picker)
-      surfaceContainerHighest: Color(0xFFE8F4FC),
+      outline: const Color(0xFFD4E6F5),
+      surfaceContainerHighest: const Color(0xFFE8F4FC),
       onSurfaceVariant: kTextLight,
-      // Badge/chip warna biru lebih dalam
-      tertiary: Color(0xFF2E86C1),
+      tertiary: const Color(0xFF2E86C1),
       onTertiary: Colors.white,
     ),
 
-    appBarTheme: const AppBarTheme(
-      backgroundColor: kPrimary,
+    appBarTheme: AppBarTheme(
+      backgroundColor: seed,
       foregroundColor: Colors.white,
       elevation: 0,
-      iconTheme: IconThemeData(color: Colors.white),
-      titleTextStyle: TextStyle(
+      iconTheme: const IconThemeData(color: Colors.white),
+      titleTextStyle: const TextStyle(
         color: Colors.white,
         fontSize: 18,
         fontWeight: FontWeight.bold,
@@ -140,14 +137,14 @@ ThemeData lightTheme() {
 
     iconTheme: const IconThemeData(color: kTextLight),
 
-    bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+    bottomNavigationBarTheme: BottomNavigationBarThemeData(
       backgroundColor: kCardWhite,
-      selectedItemColor: kPrimary,
+      selectedItemColor: seed,
       unselectedItemColor: kTextLight,
       elevation: 8,
     ),
 
-    dividerColor: Color(0xFFD4E6F5),
+    dividerColor: const Color(0xFFD4E6F5),
 
     textTheme: const TextTheme(
       displayLarge: TextStyle(color: kTextDark),
@@ -177,14 +174,14 @@ ThemeData lightTheme() {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: kPrimary, width: 2),
+        borderSide: BorderSide(color: seed, width: 2),
       ),
       contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
     ),
 
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
-        backgroundColor: kPrimary,
+        backgroundColor: seed,
         foregroundColor: Colors.white,
         elevation: 0,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
@@ -193,22 +190,22 @@ ThemeData lightTheme() {
 
     switchTheme: SwitchThemeData(
       thumbColor: WidgetStateProperty.resolveWith(
-        (s) => s.contains(WidgetState.selected) ? kPrimary : Colors.grey[400],
+        (s) => s.contains(WidgetState.selected) ? seed : Colors.grey[400],
       ),
       trackColor: WidgetStateProperty.resolveWith(
         (s) => s.contains(WidgetState.selected)
-            ? kPrimary.withOpacity(0.4)
+            ? seed.withOpacity(0.4)
             : Colors.grey[300],
       ),
     ),
 
-    cardTheme: const CardThemeData(
+    cardTheme: CardThemeData(
       color: kCardWhite,
       elevation: 2,
-      shadowColor: Color(0x1A5B9BD5),
+      shadowColor: const Color(0x1A5B9BD5),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.all(Radius.circular(20)),
-        side: BorderSide(color: Color(0x26A7C6ED)),
+        borderRadius: const BorderRadius.all(Radius.circular(20)),
+        side: BorderSide(color: seed.withOpacity(0.15)),
       ),
     ),
 
@@ -216,42 +213,53 @@ ThemeData lightTheme() {
   );
 }
 
+// ─── Helper Blend Warna untuk Dark Theme ──────────────────────────────────────
+// Mencampur warna seed dengan base navy gelap supaya appbar/background
+// dark mode ikut "tint" sesuai warna pilihan, tapi tetap gelap & readable.
+Color _blendDark(Color base, Color seed, double amount) {
+  return Color.lerp(base, seed, amount)!;
+}
+
 // ─── DARK THEME ───────────────────────────────────────────────────────────────
-ThemeData darkTheme() {
-  const Color darkBase = Color(0xFF0D1B2A); // Deep navy base
-  const Color darkSurface = Color(0xFF152232); // Navy surface
-  const Color darkCard = Color(0xFF1C2E40); // Sedikit lebih terang dari surface
+ThemeData darkTheme({Color seed = kPastelBlue}) {
+  const Color darkBase = Color(0xFF0D1B2A);
+  const Color darkSurfaceBase = Color(0xFF152232);
+  const Color darkCardBase = Color(0xFF1C2E40);
+
+  // Tint ringan dari seed dicampur ke base navy.
+  // amount kecil agar tetap gelap & nyaman dibaca, tapi terasa nuansanya.
+  final Color darkBaseTinted = _blendDark(darkBase, seed, 0.12);
+  final Color darkSurface = _blendDark(darkSurfaceBase, seed, 0.16);
+  final Color darkCard = _blendDark(darkCardBase, seed, 0.14);
 
   return ThemeData(
     brightness: Brightness.dark,
-    primaryColor: kPastelBlue, // Pastel blue cocok di dark mode
-    scaffoldBackgroundColor: darkBase,
+    primaryColor: seed,
+    scaffoldBackgroundColor: darkBaseTinted,
     cardColor: darkCard,
     canvasColor: darkSurface,
     hintColor: Colors.white38,
 
-    colorScheme: const ColorScheme.dark(
-      primary: kPastelBlue,
+    colorScheme: ColorScheme.dark(
+      primary: seed,
       secondary: kAccentBlue,
       surface: darkSurface,
-      onPrimary: Color(0xFF1E293B), // Teks gelap di atas warna pastel
+      onPrimary: const Color(0xFF1E293B),
       onSurface: Colors.white,
-      // Border & divider
-      outline: Color(0xFF2A4A65),
-      // FIX: date picker range highlight
-      surfaceContainerHighest: Color(0xFF1F3A52),
+      outline: const Color(0xFF2A4A65),
+      surfaceContainerHighest: const Color(0xFF1F3A52),
       onSurfaceVariant: Colors.white70,
-      // Badge/chip
-      tertiary: Color(0xFF8BC3E6),
-      onTertiary: Color(0xFF0D1B2A),
+      tertiary: const Color(0xFF8BC3E6),
+      onTertiary: const Color(0xFF0D1B2A),
     ),
 
-    appBarTheme: const AppBarTheme(
+    // Appbar ikut tint seed
+    appBarTheme: AppBarTheme(
       backgroundColor: darkSurface,
       foregroundColor: Colors.white,
       elevation: 0,
-      iconTheme: IconThemeData(color: Colors.white),
-      titleTextStyle: TextStyle(
+      iconTheme: const IconThemeData(color: Colors.white),
+      titleTextStyle: const TextStyle(
         color: Colors.white,
         fontSize: 18,
         fontWeight: FontWeight.bold,
@@ -260,9 +268,9 @@ ThemeData darkTheme() {
 
     iconTheme: const IconThemeData(color: Colors.white70),
 
-    bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+    bottomNavigationBarTheme: BottomNavigationBarThemeData(
       backgroundColor: darkSurface,
-      selectedItemColor: kPastelBlue,
+      selectedItemColor: seed,
       unselectedItemColor: Colors.white54,
     ),
 
@@ -296,13 +304,13 @@ ThemeData darkTheme() {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: kPastelBlue, width: 2),
+        borderSide: BorderSide(color: seed, width: 2),
       ),
     ),
 
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
-        backgroundColor: kPastelBlue,
+        backgroundColor: seed,
         foregroundColor: const Color(0xFF1E293B),
         elevation: 0,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
@@ -311,24 +319,24 @@ ThemeData darkTheme() {
 
     switchTheme: SwitchThemeData(
       thumbColor: WidgetStateProperty.resolveWith(
-        (s) => s.contains(WidgetState.selected) ? kPastelBlue : Colors.white54,
+        (s) => s.contains(WidgetState.selected) ? seed : Colors.white54,
       ),
       trackColor: WidgetStateProperty.resolveWith(
         (s) => s.contains(WidgetState.selected)
-            ? kPastelBlue.withOpacity(0.4)
+            ? seed.withOpacity(0.4)
             : Colors.white24,
       ),
     ),
 
-    cardTheme: const CardThemeData(
+    cardTheme: CardThemeData(
       color: darkCard,
       elevation: 4,
-      shadowColor: Color(0x805B9BD5),
-      shape: RoundedRectangleBorder(
+      shadowColor: const Color(0x805B9BD5),
+      shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.all(Radius.circular(20)),
       ),
     ),
 
-    dialogTheme: const DialogThemeData(backgroundColor: darkSurface),
+    dialogTheme: DialogThemeData(backgroundColor: darkSurface),
   );
 }

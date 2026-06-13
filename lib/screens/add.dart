@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-
+import 'package:url_launcher/url_launcher.dart';
 import 'screens.dart';
+import 'package:http/http.dart' as http;
 
 class AddOrderScreen extends StatefulWidget {
   const AddOrderScreen({super.key});
@@ -87,6 +88,113 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
   String get _estimasiTerpanjang {
     if (_items.isEmpty) return '-';
     return _items.map((i) => i['estimasi_selesai']?.toString() ?? '-').last;
+  }
+
+  // ── share wa ───────────────────────────────────────────────────────
+  Future<void> _kirimNotifikasiWa({
+    required String noHp,
+    required String nomorOrder,
+    required String namaPelanggan,
+    required String layananNama,
+    required int grandTotal,
+    required String estimasi,
+    required String statusBayar,
+    required int dpAmount,
+  }) async {
+    // Bersihkan & format nomor HP
+    String hp = noHp.replaceAll(RegExp(r'[^0-9]'), '');
+    if (hp.startsWith('0')) hp = '62${hp.substring(1)}';
+    if (!hp.startsWith('62')) hp = '62$hp';
+
+    final trackingUrl = 'https://laundry-ku-id.web.app/$nomorOrder';
+
+    String infoBayar;
+    switch (statusBayar) {
+      case 'lunas':
+        infoBayar = '✅ Lunas';
+        break;
+      case 'dp':
+        final dp = NumberFormat.currency(
+          locale: 'id_ID',
+          symbol: 'Rp ',
+          decimalDigits: 0,
+        ).format(dpAmount);
+        infoBayar = '🔄 DP $dp';
+        break;
+      default:
+        infoBayar = '⏳ Bayar saat ambil';
+    }
+
+    final total = NumberFormat.currency(
+      locale: 'id_ID',
+      symbol: 'Rp ',
+      decimalDigits: 0,
+    ).format(grandTotal);
+
+    final pesan =
+        'Halo, *$namaPelanggan* 👋\n\n'
+        'Terima kasih telah mempercayakan laundry Anda! Pesanan telah kami terima.\n\n'
+        '📋 *Detail Order:*\n'
+        '• No. Order    : *$nomorOrder*\n'
+        '• Layanan      : $layananNama\n'
+        '• Total           : *$total*\n'
+        '• Pembayaran: $infoBayar\n'
+        '• Est. Selesai  : $estimasi\n\n'
+        '🔍 *Lacak status order Anda:*\n'
+        '$trackingUrl\n\n'
+        'Kami segera memproses laundry Anda. Terima kasih! 🙏\n\n'
+        '_Madeena Laundry_';
+
+    final isAuto = await WaSettings.isEnabled();
+    final token = await WaSettings.getToken();
+    debugPrint('WA auto: $isAuto, token: $token');
+
+    if (isAuto && token.isNotEmpty) {
+      // ── AUTO SEND via Fonnte API ──────────────────────────────────
+      try {
+        final res = await http.post(
+          Uri.parse('https://api.fonnte.com/send'),
+          headers: {'Authorization': token},
+          body: {'target': hp, 'message': pesan},
+        );
+        final json = jsonDecode(res.body);
+        if (mounted && json['status'] == true) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Row(
+                children: [
+                  Icon(Icons.send, color: Colors.white, size: 16),
+                  SizedBox(width: 8),
+                  Text('Notifikasi WA terkirim otomatis'),
+                ],
+              ),
+              backgroundColor: const Color(0xFF25D366),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          );
+        }
+      } catch (e) {
+        // Gagal auto → fallback manual
+        _bukaWaManual(hp, pesan);
+      }
+    } else {
+      // ── MANUAL: buka WhatsApp dengan pesan pre-filled ─────────────
+      _bukaWaManual(hp, pesan);
+    }
+  }
+
+  Future<void> _bukaWaManual(String hp, String pesan) async {
+    final encoded = Uri.encodeComponent(pesan);
+    final url = Uri.parse('https://wa.me/$hp?text=$encoded');
+    debugPrint('WA URL: $url');
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
+    } else {
+      debugPrint('Tidak bisa buka WA'); // ← cek output ini di console
+    }
   }
 
   // ── Pilih pelanggan ───────────────────────────────────────────────────────
@@ -1568,6 +1676,14 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
         'jumlah_item': _items.length,
       };
 
+      // ── Simpan ke variabel lokal SEBELUM reset ───────────────────
+      final hpPelanggan = _selectedHp ?? '';
+      final namaPelanggan = _selectedNama ?? '';
+      final totalFinal = _grandTotalFinal;
+      final estimasiFinal = _estimasiDariCustom;
+      final statusBayarFinal = _statusBayar;
+      final dpFinal = dpInt;
+
       // Reset form
       setState(() {
         _selectedNama = null;
@@ -1582,15 +1698,30 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
         _diskonCatatan = '';
       });
 
-      // ── Navigate langsung ke OrderDetailScreen (cetak ada di sana) ──────
+      // ── Kirim WA dulu, lalu navigate ────────────────────────────────
       if (context.mounted) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) =>
-                OrderDetailScreen(docId: orderRef.id, data: savedOrderData),
-          ),
-        );
+        if (hpPelanggan.isNotEmpty) {
+          await _kirimNotifikasiWa(
+            noHp: hpPelanggan,
+            nomorOrder: nomorStruk,
+            namaPelanggan: namaPelanggan,
+            layananNama: firstItem['layanan_nama'] ?? '',
+            grandTotal: totalFinal,
+            estimasi: estimasiFinal,
+            statusBayar: statusBayarFinal,
+            dpAmount: dpFinal,
+          );
+        }
+
+        if (context.mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) =>
+                  OrderDetailScreen(docId: orderRef.id, data: savedOrderData),
+            ),
+          );
+        }
       }
     } catch (e) {
       if (mounted) setState(() => _isSubmitting = false);

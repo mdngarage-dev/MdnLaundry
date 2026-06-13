@@ -87,10 +87,10 @@ class MadeenalaundryApp extends StatelessWidget {
 
         navigatorKey: navigatorKey,
         themeMode: themeProvider.themeMode,
-        theme: lightTheme().copyWith(
+        theme: lightTheme(seed: themeProvider.seedColorLight).copyWith(
           textTheme: lightTheme().textTheme.apply(fontFamily: 'Pastrami'),
         ),
-        darkTheme: darkTheme().copyWith(
+        darkTheme: darkTheme(seed: themeProvider.seedColorDark).copyWith(
           textTheme: darkTheme().textTheme.apply(fontFamily: 'Pastrami'),
         ),
         home: const AuthWrapper(),

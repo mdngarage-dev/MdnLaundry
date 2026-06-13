@@ -248,6 +248,13 @@ const List<_Permission> _allPermissions = [
 
   // ── Sistem ─────────────────────────────────────────────────────────────
   _Permission(
+    key: 'can_access_wa_setting',
+    label: 'Pengaturan WA Otomatis',
+    subtitle: 'Kelola token Fonnte & notifikasi WA',
+    icon: Icons.send,
+    group: 'Sistem',
+  ),
+  _Permission(
     key: 'can_access_admin',
     label: 'Kelola Admin',
     subtitle: 'Izin & Kelola Akses Admin',

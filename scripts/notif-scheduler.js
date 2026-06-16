@@ -33,12 +33,12 @@ function kirimOneSignal(judul, isi, tipe) {
   console.log("APP_ID:", ONESIGNAL_APP_ID);
   console.log("API_KEY (10 char):", ONESIGNAL_REST_API_KEY?.slice(0, 10));
   return new Promise((resolve, reject) => {
+    
     const payload = JSON.stringify({
   app_id: ONESIGNAL_APP_ID,
   target_channel: "push",
-  include_aliases: {
-    onesignal_id: ["b79b4e87-14a8-45ee-9104-a6942851bf8f"]
-  },
+  // Mengirim ke seluruh perangkat yang statusnya Subscribed di aplikasi Anda
+  included_segments: ["Total Subscriptions"], 
   headings: { en: judul, id: judul },
   contents: { en: isi, id: isi },
   data: {

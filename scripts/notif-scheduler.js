@@ -9,6 +9,11 @@
 const admin = require("firebase-admin");
 const https = require("https");
 
+// Paling atas, setelah baris require
+console.log("=== ENV CHECK ===");
+console.log("APP_ID:", process.env.ONESIGNAL_APP_ID);
+console.log("API_KEY:", process.env.ONESIGNAL_REST_API_KEY?.slice(0, 10));
+console.log("=================");
 // ─── Inisialisasi Firebase Admin pakai Service Account dari ENV ──────────────
 // Service account JSON disimpan sebagai GitHub Secret (lihat panduan)
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);

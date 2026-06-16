@@ -28,7 +28,10 @@ function kirimOneSignal(judul, isi, tipe) {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify({
       app_id: ONESIGNAL_APP_ID,
-      filters: [{ field: "tag", key: "role", relation: "=", value: "admin" }],
+      // TEMPORARY: kirim ke semua subscriber dulu untuk testing
+      // Nanti aktifkan lagi filter tag setelah tag admin terkonfirmasi jalan
+      included_segments: ["Subscribed Users"],
+      // filters: [{ field: "tag", key: "role", relation: "=", value: "admin" }],
       headings: { en: judul, id: judul },
       contents: { en: isi, id: isi },
       data: {

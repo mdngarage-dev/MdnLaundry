@@ -25,6 +25,8 @@ const ONESIGNAL_REST_API_KEY = process.env.ONESIGNAL_REST_API_KEY;
 // HELPER: Kirim notif via OneSignal REST API
 // ─────────────────────────────────────────────────────────────────────────────
 function kirimOneSignal(judul, isi, tipe) {
+  console.log("APP_ID:", ONESIGNAL_APP_ID);
+  console.log("API_KEY (10 char):", ONESIGNAL_REST_API_KEY?.slice(0, 10));
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify({
   app_id: ONESIGNAL_APP_ID,

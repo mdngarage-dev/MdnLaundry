@@ -38,7 +38,7 @@ function kirimOneSignal(judul, isi, tipe) {
   app_id: ONESIGNAL_APP_ID,
   target_channel: "push",
   // Mengirim ke seluruh perangkat yang statusnya Subscribed di aplikasi Anda
-  included_segments: ["Total Subscriptions"], 
+  included_segments: ["Active Users"], 
   headings: { en: judul, id: judul },
   contents: { en: isi, id: isi },
   data: {

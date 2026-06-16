@@ -54,7 +54,7 @@ function kirimOneSignal(judul, isi, tipe) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Key ${ONESIGNAL_REST_API_KEY}`,
+        Authorization: `Bearer ${ONESIGNAL_REST_API_KEY}`,
       },
     };
 

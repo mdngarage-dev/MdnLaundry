@@ -30,7 +30,7 @@ function kirimOneSignal(judul, isi, tipe) {
       app_id: ONESIGNAL_APP_ID,
       // TEMPORARY: kirim ke semua subscriber dulu untuk testing
       // Nanti aktifkan lagi filter tag setelah tag admin terkonfirmasi jalan
-      included_segments: ["All"],
+      include_subscription_ids: ["b79b4e87-14a8-45ee-9104-a6942851bf8f"],
       // filters: [{ field: "tag", key: "role", relation: "=", value: "admin" }],
       headings: { en: judul, id: judul },
       contents: { en: isi, id: isi },

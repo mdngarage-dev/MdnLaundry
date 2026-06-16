@@ -36,7 +36,6 @@ function kirimOneSignal(judul, isi, tipe) {
         route: "/notifikasi",
         waktu: new Date().toISOString(),
       },
-      android_channel_id: "laundry_reminder",
       priority: 10,
       android_accent_color: "FF0D9488",
     });

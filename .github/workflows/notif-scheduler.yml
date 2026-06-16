@@ -1,0 +1,33 @@
+name: Notif Laundry Scheduler
+
+on:
+  schedule:
+    # Jalan setiap 10 menit (GitHub Actions minimal interval 5 menit)
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {} # bisa trigger manual dari tab Actions di GitHub
+
+jobs:
+  cek-notifikasi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: scripts
+
+      - name: Jalankan pengecekan notifikasi
+        working-directory: scripts
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          ONESIGNAL_APP_ID: ${{ secrets.ONESIGNAL_APP_ID }}
+          ONESIGNAL_REST_API_KEY: ${{ secrets.ONESIGNAL_REST_API_KEY }}
+        run: node notif-scheduler.js

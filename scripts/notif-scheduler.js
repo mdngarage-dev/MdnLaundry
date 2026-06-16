@@ -42,9 +42,9 @@ function kirimOneSignal(judul, isi, tipe) {
     });
 
     const options = {
-      hostname: "onesignal.com",
+      hostname: "api.onesignal.com",
       port: 443,
-      path: "/api/v1/notifications",
+      path: "/notifications",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -176,13 +176,28 @@ async function cekDeadlineTerlambat(db) {
       });
     }
 
-    if (selisihMenit < 0 && data.notif_terlambat_terkirim !== true) {
-      orderTerlambat.push({
-        docId: doc.id,
-        nama: data.nama_pelanggan || "Pelanggan",
-        layanan: data.layanan_nama || "Laundry",
-        terlambatMenit: Math.round(Math.abs(selisihMenit)),
-      });
+    // ── TERLAMBAT: diulang tiap 1 jam selama order belum diselesaikan ──────
+    // Pakai timestamp terakhir kirim, bukan flag boolean sekali pakai
+    if (selisihMenit < 0) {
+      const terakhirKirim = data.notif_terlambat_terkirim_at
+        ? (data.notif_terlambat_terkirim_at.toDate
+            ? data.notif_terlambat_terkirim_at.toDate()
+            : new Date(data.notif_terlambat_terkirim_at._seconds * 1000))
+        : null;
+
+      const menitSejakTerakhirKirim = terakhirKirim
+        ? (now - terakhirKirim) / 1000 / 60
+        : null;
+
+      // Kirim kalau belum pernah dikirim ATAU sudah lewat 60 menit dari terakhir kirim
+      if (terakhirKirim === null || menitSejakTerakhirKirim >= 60) {
+        orderTerlambat.push({
+          docId: doc.id,
+          nama: data.nama_pelanggan || "Pelanggan",
+          layanan: data.layanan_nama || "Laundry",
+          terlambatMenit: Math.round(Math.abs(selisihMenit)),
+        });
+      }
     }
   });
 
@@ -221,13 +236,23 @@ async function cekDeadlineTerlambat(db) {
 
     const batch = db.batch();
     orderTerlambat.forEach((o) => {
-      batch.update(db.collection("order").doc(o.docId), { notif_terlambat_terkirim: true });
+      batch.update(db.collection("order").doc(o.docId), {
+        notif_terlambat_terkirim_at: admin.firestore.Timestamp.now(),
+      });
     });
     await batch.commit();
   } else {
     console.log("Tidak ada order terlambat.");
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TASK 3 (opsional): Reset flag notif kalau order baru diubah signifikan
+// NOTE: Reset otomatis saat update field (seperti onDocumentUpdated Cloud Functions)
+// TIDAK bisa dilakukan via cron biasa karena perlu trigger real-time.
+// Solusi: reset dilakukan langsung dari sisi Flutter app saat user edit order
+// (lihat catatan di PANDUAN_GITHUB_ACTIONS.md)
+// ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MAIN — jalankan semua task lalu exit

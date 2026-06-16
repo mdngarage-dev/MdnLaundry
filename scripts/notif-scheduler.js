@@ -27,21 +27,18 @@ const ONESIGNAL_REST_API_KEY = process.env.ONESIGNAL_REST_API_KEY;
 function kirimOneSignal(judul, isi, tipe) {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify({
-      app_id: ONESIGNAL_APP_ID,
-      // TEMPORARY: kirim ke semua subscriber dulu untuk testing
-      // Nanti aktifkan lagi filter tag setelah tag admin terkonfirmasi jalan
-      include_subscription_ids: ["b79b4e87-14a8-45ee-9104-a6942851bf8f"],
-      // filters: [{ field: "tag", key: "role", relation: "=", value: "admin" }],
-      headings: { en: judul, id: judul },
-      contents: { en: isi, id: isi },
-      data: {
-        type: tipe,
-        route: "/notifikasi",
-        waktu: new Date().toISOString(),
-      },
-      priority: 10,
-      android_accent_color: "FF0D9488",
-    });
+  app_id: ONESIGNAL_APP_ID,
+  include_player_ids: ["b79b4e87-14a8-45ee-9104-a6942851bf8f"],  // ← paste ID lengkap
+  headings: { en: judul, id: judul },
+  contents: { en: isi, id: isi },
+  data: {
+    type: tipe,
+    route: "/notifikasi",
+    waktu: new Date().toISOString(),
+  },
+  priority: 10,
+  android_accent_color: "FF0D9488",
+});
 
     const options = {
       hostname: "api.onesignal.com",

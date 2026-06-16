@@ -65,6 +65,8 @@ const options = {
       let data = "";
       res.on("data", (chunk) => (data += chunk));
       res.on("end", () => {
+        console.log("STATUS:", res.statusCode);
+    console.log("RESPONSE RAW:", data); 
         const parsed = JSON.parse(data);
         if (parsed.errors) reject(new Error(JSON.stringify(parsed.errors)));
         else resolve(parsed);

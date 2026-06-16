@@ -35,7 +35,10 @@ function kirimOneSignal(judul, isi, tipe) {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify({
   app_id: ONESIGNAL_APP_ID,
-  include_player_ids: ["b79b4e87-14a8-45ee-9104-a6942851bf8f"],  // ← paste ID lengkap
+  target_channel: "push",
+  include_aliases: {
+    onesignal_id: ["b79b4e87-14a8-45ee-9104-a6942851bf8f"]
+  },
   headings: { en: judul, id: judul },
   contents: { en: isi, id: isi },
   data: {
@@ -47,16 +50,16 @@ function kirimOneSignal(judul, isi, tipe) {
   android_accent_color: "FF0D9488",
 });
 
-    const options = {
-      hostname: "api.onesignal.com",
-      port: 443,
-      path: "/notifications",
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${ONESIGNAL_REST_API_KEY}`,
-      },
-    };
+const options = {
+  hostname: "api.onesignal.com",
+  port: 443,
+  path: "/notifications",          // ← tetap sama
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    Authorization: `Key ${ONESIGNAL_REST_API_KEY}`,  // ← balik ke Key (bukan Bearer)
+  },
+};
 
     const req = https.request(options, (res) => {
       let data = "";

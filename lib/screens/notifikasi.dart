@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:convert';
 import 'screens.dart';
 
-// ─── Model notifikasi yang disimpan lokal ────────────────────────────────────
+// ─── Model notifikasi (sync dari Firestore) ──────────────────────────────────
 class NotifItem {
   final String id;
   final String judul;
@@ -19,6 +20,26 @@ class NotifItem {
     this.sudahDibaca = false,
   });
 
+  factory NotifItem.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    return NotifItem(
+      id: doc.id,
+      judul: data['judul'] ?? '',
+      isi: data['isi'] ?? '',
+      waktu: (data['waktu'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      sudahDibaca: data['sudahDibaca'] ?? false,
+    );
+  }
+
+  Map<String, dynamic> toFirestore() => {
+    'id': id,
+    'judul': judul,
+    'isi': isi,
+    'waktu': Timestamp.fromDate(waktu),
+    'sudahDibaca': sudahDibaca,
+  };
+
+  // Untuk backward compat dengan SharedPreferences (jika ada)
   factory NotifItem.fromJson(Map<String, dynamic> json) => NotifItem(
     id: json['id'] ?? '',
     judul: json['judul'] ?? '',
@@ -36,72 +57,180 @@ class NotifItem {
   };
 }
 
-// ─── Helper SharedPreferences (bisa dipanggil dari notif_kia.dart) ───────────
+// ─── Firestore NotifStorage ──────────────────────────────────────────────────
 class NotifStorage {
-  static const _key = 'notif_history';
-  static const _maxItem = 50; // maksimal 50 notif tersimpan
+  static const _collectionName = 'notif_history';
+  static const _maxItem = 50;
 
-  /// Simpan notif baru ke SharedPreferences
+  static CollectionReference get _notifCollection =>
+      FirebaseFirestore.instance.collection(_collectionName);
+
+  static String? get _currentUserId => FirebaseAuth.instance.currentUser?.uid;
+
+  /// Simpan notif baru ke Firestore
   static Future<void> simpan(NotifItem item) async {
-    final prefs = await SharedPreferences.getInstance();
-    final list = await ambilSemua();
+    try {
+      final userId = _currentUserId;
+      if (userId == null) {
+        debugPrint('⚠ User belum login, notif tidak disimpan');
+        return;
+      }
 
-    // Hindari duplikat berdasarkan id
-    list.removeWhere((n) => n.id == item.id);
+      // Simpan ke sub-collection user-specific untuk isolasi data
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection(_collectionName)
+          .doc(item.id)
+          .set(item.toFirestore());
 
-    // Tambah di depan (terbaru duluan)
-    list.insert(0, item);
-
-    // Batasi jumlah
-    final trimmed = list.take(_maxItem).toList();
-
-    final encoded = jsonEncode(trimmed.map((n) => n.toJson()).toList());
-    await prefs.setString(_key, encoded);
+      debugPrint('✅ Notif tersimpan di Firestore: ${item.judul}');
+    } catch (e) {
+      debugPrint('⚠ Error simpan notif: $e');
+    }
   }
 
-  /// Ambil semua notif dari SharedPreferences
+  /// Ambil semua notif dari Firestore (sync antar device)
   static Future<List<NotifItem>> ambilSemua() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_key);
-    if (raw == null || raw.isEmpty) return [];
     try {
-      final List<dynamic> decoded = jsonDecode(raw);
-      return decoded.map((e) => NotifItem.fromJson(e)).toList();
-    } catch (_) {
+      final userId = _currentUserId;
+      if (userId == null) {
+        debugPrint('⚠ User belum login, notif kosong');
+        return [];
+      }
+
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection(_collectionName)
+          .orderBy('waktu', descending: true)
+          .limit(_maxItem)
+          .get();
+
+      return snapshot.docs.map((doc) => NotifItem.fromFirestore(doc)).toList();
+    } catch (e) {
+      debugPrint('⚠ Error ambil notif: $e');
       return [];
     }
   }
 
+  /// Stream notif untuk real-time update
+  static Stream<List<NotifItem>> streamNotif() {
+    final userId = _currentUserId;
+    if (userId == null) return Stream.value([]);
+
+    return FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .collection(_collectionName)
+        .orderBy('waktu', descending: true)
+        .limit(_maxItem)
+        .snapshots()
+        .map(
+          (snapshot) =>
+              snapshot.docs.map((doc) => NotifItem.fromFirestore(doc)).toList(),
+        );
+  }
+
   /// Hapus satu notif berdasarkan id
   static Future<void> hapus(String id) async {
-    final prefs = await SharedPreferences.getInstance();
-    final list = await ambilSemua();
-    list.removeWhere((n) => n.id == id);
-    final encoded = jsonEncode(list.map((n) => n.toJson()).toList());
-    await prefs.setString(_key, encoded);
+    try {
+      final userId = _currentUserId;
+      if (userId == null) return;
+
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection(_collectionName)
+          .doc(id)
+          .delete();
+
+      debugPrint('✅ Notif dihapus: $id');
+    } catch (e) {
+      debugPrint('⚠ Error hapus notif: $e');
+    }
   }
 
   /// Hapus semua notif
   static Future<void> hapusSemua() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_key);
+    try {
+      final userId = _currentUserId;
+      if (userId == null) return;
+
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection(_collectionName)
+          .get();
+
+      final batch = FirebaseFirestore.instance.batch();
+      for (final doc in snapshot.docs) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
+
+      debugPrint('✅ Semua notif dihapus');
+    } catch (e) {
+      debugPrint('⚠ Error hapus semua notif: $e');
+    }
   }
 
   /// Tandai semua sudah dibaca
   static Future<void> tandaiSemuaDibaca() async {
-    final prefs = await SharedPreferences.getInstance();
-    final list = await ambilSemua();
-    for (final n in list) {
-      n.sudahDibaca = true;
+    try {
+      final userId = _currentUserId;
+      if (userId == null) return;
+
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection(_collectionName)
+          .get();
+
+      final batch = FirebaseFirestore.instance.batch();
+      for (final doc in snapshot.docs) {
+        batch.update(doc.reference, {'sudahDibaca': true});
+      }
+      await batch.commit();
+
+      debugPrint('✅ Semua notif ditandai dibaca');
+    } catch (e) {
+      debugPrint('⚠ Error tandai dibaca: $e');
     }
-    final encoded = jsonEncode(list.map((n) => n.toJson()).toList());
-    await prefs.setString(_key, encoded);
   }
 
   /// Hitung jumlah notif belum dibaca
   static Future<int> jumlahBelumDibaca() async {
-    final list = await ambilSemua();
-    return list.where((n) => !n.sudahDibaca).length;
+    try {
+      final userId = _currentUserId;
+      if (userId == null) return 0;
+
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection(_collectionName)
+          .where('sudahDibaca', isEqualTo: false)
+          .get();
+
+      return snapshot.size;
+    } catch (e) {
+      debugPrint('⚠ Error hitung belum dibaca: $e');
+      return 0;
+    }
+  }
+
+  /// Stream jumlah notif belum dibaca (real-time)
+  static Stream<int> streamJumlahBelumDibaca() {
+    final userId = _currentUserId;
+    if (userId == null) return Stream.value(0);
+
+    return FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .collection(_collectionName)
+        .where('sudahDibaca', isEqualTo: false)
+        .snapshots()
+        .map((snapshot) => snapshot.size);
   }
 }
 
@@ -256,7 +385,10 @@ class _NotifikasiScreenState extends State<NotifikasiScreen> {
           ],
         ),
       ),
-      child: _buildNotifCard(context, item),
+      child: GestureDetector(
+        onTap: () => _bukaDetailNotif(item),
+        child: _buildNotifCard(context, item),
+      ),
     );
   }
 
@@ -504,5 +636,20 @@ class _NotifikasiScreenState extends State<NotifikasiScreen> {
         ),
       ),
     );
+  }
+
+  void _bukaDetailNotif(NotifItem item) {
+    final judul = item.judul.toLowerCase();
+
+    Widget screen;
+    if (judul.contains('terlambat') || judul.contains('deadline')) {
+      screen = const OrderScreen(initialDeadline: true);
+    } else if (judul.contains('estimasi') || judul.contains('selesai')) {
+      screen = const OrderScreen(initialStatus: 'proses');
+    } else {
+      screen = const OrderScreen();
+    }
+
+    Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
   }
 }

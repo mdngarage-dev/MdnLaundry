@@ -1007,18 +1007,24 @@ class _HomeScreenState extends State<HomeScreen>
           for (final doc in snapshot.data!.docs) {
             final data = doc.data() as Map<String, dynamic>;
             final status = (data['status']?.toString() ?? '').toLowerCase();
-            final estimasiStr = data['estimasi_selesai']?.toString() ?? '';
 
-            DateTime? estimasi;
-            if (estimasiStr.isNotEmpty) {
+            // ── Hitung deadline lengkap (tanggal + jam) dari
+            //    waktu_order + durasi_jam, karena estimasi_selesai
+            //    hanya menyimpan tanggal tanpa jam.
+            DateTime? deadlineDateTime;
+            final waktuOrder = data['waktu_order'];
+            final durasiJam = data['durasi_jam'];
+
+            if (waktuOrder != null && durasiJam != null) {
               try {
-                final parts = estimasiStr.split('-');
-                if (parts.length == 3) {
-                  estimasi = DateTime(
-                    int.parse(parts[2]),
-                    int.parse(parts[1]),
-                    int.parse(parts[0]),
-                  );
+                final dtOrder = waktuOrder is Timestamp
+                    ? waktuOrder.toDate()
+                    : DateTime.tryParse(waktuOrder.toString());
+                final jam = durasiJam is num
+                    ? durasiJam.toInt()
+                    : int.tryParse(durasiJam.toString()) ?? 0;
+                if (dtOrder != null) {
+                  deadlineDateTime = dtOrder.add(Duration(hours: jam));
                 }
               } catch (_) {}
             }
@@ -1026,20 +1032,21 @@ class _HomeScreenState extends State<HomeScreen>
             switch (status) {
               case 'antrian':
                 antrian++;
+                _hitungDeadlineTerlambat(
+                  deadlineDateTime,
+                  now,
+                  () => deadline++,
+                  () => terlambat++,
+                );
                 break;
               case 'proses':
                 proses++;
-                if (estimasi != null) {
-                  final hariIni = DateTime(now.year, now.month, now.day);
-                  final estiMurni = DateTime(
-                    estimasi.year,
-                    estimasi.month,
-                    estimasi.day,
-                  );
-                  final selisih = estiMurni.difference(hariIni).inDays;
-                  if (selisih <= 1 && selisih >= 0) deadline++;
-                  if (estiMurni.isBefore(hariIni)) terlambat++;
-                }
+                _hitungDeadlineTerlambat(
+                  deadlineDateTime,
+                  now,
+                  () => deadline++,
+                  () => terlambat++,
+                );
                 break;
               case 'siap ambil':
                 siapAmbil++;
@@ -1106,6 +1113,26 @@ class _HomeScreenState extends State<HomeScreen>
         );
       },
     );
+  }
+
+  // ── Helper: klasifikasi deadline / terlambat berdasarkan datetime penuh ──
+  // Mutually exclusive: sebuah order hanya akan masuk ke salah satu,
+  // deadline ATAU terlambat, tidak pernah keduanya.
+  void _hitungDeadlineTerlambat(
+    DateTime? deadlineDateTime,
+    DateTime now,
+    void Function() onDeadline,
+    void Function() onTerlambat,
+  ) {
+    if (deadlineDateTime == null) return;
+
+    if (deadlineDateTime.isBefore(now)) {
+      // Sudah lewat jam deadline → terlambat
+      onTerlambat();
+    } else {
+      // Belum lewat jam deadline → masuk kategori deadline
+      onDeadline();
+    }
   }
 
   Widget _buildOrderStatCard(_OrderStatItem item) {

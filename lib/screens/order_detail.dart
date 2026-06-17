@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:mdnlaundry_project/settings/wa_settings.dart';
 import 'screens.dart';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -71,6 +73,87 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         behavior: SnackBarBehavior.floating,
       ),
     );
+  }
+
+  // ── Kirim notifikasi WA: cucian siap diambil ──────────────────────────────
+  Future<void> _kirimNotifikasiSiapAmbil(String rakNama) async {
+    final mode = await WaSettings.getMode();
+
+    if (mode == 'off') return; // tidak lakukan apa-apa
+
+    if (_noHp.isEmpty) return; // tidak ada nomor HP pelanggan
+
+    // Bersihkan & format nomor HP
+    String hp = _noHp.replaceAll(RegExp(r'[^0-9]'), '');
+    if (hp.startsWith('0')) hp = '62${hp.substring(1)}';
+    if (!hp.startsWith('62')) hp = '62$hp';
+
+    final trackingUrl = 'https://laundry-ku-id.web.app/$_noPelanggan';
+    final totalFmt = _formatRupiah(_grandTotal);
+    final sisaFmt = _formatRupiah(_sisaTagihan);
+
+    final infoBayar = _sudahLunas ? '✅ Lunas' : '💳 Sisa Tagihan: $sisaFmt';
+
+    final pesan =
+        'Halo, *$_namaPelangganStr* 👋\n\n'
+        '🎉 Laundry Anda sudah *selesai* dan siap diambil!\n\n'
+        '📋 *Detail Order:*\n'
+        '• No. Order    : *$_noPelanggan*\n'
+        '• Layanan      : ${_data['layanan_nama'] ?? '-'}\n'
+        '• Total           : *$totalFmt*\n'
+        '• Pembayaran: $infoBayar\n'
+        '🔍 *Lacak status order Anda:*\n'
+        '$trackingUrl\n\n'
+        'Silakan diambil di outlet kami. Terima kasih! 🙏\n'
+        'Jika antar jemput silahkan konfimrasi saat berada di rumah\n\n'
+        '_Madeena Laundry_';
+
+    if (mode == 'auto') {
+      final token = await WaSettings.getToken();
+      if (token.isEmpty) {
+        await _bukaWaManualDetail(hp, pesan);
+        return;
+      }
+      try {
+        final res = await http.post(
+          Uri.parse('https://api.fonnte.com/send'),
+          headers: {'Authorization': token},
+          body: {'target': hp, 'message': pesan},
+        );
+        final json = jsonDecode(res.body);
+        if (mounted && json['status'] == true) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Row(
+                children: [
+                  Icon(Icons.send, color: Colors.white, size: 16),
+                  SizedBox(width: 8),
+                  Text('Notifikasi WA terkirim otomatis'),
+                ],
+              ),
+              backgroundColor: const Color(0xFF25D366),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          );
+        }
+      } catch (e) {
+        await _bukaWaManualDetail(hp, pesan); // fallback kalau error
+      }
+    } else {
+      // mode == 'manual'
+      await _bukaWaManualDetail(hp, pesan);
+    }
+  }
+
+  Future<void> _bukaWaManualDetail(String hp, String pesan) async {
+    final encoded = Uri.encodeComponent(pesan);
+    final url = Uri.parse('https://wa.me/$hp?text=$encoded');
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
+    }
   }
 
   // ── Getter langsung dari dokumen order ────────────────────────────────────

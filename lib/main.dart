@@ -7,7 +7,6 @@ import 'package:provider/provider.dart';
 import 'package:mdnlaundry_project/components/notif_laundry.dart';
 import 'package:overlay_support/overlay_support.dart';
 import 'package:mdnlaundry_project/screens/auth_wrapper.dart'; // ← import AuthWrapper
-import 'package:firebase_messaging/firebase_messaging.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -60,8 +59,7 @@ void main() async {
     debugPrint('[FIREBASE] Error: $e');
   }
 
-  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-  NotifLaundryService().inisialisasiNotifikasi();
+  await NotifLaundryService().inisialisasiNotifikasi();
   await OutletSettingsService.load();
   await PrinterSettingsService.load();
 

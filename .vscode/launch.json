@@ -1,0 +1,19 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "1. Run Aplikasi Utama (lib)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+  
+    },
+    {
+      "name": "2. Run Web Tracking (web)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",  // ← Ganti ke main.dart
+
+    }
+  ]
+}

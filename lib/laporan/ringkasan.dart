@@ -1267,12 +1267,12 @@ class _RingkasanPageState extends State<RingkasanPage> {
             LineChartBarData(
               spots: spots,
               isCurved: true,
-              color: const Color(0xff007AFF),
+              color: kPrimary,
               barWidth: 3,
               dotData: const FlDotData(show: false),
               belowBarData: BarAreaData(
                 show: true,
-                color: const Color(0xff007AFF).withOpacity(0.08),
+                color: kPrimary.withOpacity(0.08),
               ),
             ),
           ],

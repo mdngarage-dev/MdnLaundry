@@ -101,6 +101,12 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
     required String statusBayar,
     required int dpAmount,
   }) async {
+    final mode = await WaSettings.getMode();
+
+    if (mode == 'off') {
+      return; // ── tidak lakukan apa-apa ──
+    }
+
     // Bersihkan & format nomor HP
     String hp = noHp.replaceAll(RegExp(r'[^0-9]'), '');
     if (hp.startsWith('0')) hp = '62${hp.substring(1)}';
@@ -145,12 +151,13 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
         'Kami segera memproses laundry Anda. Terima kasih! 🙏\n\n'
         '_Madeena Laundry_';
 
-    final isAuto = await WaSettings.isEnabled();
-    final token = await WaSettings.getToken();
-    debugPrint('WA auto: $isAuto, token: $token');
-
-    if (isAuto && token.isNotEmpty) {
-      // ── AUTO SEND via Fonnte API ──────────────────────────────────
+    if (mode == 'auto') {
+      final token = await WaSettings.getToken();
+      if (token.isEmpty) {
+        // fallback ke manual kalau token kosong
+        await _bukaWaManual(hp, pesan);
+        return;
+      }
       try {
         final res = await http.post(
           Uri.parse('https://api.fonnte.com/send'),
@@ -177,12 +184,11 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
           );
         }
       } catch (e) {
-        // Gagal auto → fallback manual
-        _bukaWaManual(hp, pesan);
+        await _bukaWaManual(hp, pesan); // fallback kalau error
       }
     } else {
-      // ── MANUAL: buka WhatsApp dengan pesan pre-filled ─────────────
-      _bukaWaManual(hp, pesan);
+      // mode == 'manual'
+      await _bukaWaManual(hp, pesan);
     }
   }
 

@@ -22,8 +22,9 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
   int _totalTransaksi = 0;
   double _totalOmzet = 0;
   double _totalTerbayar = 0;
-  double _totalPiutang =
-      0; // sisa yang belum dibayar = harga_total - dp_amount (jika belum lunas)
+  double _totalPiutang = 0;
+  double _totalMeter = 0; // ← tambah: total m² untuk layanan tipe "meter"
+  double _totalKg = 0; // ← tambah: total kg untuk layanan tipe "kiloan"
 
   List<Map<String, dynamic>> _allOrders = [];
   Map<String, List<Map<String, dynamic>>> _grouped = {};
@@ -99,8 +100,6 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
         if (nomorPelanggan.isEmpty) continue;
 
         // ── Nama & HP: baca langsung dari document order ─────────────────
-        // Field di order: nama_pelanggan, no_hp
-        // Fallback ke collection pelanggan jika field tidak ada di order
         final info = pelangganMap[nomorPelanggan];
         final String namaDariOrder = (data['nama_pelanggan'] ?? '')
             .toString()
@@ -116,7 +115,6 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
         final String alamat = info?['alamat'] ?? '';
 
         final double hargaTotal = (data['harga_total'] ?? 0).toDouble();
-        // ── dp_amount: jumlah yang sudah dibayar di muka ─────────────────
         final double dpAmount = (data['dp_amount'] ?? 0).toDouble();
 
         final String statusBayar = (data['status_bayar'] ?? '')
@@ -128,8 +126,16 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
             .trim();
         final String admin = (data['admin'] ?? '-').toString().trim();
 
+        // ── Field baru: layanan_tipe dan berat_kg ─────────────────────────
+        final String layananTipe = (data['layanan_tipe'] ?? '')
+            .toString()
+            .toLowerCase()
+            .trim();
+        final double beratKg = (data['berat_kg'] ?? 0).toDouble();
+
         final String orderId =
-            '${DateFormat('yyyyMMdd').format(tgl)}-'
+            '${DateFormat('yyyyMMdd').format(tgl)}'
+            '-'
             '${doc.id.substring(0, 4).toUpperCase()}';
 
         orders.add({
@@ -140,12 +146,14 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
           'nomer_hp': nomerHp,
           'alamat': alamat,
           'harga_total': hargaTotal,
-          'dp_amount': dpAmount, // ← tambah field ini
+          'dp_amount': dpAmount,
           'status_bayar': statusBayar,
           'status_order': statusOrder,
           'layanan_nama': layananNama,
           'admin': admin,
           'waktu': tgl,
+          'layanan_tipe': layananTipe, // ← simpan tipe layanan
+          'berat_kg': beratKg, // ← simpan berat/meter
         });
       }
 
@@ -162,6 +170,8 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
         _totalOmzet = result['totalOmzet'] as double;
         _totalTerbayar = result['totalTerbayar'] as double;
         _totalPiutang = result['totalPiutang'] as double;
+        _totalMeter = result['totalMeter'] as double;
+        _totalKg = result['totalKg'] as double;
         _grouped = result['grouped'] as Map<String, List<Map<String, dynamic>>>;
       });
     } catch (e, stack) {
@@ -187,6 +197,10 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
   //     → piutang  += harga_total
   //
   //   omzet selalu += harga_total (nilai bruto order)
+  //
+  // Logika meter & kg:
+  //   Jika layanan_tipe == 'meter' → totalMeter += berat_kg (m²)
+  //   Jika layanan_tipe == 'kiloan' → totalKg += berat_kg (kg)
   // ════════════════════════════════════════════════════════════
   Map<String, dynamic> _computeFilter(
     List<Map<String, dynamic>> orders,
@@ -217,23 +231,30 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
       return inRange && matchSearch;
     }).toList();
 
-    double omzet = 0, terbayar = 0, piutang = 0;
+    double omzet = 0, terbayar = 0, piutang = 0, totalMeter = 0, totalKg = 0;
     for (final o in filtered) {
       final double harga = o['harga_total'] as double;
       final double dp = o['dp_amount'] as double;
       final String status = o['status_bayar'] as String;
+      final String layananTipe = o['layanan_tipe'] as String;
+      final double beratKg = o['berat_kg'] as double;
 
       omzet += harga;
 
       if (status == 'lunas') {
         terbayar += harga;
-        // piutang += 0
       } else if (status == 'dp') {
         terbayar += dp;
         piutang += (harga - dp).clamp(0, double.infinity);
       } else {
-        // belum_bayar atau kosong
         piutang += harga;
+      }
+
+      // ── Hitung meter dan kg berdasarkan layanan_tipe ──────────────────
+      if (layananTipe == 'meter') {
+        totalMeter += beratKg;
+      } else if (layananTipe == 'kiloan') {
+        totalKg += beratKg;
       }
     }
 
@@ -251,6 +272,8 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
       'totalOmzet': omzet,
       'totalTerbayar': terbayar,
       'totalPiutang': piutang,
+      'totalMeter': totalMeter,
+      'totalKg': totalKg,
       'grouped': grouped,
     };
   }
@@ -270,6 +293,8 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
       _totalOmzet = result['totalOmzet'] as double;
       _totalTerbayar = result['totalTerbayar'] as double;
       _totalPiutang = result['totalPiutang'] as double;
+      _totalMeter = result['totalMeter'] as double;
+      _totalKg = result['totalKg'] as double;
       _grouped = result['grouped'] as Map<String, List<Map<String, dynamic>>>;
     });
   }
@@ -284,7 +309,6 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
     final bool lunas = statusBayar == 'lunas';
     final bool hasDP = statusBayar == 'dp' && dp > 0;
 
-    // Sisa yang harus dibayar
     final double sisaBayar = lunas ? 0 : (harga - dp).clamp(0, double.infinity);
 
     final DateTime tgl = order['waktu'] as DateTime;
@@ -302,7 +326,6 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
         final bodyLarge = theme.textTheme.bodyLarge;
         final bodySmall = theme.textTheme.bodySmall;
 
-        // Warna: lunas = hijau, dp = oranye, belum bayar = merah
         final Color statusColor = lunas
             ? const Color(0xff16A34A)
             : hasDP
@@ -340,7 +363,6 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                 ),
                 const SizedBox(height: 16),
 
-                // Header
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -363,7 +385,6 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                 ),
                 const SizedBox(height: 10),
 
-                // Badge status bayar
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 12,
@@ -385,7 +406,6 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                 ),
                 const SizedBox(height: 20),
 
-                // Pelanggan
                 _sheetSection('PELANGGAN', Icons.person_outline_rounded),
                 const SizedBox(height: 8),
                 Text(
@@ -415,7 +435,6 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                 ],
                 const SizedBox(height: 16),
 
-                // Layanan
                 _sheetSection('LAYANAN', Icons.local_laundry_service_outlined),
                 const SizedBox(height: 8),
                 Row(
@@ -440,7 +459,6 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                 ),
                 const SizedBox(height: 16),
 
-                // Status order
                 _sheetSection('STATUS ORDER', Icons.assignment_outlined),
                 const SizedBox(height: 8),
                 Row(
@@ -455,7 +473,6 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                 ),
                 const SizedBox(height: 16),
 
-                // Waktu
                 _sheetSection('WAKTU ORDER', Icons.calendar_month_outlined),
                 const SizedBox(height: 8),
                 _sheetTimeRow(
@@ -466,7 +483,6 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                 ),
                 const SizedBox(height: 16),
 
-                // Pembayaran — tampilkan breakdown jika ada DP
                 _sheetSection('PEMBAYARAN', Icons.credit_card_outlined),
                 const SizedBox(height: 8),
                 _sheetPayRow(
@@ -492,7 +508,6 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                   ),
                 ],
                 const SizedBox(height: 6),
-                // Sisa / Piutang
                 _sheetPayRow(
                   lunas ? 'Status' : 'Sisa Tagihan',
                   lunas ? 'Lunas' : _formatRp(sisaBayar),
@@ -730,6 +745,9 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
     decimalDigits: 0,
   ).format(val);
 
+  String _formatNumber(double val) =>
+      val.toStringAsFixed(2).replaceAll('.', ',');
+
   String _formatPeriodeLabel() {
     if (_selectedPeriode == 'Custom') {
       return '${DateFormat('d MMM', 'id').format(_startDate)} – '
@@ -937,7 +955,9 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                           ],
                           const SizedBox(height: 16),
 
-                          // Summary 2×2
+                          // ════════════════════════════════════════════════════════════
+                          // Summary 3×2 (6 cards dalam 2 baris, 3 kolom)
+                          // ════════════════════════════════════════════════════════════
                           Row(
                             children: [
                               _summaryCard(
@@ -951,7 +971,7 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                                 valueColor: kPrimary,
                                 isCurrency: false,
                               ),
-                              const SizedBox(width: 12),
+                              const SizedBox(width: 8),
                               _summaryCard(
                                 cardColor: cardColor,
                                 bodySmall: bodySmall,
@@ -963,11 +983,7 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                                 valueColor: const Color(0xffD97706),
                                 isCurrency: true,
                               ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
+                              const SizedBox(width: 8),
                               _summaryCard(
                                 cardColor: cardColor,
                                 bodySmall: bodySmall,
@@ -979,7 +995,11 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                                 valueColor: kPrimary,
                                 isCurrency: true,
                               ),
-                              const SizedBox(width: 12),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
                               _summaryCard(
                                 cardColor: cardColor,
                                 bodySmall: bodySmall,
@@ -990,6 +1010,30 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                                 value: _formatRp(_totalTerbayar),
                                 valueColor: const Color(0xff16A34A),
                                 isCurrency: true,
+                              ),
+                              const SizedBox(width: 8),
+                              _summaryCard(
+                                cardColor: cardColor,
+                                bodySmall: bodySmall,
+                                icon: Icons.scale_outlined,
+                                iconColor: const Color(0xff8B5CF6),
+                                iconBg: const Color(0xffF3E8FF),
+                                label: 'Total KG',
+                                value: _formatNumber(_totalKg),
+                                valueColor: const Color(0xff8B5CF6),
+                                isCurrency: false,
+                              ),
+                              const SizedBox(width: 8),
+                              _summaryCard(
+                                cardColor: cardColor,
+                                bodySmall: bodySmall,
+                                icon: Icons.straighten_outlined,
+                                iconColor: const Color(0xff06B6D4),
+                                iconBg: const Color(0xffCFFAFE),
+                                label: 'Total Meter (m²)',
+                                value: _formatNumber(_totalMeter),
+                                valueColor: const Color(0xff06B6D4),
+                                isCurrency: false,
                               ),
                             ],
                           ),
@@ -1172,7 +1216,7 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
   }) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
           color: cardColor,
           borderRadius: BorderRadius.circular(14),
@@ -1181,28 +1225,41 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              padding: const EdgeInsets.all(7),
-              decoration: BoxDecoration(
-                color: iconBg,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(icon, color: iconColor, size: 18),
+            // Label di atas
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: bodySmall?.copyWith(fontSize: 10),
             ),
-            const SizedBox(height: 10),
-            Text(label, style: bodySmall?.copyWith(fontSize: 11)),
-            const SizedBox(height: 2),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Text(
-                value,
-                style: TextStyle(
-                  fontSize: isCurrency ? 14 : 22,
-                  fontWeight: FontWeight.bold,
-                  color: valueColor,
+            const SizedBox(height: 6),
+            // Icon + value sejajar dalam satu Row
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: iconBg,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(icon, color: iconColor, size: 16),
                 ),
-              ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      value,
+                      style: TextStyle(
+                        fontSize: isCurrency ? 12 : 18,
+                        fontWeight: FontWeight.bold,
+                        color: valueColor,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -1228,10 +1285,8 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
     final bool lunas = statusBayar == 'lunas';
     final bool hasDP = statusBayar == 'dp' && dp > 0;
 
-    // Sisa tagihan nyata
     final double sisaBayar = lunas ? 0 : (harga - dp).clamp(0, double.infinity);
 
-    // Warna & label status bayar di card
     final Color bayarColor = lunas
         ? const Color(0xff16A34A)
         : hasDP
@@ -1248,12 +1303,9 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
         ? Icons.payments_outlined
         : Icons.hourglass_empty_rounded;
 
-    // Nilai yang ditampilkan di kanan atas: harga total
-    // Nilai merah/hijau = sisa tagihan (bukan harga_total)
     final Color nilaiColor = lunas
         ? const Color(0xff16A34A)
         : const Color(0xffDC2626);
-    // Tampilkan sisa jika belum lunas, harga_total jika lunas
     final String nilaiText = lunas ? _formatRp(harga) : _formatRp(sisaBayar);
 
     return GestureDetector(
@@ -1277,7 +1329,6 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Baris 1: nomor + nilai
               Row(
                 children: [
                   Expanded(
@@ -1303,7 +1354,6 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      // Total order (abu-abu kecil)
                       if (!lunas && dp > 0)
                         Text(
                           _formatRp(harga),
@@ -1313,7 +1363,6 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                             decoration: TextDecoration.lineThrough,
                           ),
                         ),
-                      // Sisa / nilai utama
                       Text(
                         nilaiText,
                         style: TextStyle(
@@ -1329,7 +1378,6 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
 
               const SizedBox(height: 6),
 
-              // Baris 2: layanan + waktu
               Row(
                 children: [
                   Icon(
@@ -1361,7 +1409,6 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
 
               const SizedBox(height: 8),
 
-              // Baris 3: badge + detail
               Row(
                 children: [
                   Container(
@@ -1423,7 +1470,6 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
     );
   }
 
-  // Sheet helpers
   Widget _sheetSection(String label, IconData icon) {
     return Row(
       children: [

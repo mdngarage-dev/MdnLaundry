@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:onesignal_flutter/onesignal_flutter.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../screens/notifikasi.dart';
-import '../screens/screens.dart';
+import '../screens/main_screens.dart';
 
 // ─── Navigator key global (tetap sama) ───────────────────────────────────────
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();

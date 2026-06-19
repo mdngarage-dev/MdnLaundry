@@ -3,10 +3,10 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:mdnlaundry_project/scanner_screen.dart';
+import 'package:mdnlaundry_project/screens/scanner_screen.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'screens.dart';
+import 'main_screens.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -751,7 +751,7 @@ class _HomeScreenState extends State<HomeScreen>
                             ),
                           ),
                           Text(
-                            "Selamat datang di ${OutletSettings.namaMadeenalaundry}",
+                            "Selamat datang di ${OutletSettings.namaLaundry}",
                             style: TextStyle(
                               fontSize: 12,
                               color: Colors.white.withOpacity(0.75),
@@ -1129,10 +1129,12 @@ class _HomeScreenState extends State<HomeScreen>
     if (deadlineDateTime.isBefore(now)) {
       // Sudah lewat jam deadline → terlambat
       onTerlambat();
-    } else {
-      // Belum lewat jam deadline → masuk kategori deadline
+    } else if (deadlineDateTime.difference(now) <= const Duration(hours: 3)) {
+      // Sisa waktu ≤ 3 jam → baru dihitung "Deadline"
       onDeadline();
     }
+    // Kalau sisa waktu masih > 3 jam, tidak dihitung di kedua kategori,
+    // cukup tampil di Antrian/Proses seperti biasa.
   }
 
   Widget _buildOrderStatCard(_OrderStatItem item) {

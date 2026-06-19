@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
-import '../screens/screens.dart';
+import '../screens/main_screens.dart';
 import 'package:qr/qr.dart';
 import 'package:image/image.dart' as imgLib;
 
@@ -347,12 +347,12 @@ class ThermalPrinterService {
     final String namaOutlet =
         (data['nama_laundry']?.toString().isNotEmpty == true
         ? data['nama_laundry'].toString()
-        : OutletSettings.namaMadeenalaundry.isNotEmpty
-        ? OutletSettings.namaMadeenalaundry
+        : OutletSettings.namaLaundry.isNotEmpty
+        ? OutletSettings.namaLaundry
         : 'Madeena Laundry');
     final String alamat = data['alamat']?.toString() ?? OutletSettings.alamat;
     final String noHpToko =
-        data['no_hp_laundry']?.toString() ?? OutletSettings.noHpMadeenalaundry;
+        data['no_hp_laundry']?.toString() ?? OutletSettings.noHpLaundry;
     final String logoPath = OutletSettings.logoPath;
 
     final String noOrder = data['no_order']?.toString() ?? '-';

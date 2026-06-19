@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../screens/screens.dart';
+import '../main_screens.dart';
 
 class RingkasanPage extends StatefulWidget {
   const RingkasanPage({super.key});
@@ -365,7 +365,7 @@ class _RingkasanPageState extends State<RingkasanPage> {
 
     final pesan =
         'Halo $nama,\n\n'
-        'Kami dari ${OutletSettings.namaMadeenalaundry} ingin menginformasikan '
+        'Kami dari ${OutletSettings.namaLaundry} ingin menginformasikan '
         'bahwa Anda masih memiliki tagihan yang belum dilunasi.\n\n'
         '📋 *Detail Tagihan*\n'
         'Nama        : $nama\n'
@@ -375,7 +375,7 @@ class _RingkasanPageState extends State<RingkasanPage> {
         'Total       : *$total*$dp\n'
         'Sisa Tagihan: *$nominal*\n\n'
         'Mohon segera melakukan pembayaran. Terima kasih 🙏\n\n'
-        '_Salam,_\n_${OutletSettings.namaMadeenalaundry}_';
+        '_Salam,_\n_${OutletSettings.namaLaundry}_';
 
     String hp = noHp.replaceAll(RegExp(r'\s+|-'), '');
     if (hp.startsWith('0')) {

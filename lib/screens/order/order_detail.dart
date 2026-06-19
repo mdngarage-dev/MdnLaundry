@@ -4,8 +4,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:mdnlaundry_project/settings/wa_settings.dart';
-import 'screens.dart';
+import 'package:mdnlaundry_project/screens/settings/outlet/wa_settings.dart';
+import '../main_screens.dart';
 
 // ════════════════════════════════════════════════════════════════════════════
 //  ORDER DETAIL SCREEN
@@ -502,9 +502,9 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   // ── Cetak Struk ── KEY KONSISTEN dengan ThermalPrinterService ─────────────
   void _cetak() {
     final tanggalCetak = DateFormat('dd MMM yyyy HH:mm').format(DateTime.now());
-    final namaLaundry = OutletSettings.namaMadeenalaundry;
+    final namaLaundry = OutletSettings.namaLaundry;
     final alamat = OutletSettings.alamat;
-    final noHpLaundry = OutletSettings.noHpMadeenalaundry;
+    final noHpLaundry = OutletSettings.noHpLaundry;
     final namaPelangganDisplay = PrinterSettings.namaPelangganBesar
         ? _namaPelangganStr.toUpperCase()
         : _namaPelangganStr;
@@ -1008,7 +1008,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                           // ════════════════════════════════════════════════
                         ] else ...[
                           Text(
-                            OutletSettings.namaMadeenalaundry,
+                            OutletSettings.namaLaundry,
                             textAlign: TextAlign.center,
                             style: Theme.of(context).textTheme.bodyLarge
                                 ?.copyWith(
@@ -1026,9 +1026,9 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                             ),
                           ],
                           if (PrinterSettings.tampilkanNoHpOutlet &&
-                              OutletSettings.noHpMadeenalaundry.isNotEmpty)
+                              OutletSettings.noHpLaundry.isNotEmpty)
                             Text(
-                              'Telp: ${OutletSettings.noHpMadeenalaundry}',
+                              'Telp: ${OutletSettings.noHpLaundry}',
                               textAlign: TextAlign.center,
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
@@ -2235,22 +2235,31 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                             ],
                           ),
                         ),
-                        if (_noHp.isNotEmpty)
-                          GestureDetector(
-                            onTap: _shareWA,
-                            child: Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF25D366).withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(10),
+                        FutureBuilder<bool>(
+                          future: canAccess(
+                            'can_eit_layanan',
+                          ), // ganti key sesuai kebutuhan
+                          builder: (context, snap) {
+                            if (!(snap.data ?? false)) {
+                              return const SizedBox.shrink();
+                            }
+                            return GestureDetector(
+                              onTap: _gantiPelanggan,
+                              child: Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: primary.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Icon(
+                                  Icons.edit_outlined,
+                                  color: primary,
+                                  size: 18,
+                                ),
                               ),
-                              child: const Icon(
-                                Icons.chat_outlined,
-                                color: Color(0xFF25D366),
-                                size: 18,
-                              ),
-                            ),
-                          ),
+                            );
+                          },
+                        ),
                       ],
                     ),
                   ),
@@ -3053,6 +3062,39 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         },
       ),
     );
+  }
+
+  Future<void> _gantiPelanggan() async {
+    final result = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const DaftarPelangganPage(isSelecting: true),
+      ),
+    );
+
+    if (result != null && mounted) {
+      final namaBaru = result['nama']?.toString() ?? '';
+      final hpBaru = result['no_hp']?.toString() ?? '';
+
+      await FirebaseFirestore.instance
+          .collection('order')
+          .doc(widget.docId)
+          .update({'nama_pelanggan': namaBaru, 'no_hp': hpBaru});
+
+      setState(() {
+        _data['nama_pelanggan'] = namaBaru;
+        _data['no_hp'] = hpBaru;
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Pelanggan diperbarui: $namaBaru'),
+          backgroundColor: Theme.of(context).colorScheme.primary,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   Future<void> _saveEditedItems(List<Map<String, dynamic>> updatedItems) async {

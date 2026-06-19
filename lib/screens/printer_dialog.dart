@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'screens.dart';
+import 'main_screens.dart';
 
 class PrinterDialog {
   static void show(BuildContext context, Map<String, dynamic> data) async {
@@ -29,14 +29,17 @@ class PrinterDialog {
                       child: ListView.builder(
                         itemCount: devices.length,
                         itemBuilder: (context, index) {
-                          return ListTile(
-                            leading: const Icon(Icons.print),
-                            title: Text(devices[index].name ?? "Unknown"),
-                            subtitle: Text(devices[index].address ?? ""),
-                            onTap: () {
-                              Navigator.pop(context);
-                              printerService.printStruk(devices[index], data);
-                            },
+                          return Material(
+                            color: Colors.transparent, // ← TAMBAH
+                            child: ListTile(
+                              leading: const Icon(Icons.print),
+                              title: Text(devices[index].name ?? "Unknown"),
+                              subtitle: Text(devices[index].address ?? ""),
+                              onTap: () {
+                                Navigator.pop(context);
+                                printerService.printStruk(devices[index], data);
+                              },
+                            ),
                           );
                         },
                       ),

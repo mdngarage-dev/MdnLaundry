@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'screens.dart';
+import 'screens/main_screens.dart';
 
 class GetStartedScreen extends StatelessWidget {
   const GetStartedScreen({super.key});

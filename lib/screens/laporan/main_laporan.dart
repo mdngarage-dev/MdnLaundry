@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../screens/screens.dart';
+import '../main_screens.dart';
 
 class LaporanScreen extends StatelessWidget {
   const LaporanScreen({super.key});
@@ -72,40 +72,41 @@ class LaporanScreen extends StatelessWidget {
     required String subtitle,
     required VoidCallback onTap,
   }) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      leading: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          // ✅ THEME: Background icon mengikuti primaryColor tema (hijau-ish via opacity)
-          color: Theme.of(context).primaryColor.withOpacity(0.08),
-          borderRadius: BorderRadius.circular(10),
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(20),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Theme.of(context).primaryColor.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, color: Theme.of(context).primaryColor),
         ),
-        child: Icon(icon, color: Theme.of(context).primaryColor),
-      ),
-      title: Text(
-        title,
-        style: TextStyle(
-          fontWeight: FontWeight.bold,
-          fontSize: 15,
-          // ✅ THEME: Warna judul mengikuti tema
-          color: Theme.of(context).textTheme.bodyLarge?.color,
+        title: Text(
+          title,
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 15,
+            color: Theme.of(context).textTheme.bodyLarge?.color,
+          ),
         ),
-      ),
-      subtitle: Text(
-        subtitle,
-        style: TextStyle(
-          fontSize: 12,
-          // ✅ THEME: Warna subtitle mengikuti tema
-          color: Theme.of(context).textTheme.bodyMedium?.color,
+        subtitle: Text(
+          subtitle,
+          style: TextStyle(
+            fontSize: 12,
+            color: Theme.of(context).textTheme.bodyMedium?.color,
+          ),
         ),
+        trailing: Icon(
+          Icons.chevron_right,
+          color: Theme.of(context).hintColor,
+          size: 18,
+        ),
+        onTap: onTap,
       ),
-      trailing: Icon(
-        Icons.chevron_right,
-        color: Theme.of(context).hintColor,
-        size: 18,
-      ),
-      onTap: onTap,
     );
   }
 
@@ -259,7 +260,6 @@ class LaporanScreen extends StatelessWidget {
 
             Container(
               decoration: BoxDecoration(
-                // ✅ THEME: Warna card grup mengikuti cardColor tema
                 color: Theme.of(context).cardColor,
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(
@@ -268,106 +268,105 @@ class LaporanScreen extends StatelessWidget {
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(20),
-                child: Column(
-                  children: [
-                    // Menu yang hanya muncul untuk admin (Owner tidak lihat)
-                    FutureBuilder<bool>(
-                      future: canAccess('', ownerOnly: true),
-                      builder: (context, snapshot) {
-                        if (!(snapshot.data ?? false)) {
-                          return const SizedBox.shrink();
-                        }
-                        return _buildGroupedItem(
-                          context: context,
-                          icon: Icons.shopping_bag_outlined,
-                          title: "Tambah Pengeluaran",
-                          subtitle: "Halaman Input pengeluaran",
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const FormPengeluaranPage(),
-                              ),
-                            );
-                          },
-                        );
-                      },
-                    ),
+                child: Material(
+                  // ← TAMBAH INI
+                  color: Colors.transparent, // ← TAMBAH INI
+                  child: Column(
+                    children: [
+                      FutureBuilder<bool>(
+                        future: canAccess('', ownerOnly: true),
+                        builder: (context, snapshot) {
+                          if (!(snapshot.data ?? false))
+                            return const SizedBox.shrink();
+                          return _buildGroupedItem(
+                            context: context,
+                            icon: Icons.shopping_bag_outlined,
+                            title: "Tambah Pengeluaran",
+                            subtitle: "Halaman Input pengeluaran",
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const FormPengeluaranPage(),
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      ),
 
-                    // Menu yang hanya muncul untuk owner (hanya Admin yang diizinkan)
-                    FutureBuilder<bool>(
-                      future: canAccess('can_access_lispengeluaran'),
-                      builder: (context, snapshot) {
-                        if (!(snapshot.data ?? false)) {
-                          return const SizedBox.shrink();
-                        }
-                        return _buildGroupedItem(
-                          context: context,
-                          icon: Icons.shopping_bag_outlined,
-                          title: "Pengeluaran",
-                          subtitle: "Laporan detail pengeluaran",
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const ListPengeluaranPage(),
-                              ),
-                            );
-                          },
-                        );
-                      },
-                    ),
+                      FutureBuilder<bool>(
+                        future: canAccess('can_access_lispengeluaran'),
+                        builder: (context, snapshot) {
+                          if (!(snapshot.data ?? false))
+                            return const SizedBox.shrink();
+                          return _buildGroupedItem(
+                            context: context,
+                            icon: Icons.shopping_bag_outlined,
+                            title: "Pengeluaran",
+                            subtitle: "Laporan detail pengeluaran",
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const ListPengeluaranPage(),
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      ),
 
-                    _buildDivider(context),
-                    _buildGroupedItem(
-                      context: context,
-                      icon: Icons.shopping_cart_outlined,
-                      title: "Laporan Order",
-                      subtitle: "Detail laporan order",
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const LaporanOrderPage(),
-                          ),
-                        );
-                      },
-                    ),
-                    _buildDivider(context),
-                    _buildGroupedItem(
-                      context: context,
-                      icon: Icons.show_chart,
-                      title: "Analisis Pelanggan",
-                      subtitle: "Detail analisis pelanggan",
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const AnalisisPelangganPage(),
-                          ),
-                        );
-                      },
-                    ),
-                    _buildDivider(context),
-                    _buildGroupedItem(
-                      context: context,
-                      icon: Icons.co_present_outlined,
-                      title: "Kinerja Pegawai",
-                      subtitle: "Pantau kinerja pegawai",
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const KinerjaPegawaiPage(),
-                          ),
-                        );
-                      },
-                    ),
-                  ],
-                ),
+                      _buildDivider(context),
+                      _buildGroupedItem(
+                        context: context,
+                        icon: Icons.shopping_cart_outlined,
+                        title: "Laporan Order",
+                        subtitle: "Detail laporan order",
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const LaporanOrderPage(),
+                            ),
+                          );
+                        },
+                      ),
+                      _buildDivider(context),
+                      _buildGroupedItem(
+                        context: context,
+                        icon: Icons.show_chart,
+                        title: "Analisis Pelanggan",
+                        subtitle: "Detail analisis pelanggan",
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const AnalisisPelangganPage(),
+                            ),
+                          );
+                        },
+                      ),
+                      _buildDivider(context),
+                      _buildGroupedItem(
+                        context: context,
+                        icon: Icons.co_present_outlined,
+                        title: "Kinerja Pegawai",
+                        subtitle: "Pantau kinerja pegawai",
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const KinerjaPegawaiPage(),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ), // ← TUTUP Material
               ),
             ),
-
             const SizedBox(height: 80),
           ],
         ),

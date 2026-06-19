@@ -5,7 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../screens/screens.dart';
+import '../../main_screens.dart';
 
 // ════════════════════════════════════════════════════════════════════════════
 //  OutletSettingsService — baca & tulis ke Firestore
@@ -22,10 +22,10 @@ class OutletSettingsService {
       final snap = await _doc.get();
       if (!snap.exists) return;
       final d = snap.data()!;
-      OutletSettings.namaMadeenalaundry =
-          d['nama']?.toString() ?? OutletSettings.namaMadeenalaundry;
-      OutletSettings.noHpMadeenalaundry =
-          d['no_hp']?.toString() ?? OutletSettings.noHpMadeenalaundry;
+      OutletSettings.namaLaundry =
+          d['nama']?.toString() ?? OutletSettings.namaLaundry;
+      OutletSettings.noHpLaundry =
+          d['no_hp']?.toString() ?? OutletSettings.noHpLaundry;
       OutletSettings.alamat = d['alamat']?.toString() ?? OutletSettings.alamat;
       // logoPath hanya berlaku di Android (disimpan lokal)
       if (!kIsWeb) {
@@ -87,8 +87,8 @@ class _OutletPageState extends State<OutletPage> {
     await OutletSettingsService.load();
     if (!mounted) return;
     setState(() {
-      _namaController.text = OutletSettings.namaMadeenalaundry;
-      _phoneController.text = OutletSettings.noHpMadeenalaundry;
+      _namaController.text = OutletSettings.namaLaundry;
+      _phoneController.text = OutletSettings.noHpLaundry;
       _alamatController.text = OutletSettings.alamat.isNotEmpty
           ? OutletSettings.alamat
           : "Jl. Raya Puncak Km.78";
@@ -177,8 +177,8 @@ class _OutletPageState extends State<OutletPage> {
       );
 
       // 2. Update in-memory agar langsung berlaku tanpa restart
-      OutletSettings.namaMadeenalaundry = nama;
-      OutletSettings.noHpMadeenalaundry = phone;
+      OutletSettings.namaLaundry = nama;
+      OutletSettings.noHpLaundry = phone;
       OutletSettings.alamat = alamat;
       if (!kIsWeb) OutletSettings.logoPath = _localLogoPath ?? '';
 

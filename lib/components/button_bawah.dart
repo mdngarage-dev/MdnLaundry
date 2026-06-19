@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'screens.dart';
+import '../screens/main_screens.dart';
 
 class ButtonBawah extends StatelessWidget {
   final Map<String, dynamic>? resultData;
@@ -110,7 +110,7 @@ class ButtonBawah extends StatelessWidget {
       message =
           """Halo Bunda *${data['nama']}*, 👋
 
-Terima kasih telah mempercayakan pemeriksaan di *${OutletSettings.namaMadeenalaundry}*. Berikut ringkasannya:
+Terima kasih telah mempercayakan pemeriksaan di *${OutletSettings.namaLaundry}*. Berikut ringkasannya:
 
 🆔 *NIP:* ${data['nip']}
 👶 *Layanan:* KB 
@@ -123,7 +123,7 @@ Sehat selalu,! 😊""";
       message =
           """Halo *${data['nama']}*, 👋
 
-Terima kasih telah melakukan pemeriksaan di *${OutletSettings.namaMadeenalaundry}*. Berikut ringkasan kunjungan Anda:
+Terima kasih telah melakukan pemeriksaan di *${OutletSettings.namaLaundry}*. Berikut ringkasan kunjungan Anda:
 
 🆔 *NIP:* ${data['nip']}
 🏥 *Layanan:* ${data['layan']}

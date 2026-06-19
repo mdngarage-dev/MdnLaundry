@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:mdnlaundry_project/screens/screens.dart';
+import 'package:mdnlaundry_project/screens/main_screens.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
-import 'package:mdnlaundry_project/settings/wa_settings.dart';
+import 'package:mdnlaundry_project/screens/settings/outlet/wa_settings.dart';
 
 class OutletSettingScreen extends StatelessWidget {
   const OutletSettingScreen({super.key});
@@ -76,7 +76,10 @@ class OutletSettingScreen extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(20),
-        child: Column(children: children),
+        child: Material(
+          color: Colors.transparent,
+          child: Column(children: children),
+        ),
       ),
     );
   }

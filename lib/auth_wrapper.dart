@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:mdnlaundry_project/screens/screens.dart';
+import 'package:mdnlaundry_project/screens/main_screens.dart';
 import 'dart:math';
 
 class AuthWrapper extends StatefulWidget {

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../screens/screens.dart';
+import '../main_screens.dart';
 
 class GantiPasswordPage extends StatefulWidget {
   const GantiPasswordPage({super.key});

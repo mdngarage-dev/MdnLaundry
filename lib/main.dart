@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
-import 'screens/screens.dart';
+import 'screens/main_screens.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
 import 'package:mdnlaundry_project/components/notif_laundry.dart';
 import 'package:overlay_support/overlay_support.dart';
-import 'package:mdnlaundry_project/screens/auth_wrapper.dart'; // ← import AuthWrapper
+import 'package:mdnlaundry_project/auth_wrapper.dart'; // ← import AuthWrapper
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,7 +45,15 @@ void main() async {
     // Coba paksa refresh
     final u = FirebaseAuth.instance.currentUser;
     if (u != null) {
-      final token = await u.getIdToken(true);
+      final token = await u
+          .getIdToken(true)
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () {
+              debugPrint('getIdToken timeout, pakai token lama');
+              return u.getIdToken(false); // fallback tanpa refresh
+            },
+          );
       debugPrint('[FIREBASE] token refresh OK: ${token?.substring(0, 20)}...');
     } else {
       debugPrint('[FIREBASE] currentUser null di main — coba tunggu...');
@@ -82,17 +90,17 @@ class MadeenalaundryApp extends StatelessWidget {
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         title: 'Madeena Laundry',
-
         navigatorKey: navigatorKey,
         themeMode: themeProvider.themeMode,
         theme: lightTheme(seed: themeProvider.seedColorLight).copyWith(
           textTheme: lightTheme().textTheme.apply(fontFamily: 'Pastrami'),
+          listTileTheme: const ListTileThemeData(tileColor: Colors.transparent),
         ),
         darkTheme: darkTheme(seed: themeProvider.seedColorDark).copyWith(
           textTheme: darkTheme().textTheme.apply(fontFamily: 'Pastrami'),
+          listTileTheme: const ListTileThemeData(tileColor: Colors.transparent),
         ),
         home: const AuthWrapper(),
-
         routes: {
           '/signup': (context) => const SignUpScreen(),
           '/login': (context) => const SignInScreen(),

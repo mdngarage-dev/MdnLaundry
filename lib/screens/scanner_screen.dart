@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart' as ms;
 import 'package:image_picker/image_picker.dart';
-import 'screens/screens.dart';
+import 'main_screens.dart';
 import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart'
     as ml;
 
@@ -101,7 +101,7 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
         ),
         child: AppBar(
           title: const Text(
-            'Scan QR Nip',
+            'Scan QR Order',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
           ),
           backgroundColor: kPrimary,

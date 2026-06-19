@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
-import 'screens.dart';
+import '../main_screens.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 
@@ -261,246 +261,255 @@ class _SettingScreenState extends State<SettingScreen> {
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(20),
-                  child: Column(
-                    children: [
-                      // ── Akun & Keamanan ────────────────────────────────
-                      _buildGroupedMenuItem(
-                        context: context,
-                        icon: Icons.person_outline,
-                        title: "Akun & Keamanan",
-                        subtitle: "Ubah nama, foto, dan info pribadi",
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const ProfilPage(),
-                            ),
-                          ).then((_) => setState(() {}));
-                        },
-                      ),
-
-                      // ── Outlet Setting ─
-                      _buildDivider(context),
-                      _buildGroupedMenuItem(
-                        context: context,
-                        icon: Icons.store_outlined,
-                        title: "Outlet Setting",
-                        subtitle: "Printer, Layanan, Informasi Outlet",
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const OutletSettingScreen(),
-                            ),
-                          );
-                        },
-                      ),
-
-                      // ── Ganti Password ─────────────────────────────────
-                      _buildDivider(context),
-                      _buildGroupedMenuItem(
-                        context: context,
-                        icon: Icons.lock_outline,
-                        title: "Ganti Password",
-                        subtitle: "Perbarui kata sandi secara berkala",
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const GantiPasswordPage(),
-                            ),
-                          );
-                        },
-                      ),
-
-                      // ── Mode Warna ─────────────────────────────────────
-                      _buildDivider(context),
-                      _buildGroupedMenuItem(
-                        context: context,
-                        icon: Icons.dark_mode_outlined,
-                        title: "Mode Warna",
-                        subtitle: "Gelap, terang, sistem",
-                        onTap: () {
-                          showModalBottomSheet(
-                            context: context,
-                            shape: const RoundedRectangleBorder(
-                              borderRadius: BorderRadius.vertical(
-                                top: Radius.circular(20),
+                  child: Material(
+                    // ← TAMBAH
+                    color: Colors.transparent,
+                    child: Column(
+                      children: [
+                        // ── Akun & Keamanan ────────────────────────────────
+                        _buildGroupedMenuItem(
+                          context: context,
+                          icon: Icons.person_outline,
+                          title: "Akun & Keamanan",
+                          subtitle: "Ubah nama, foto, dan info pribadi",
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => const ProfilPage(),
                               ),
-                            ),
-                            backgroundColor: Theme.of(context).cardColor,
-                            builder: (context) {
-                              final themeProvider = Provider.of<ThemeProvider>(
-                                context,
-                                listen: false,
-                              );
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 20,
-                                  horizontal: 10,
-                                ),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                        vertical: 8,
-                                      ),
-                                      child: Text(
-                                        "Pilih Mode Warna",
-                                        style: TextStyle(
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.bold,
-                                          color: Theme.of(
-                                            context,
-                                          ).textTheme.bodyLarge?.color,
-                                        ),
-                                      ),
-                                    ),
-                                    const Divider(),
-                                    ListTile(
-                                      leading: const Icon(
-                                        Icons.wb_sunny_outlined,
-                                        color: Colors.orange,
-                                      ),
-                                      title: const Text("Terang"),
-                                      trailing:
-                                          themeProvider.themeMode ==
-                                              ThemeMode.light
-                                          ? Icon(
-                                              Icons.check_circle,
-                                              color: Theme.of(
-                                                context,
-                                              ).primaryColor,
-                                            )
-                                          : null,
-                                      onTap: () {
-                                        themeProvider.changeTheme(
-                                          ThemeMode.light,
-                                        );
-                                        Navigator.pop(context);
-                                      },
-                                    ),
-                                    ListTile(
-                                      leading: const Icon(
-                                        Icons.nightlight_round_outlined,
-                                        color: Colors.blue,
-                                      ),
-                                      title: const Text("Gelap"),
-                                      trailing:
-                                          themeProvider.themeMode ==
-                                              ThemeMode.dark
-                                          ? Icon(
-                                              Icons.check_circle,
-                                              color: Theme.of(
-                                                context,
-                                              ).primaryColor,
-                                            )
-                                          : null,
-                                      onTap: () {
-                                        themeProvider.changeTheme(
-                                          ThemeMode.dark,
-                                        );
-                                        Navigator.pop(context);
-                                      },
-                                    ),
-                                    ListTile(
-                                      leading: const Icon(
-                                        Icons.brightness_auto_outlined,
-                                        color: Colors.grey,
-                                      ),
-                                      title: const Text("Ikuti Sistem HP"),
-                                      trailing:
-                                          themeProvider.themeMode ==
-                                              ThemeMode.system
-                                          ? Icon(
-                                              Icons.check_circle,
-                                              color: Theme.of(
-                                                context,
-                                              ).primaryColor,
-                                            )
-                                          : null,
-                                      onTap: () {
-                                        themeProvider.changeTheme(
-                                          ThemeMode.system,
-                                        );
-                                        Navigator.pop(context);
-                                      },
-                                    ),
+                            ).then((_) => setState(() {}));
+                          },
+                        ),
 
-                                    const Divider(),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                        vertical: 8,
-                                      ),
-                                      child: Text(
-                                        "Warna Tema",
-                                        style: TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold,
-                                          color: Theme.of(
-                                            context,
-                                          ).textTheme.bodyLarge?.color,
-                                        ),
-                                      ),
-                                    ),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                        vertical: 8,
-                                      ),
-                                      child: Wrap(
-                                        spacing: 16,
-                                        runSpacing: 12,
-                                        children: List.generate(
-                                          kThemeColorPresets.length,
-                                          (index) {
-                                            final preset =
-                                                kThemeColorPresets[index];
-                                            return _ColorBadge(
-                                              color: preset.light,
-                                              label: preset.label,
-                                              isSelected:
-                                                  themeProvider
-                                                      .seedColorIndex ==
-                                                  index,
-                                              onTap: () {
-                                                themeProvider.changeColor(
-                                                  index,
-                                                );
-                                              },
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                    ),
-                                  ],
+                        // ── Outlet Setting ─
+                        _buildDivider(context),
+                        _buildGroupedMenuItem(
+                          context: context,
+                          icon: Icons.store_outlined,
+                          title: "Outlet Setting",
+                          subtitle: "Printer, Layanan, Informasi Outlet",
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) =>
+                                    const OutletSettingScreen(),
+                              ),
+                            );
+                          },
+                        ),
+
+                        // ── Ganti Password ─────────────────────────────────
+                        _buildDivider(context),
+                        _buildGroupedMenuItem(
+                          context: context,
+                          icon: Icons.lock_outline,
+                          title: "Ganti Password",
+                          subtitle: "Perbarui kata sandi secara berkala",
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => const GantiPasswordPage(),
+                              ),
+                            );
+                          },
+                        ),
+
+                        // ── Mode Warna ─────────────────────────────────────
+                        _buildDivider(context),
+                        _buildGroupedMenuItem(
+                          context: context,
+                          icon: Icons.dark_mode_outlined,
+                          title: "Mode Warna",
+                          subtitle: "Gelap, terang, sistem",
+                          onTap: () {
+                            showModalBottomSheet(
+                              context: context,
+                              shape: const RoundedRectangleBorder(
+                                borderRadius: BorderRadius.vertical(
+                                  top: Radius.circular(20),
                                 ),
-                              );
-                            },
-                          );
-                        },
-                      ),
-                      // ── Tentang Aplikasi ───────────────────────────────
-                      _buildDivider(context),
-                      _buildGroupedMenuItem(
-                        context: context,
-                        icon: Icons.info_outline,
-                        title: "Tentang Aplikasi",
-                        subtitle: "Versi ${AppConfig.appVersion} - Laundry Ku",
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const TentangAplikasiPage(),
-                            ),
-                          );
-                        },
-                      ),
-                    ],
+                              ),
+                              backgroundColor: Theme.of(context).cardColor,
+                              builder: (context) {
+                                final themeProvider =
+                                    Provider.of<ThemeProvider>(
+                                      context,
+                                      listen: false,
+                                    );
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 20,
+                                    horizontal: 10,
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                          vertical: 8,
+                                        ),
+                                        child: Text(
+                                          "Pilih Mode Warna",
+                                          style: TextStyle(
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.bold,
+                                            color: Theme.of(
+                                              context,
+                                            ).textTheme.bodyLarge?.color,
+                                          ),
+                                        ),
+                                      ),
+                                      const Divider(),
+                                      ListTile(
+                                        leading: const Icon(
+                                          Icons.wb_sunny_outlined,
+                                          color: Colors.orange,
+                                        ),
+                                        title: const Text("Terang"),
+                                        trailing:
+                                            themeProvider.themeMode ==
+                                                ThemeMode.light
+                                            ? Icon(
+                                                Icons.check_circle,
+                                                color: Theme.of(
+                                                  context,
+                                                ).primaryColor,
+                                              )
+                                            : null,
+                                        onTap: () {
+                                          themeProvider.changeTheme(
+                                            ThemeMode.light,
+                                          );
+                                          Navigator.pop(context);
+                                        },
+                                      ),
+                                      ListTile(
+                                        leading: const Icon(
+                                          Icons.nightlight_round_outlined,
+                                          color: Colors.blue,
+                                        ),
+                                        title: const Text("Gelap"),
+                                        trailing:
+                                            themeProvider.themeMode ==
+                                                ThemeMode.dark
+                                            ? Icon(
+                                                Icons.check_circle,
+                                                color: Theme.of(
+                                                  context,
+                                                ).primaryColor,
+                                              )
+                                            : null,
+                                        onTap: () {
+                                          themeProvider.changeTheme(
+                                            ThemeMode.dark,
+                                          );
+                                          Navigator.pop(context);
+                                        },
+                                      ),
+                                      ListTile(
+                                        leading: const Icon(
+                                          Icons.brightness_auto_outlined,
+                                          color: Colors.grey,
+                                        ),
+                                        title: const Text("Ikuti Sistem HP"),
+                                        trailing:
+                                            themeProvider.themeMode ==
+                                                ThemeMode.system
+                                            ? Icon(
+                                                Icons.check_circle,
+                                                color: Theme.of(
+                                                  context,
+                                                ).primaryColor,
+                                              )
+                                            : null,
+                                        onTap: () {
+                                          themeProvider.changeTheme(
+                                            ThemeMode.system,
+                                          );
+                                          Navigator.pop(context);
+                                        },
+                                      ),
+
+                                      const Divider(),
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                          vertical: 8,
+                                        ),
+                                        child: Text(
+                                          "Warna Tema",
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold,
+                                            color: Theme.of(
+                                              context,
+                                            ).textTheme.bodyLarge?.color,
+                                          ),
+                                        ),
+                                      ),
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                          vertical: 8,
+                                        ),
+                                        child: Wrap(
+                                          spacing: 16,
+                                          runSpacing: 12,
+                                          children: List.generate(
+                                            kThemeColorPresets.length,
+                                            (index) {
+                                              final preset =
+                                                  kThemeColorPresets[index];
+                                              return _ColorBadge(
+                                                color: preset.light,
+                                                label: preset.label,
+                                                isSelected:
+                                                    themeProvider
+                                                        .seedColorIndex ==
+                                                    index,
+                                                onTap: () {
+                                                  themeProvider.changeColor(
+                                                    index,
+                                                  );
+                                                },
+                                              );
+                                            },
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            );
+                          },
+                        ),
+                        // ── Tentang Aplikasi ───────────────────────────────
+                        _buildDivider(context),
+                        _buildGroupedMenuItem(
+                          context: context,
+                          icon: Icons.info_outline,
+                          title: "Tentang Aplikasi",
+                          subtitle:
+                              "Versi ${AppConfig.appVersion} - Laundry Ku",
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) =>
+                                    const TentangAplikasiPage(),
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -555,7 +564,7 @@ class _SettingScreenState extends State<SettingScreen> {
             ),
           ),
           content: Text(
-            "Apakah Anda yakin ingin keluar dari ${OutletSettings.namaMadeenalaundry}?",
+            "Apakah Anda yakin ingin keluar dari ${OutletSettings.namaLaundry}?",
             style: TextStyle(
               color: Theme.of(context).textTheme.bodyMedium?.color,
             ),

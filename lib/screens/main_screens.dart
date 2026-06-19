@@ -1,51 +1,51 @@
-export 'getstarted.dart';
-export 'signin.dart';
-export 'signup.dart';
-export 'navbar.dart';
-export 'button_bawah.dart';
-export 'theme.dart';
-export 'package:mdnlaundry_project/profile_screen.dart';
+export '../getstarted.dart';
+export '../signin.dart';
+export '../signup.dart';
+export '../components/navbar.dart';
+export '../components/button_bawah.dart';
+export '../components/theme.dart';
+export 'package:mdnlaundry_project/screens/profile_screen.dart';
 export 'package:google_fonts/google_fonts.dart';
 export 'add.dart';
-export 'order.dart';
+export 'order/order.dart';
 export 'home_wrapper.dart';
 export 'home_screen.dart';
 export 'package:firebase_auth/firebase_auth.dart';
 export 'package:intl/intl.dart';
 export 'printer_dialog.dart';
-export '../thermal_printer_service.dart';
+export '../components/thermal_printer_service.dart';
 export 'package:blue_thermal_printer/blue_thermal_printer.dart';
 export 'print_screen.dart';
-export '../laporan/harian.dart';
-export '../laporan/list_pengeluaran.dart';
-export '../laporan/laporan_order.dart';
-export '../laporan/analisis_pelanggan.dart';
-export '../laporan/kinerja_pegawai.dart';
+export 'laporan/laporan_harian.dart';
+export 'laporan/list_pengeluaran.dart';
+export 'laporan/laporan_order.dart';
+export 'laporan/analisis_pelanggan.dart';
+export 'laporan/kinerja_pegawai.dart';
 export 'notifikasi.dart';
 
-export 'setting.dart';
-export '../settings/password.dart';
-export '../settings/profile.dart';
-export '../settings/outlet.dart';
-export '../settings/about.dart';
-export '../settings/wa_settings.dart';
-export '../settings/theme_provider.dart';
-export '../laporan/main.dart';
-export '../laporan/form_pengeluaran_page.dart';
+export 'settings/main_setting.dart';
+export 'settings/password.dart';
+export 'settings/akun_keamanan.dart';
+export 'settings/outlet/kelola_outlet.dart';
+export 'settings/about.dart';
+export 'settings/outlet/wa_settings.dart';
+export 'settings/theme_provider.dart';
+export 'laporan/main_laporan.dart';
+export 'laporan/form_pengeluaran_page.dart';
 export 'dart:convert';
 
-export 'package:mdnlaundry_project/screens/rak_monitoring.dart';
-export 'package:mdnlaundry_project/screens/order_detail.dart';
+export 'package:mdnlaundry_project/screens/settings/outlet/rak_monitoring.dart';
+export 'package:mdnlaundry_project/screens/order/order_detail.dart';
 
 export 'package:mdnlaundry_project/screens/settings/outlet/layanan.dart';
 export 'package:mdnlaundry_project/screens/settings/outlet/daftar_pelanggan.dart';
 export 'package:mdnlaundry_project/screens/settings/outlet/printer_setting.dart';
 
-export 'package:mdnlaundry_project/screens/settings/outlet/main.dart';
+export 'package:mdnlaundry_project/screens/settings/outlet_setting.dart';
 export 'package:mdnlaundry_project/screens/settings/outlet/admin.dart';
 
 export 'package:mdnlaundry_project/components/global_refresh.dart';
-export 'package:mdnlaundry_project/laporan/ringkasan.dart';
+export 'package:mdnlaundry_project/screens/laporan/ringkasan_outlet.dart';
 export 'package:mdnlaundry_project/components/date_range_picker_widget.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -55,8 +55,8 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 class OutletSettings {
-  static String namaMadeenalaundry = "Rdh project";
-  static String noHpMadeenalaundry = "0816829052";
+  static String namaLaundry = "Laundry Ku";
+  static String noHpLaundry = "0816829052";
   static String alamat = "Jl. Raya Puncak Km.78";
   static String logoPath = ""; // path file logo lokal, kosong = icon default
 }

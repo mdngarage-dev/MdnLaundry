@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:convert';
-import 'screens.dart';
+import 'main_screens.dart';
 
 // ─── Model notifikasi (sync dari Firestore) ──────────────────────────────────
 class NotifItem {

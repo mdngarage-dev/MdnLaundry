@@ -3,7 +3,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../main_screens.dart';
 
 class ListPengeluaranPage extends StatefulWidget {
-  const ListPengeluaranPage({super.key});
+  final String storeId;
+  final String outletId;
+  const ListPengeluaranPage({
+    super.key,
+    required this.storeId,
+    required this.outletId,
+  });
 
   @override
   State<ListPengeluaranPage> createState() => _ListPengeluaranPageState();
@@ -44,6 +50,8 @@ class _ListPengeluaranPageState extends State<ListPengeluaranPage> {
     try {
       final snap = await FirebaseFirestore.instance
           .collection('pengeluaran')
+          .where('store_id', isEqualTo: widget.storeId)
+          .where('outlet_id', isEqualTo: widget.outletId) // ← tambah ini
           .get();
 
       List<Map<String, dynamic>> list = [];
@@ -73,6 +81,7 @@ class _ListPengeluaranPageState extends State<ListPengeluaranPage> {
           'nominal': (data['nominal'] ?? 0).toDouble(),
           'kategori': data['kategori'] ?? "Lain-Lain",
           'tanggal': tgl,
+          'store_id': widget.storeId,
         });
       }
 
@@ -589,7 +598,12 @@ class _ListPengeluaranPageState extends State<ListPengeluaranPage> {
         onPressed: () async {
           await Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => const FormPengeluaranPage()),
+            MaterialPageRoute(
+              builder: (_) => FormPengeluaranPage(
+                storeId: widget.storeId,
+                outletId: widget.outletId,
+              ),
+            ),
           );
           _fetchData();
         },

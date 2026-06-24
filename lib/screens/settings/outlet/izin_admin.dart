@@ -147,11 +147,13 @@ const List<_Permission> _allPermissions = [
 class EditAdminPermissionScreen extends StatefulWidget {
   final String adminUid;
   final String adminName;
+  final String storeId;
 
   const EditAdminPermissionScreen({
     super.key,
     required this.adminUid,
     required this.adminName,
+    required this.storeId,
   });
 
   @override
@@ -227,60 +229,27 @@ class _EditAdminPermissionScreenState extends State<EditAdminPermissionScreen> {
   Future<void> _hapusAkunAdmin() async {
     setState(() => _isSaving = true);
     try {
-      final currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser == null) throw Exception("Tidak ada user login");
+      final callable = FirebaseFunctions.instanceFor(
+        region: 'asia-southeast1',
+      ).httpsCallable('deleteAdmin');
 
-      // Trigger GitHub Actions workflow_dispatch
-      final response = await http.post(
-        Uri.parse(
-          "https://api.github.com/repos/mdngarage-dev/MdnLaundry/actions/workflows/delete-admin.yml/dispatches",
-        ),
-        headers: {
-          "Authorization":
-              "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",
-          "Accept": "application/vnd.github+json",
-          "X-GitHub-Api-Version": "2022-11-28",
-        },
-        body: jsonEncode({
-          "ref": "main", // branch utama kamu
-          "inputs": {
-            "caller_uid": currentUser.uid,
-            "target_uid": widget.adminUid,
-          },
-        }),
-      );
+      await callable.call({'targetUid': widget.adminUid});
 
-      // GitHub kembalikan 204 jika berhasil trigger
-      if (response.statusCode == 204) {
-        // Hapus dokumen Firestore langsung dari Flutter
-        // (GitHub Actions butuh ~30 detik, Firestore bisa langsung)
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(widget.adminUid)
-            .delete();
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                "Akun ${widget.adminName} berhasil dihapus permanen",
-              ),
-              backgroundColor: Colors.green,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-          Navigator.pop(context);
-        }
-      } else {
-        throw Exception(
-          "GitHub API error: ${response.statusCode} ${response.body}",
-        );
-      }
-    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text("Gagal menghapus akun: $e"),
+            content: Text("Akun ${widget.adminName} berhasil dihapus permanen"),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        Navigator.pop(context);
+      }
+    } on FirebaseFunctionsException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Gagal: ${e.message}"),
             backgroundColor: Colors.redAccent,
             behavior: SnackBarBehavior.floating,
           ),
@@ -291,14 +260,34 @@ class _EditAdminPermissionScreenState extends State<EditAdminPermissionScreen> {
     }
   }
 
+  // Di EditAdminPermissionScreen, ganti struktur permission check:
+
   Future<void> _loadPermissions() async {
     try {
-      final doc = await FirebaseFirestore.instance
+      final userDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(widget.adminUid)
           .get();
 
-      final data = doc.data() ?? {};
+      final allowedOutlets = List<String>.from(
+        userDoc.data()?['allowed_outlets'] ?? [],
+      );
+
+      if (allowedOutlets.isEmpty) {
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      final outletId = allowedOutlets.first;
+
+      final permDoc = await FirebaseFirestore.instance
+          .collection('store_permissions')
+          .doc(widget.storeId) // ✅ pakai widget.storeId
+          .collection(outletId)
+          .doc(widget.adminUid)
+          .get();
+
+      final data = permDoc.data() ?? {};
       setState(() {
         for (final p in _allPermissions) {
           _permissions[p.key] = data[p.key] ?? false;
@@ -314,10 +303,28 @@ class _EditAdminPermissionScreenState extends State<EditAdminPermissionScreen> {
   Future<void> _savePermissions() async {
     setState(() => _isSaving = true);
     try {
-      await FirebaseFirestore.instance
+      final userDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(widget.adminUid)
-          .update(_permissions.map((k, v) => MapEntry(k, v)));
+          .get();
+
+      final allowedOutlets = List<String>.from(
+        userDoc.data()?['allowed_outlets'] ?? [],
+      );
+
+      final batch = FirebaseFirestore.instance.batch();
+
+      for (var outletId in allowedOutlets) {
+        final permRef = FirebaseFirestore.instance
+            .collection('store_permissions')
+            .doc(widget.storeId) // ✅ pakai widget.storeId
+            .collection(outletId)
+            .doc(widget.adminUid);
+
+        batch.set(permRef, _permissions.map((k, v) => MapEntry(k, v)));
+      }
+
+      await batch.commit();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

@@ -6,7 +6,13 @@ import 'package:path_provider/path_provider.dart';
 import 'package:mdnlaundry_project/screens/settings/outlet/wa_settings.dart';
 
 class OutletSettingScreen extends StatelessWidget {
-  const OutletSettingScreen({super.key});
+  final String storeId;
+  final String outletId;
+  const OutletSettingScreen({
+    super.key,
+    required this.storeId,
+    required this.outletId,
+  });
 
   Widget _buildGroupedMenuItem({
     required BuildContext context,
@@ -163,7 +169,10 @@ class OutletSettingScreen extends StatelessWidget {
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => const PrinterSettingPage(),
+                      builder: (_) => PrinterSettingPage(
+                        storeId: storeId,
+                        outletId: outletId,
+                      ),
                     ),
                   ).then((_) => (context as Element).markNeedsBuild()),
                 ),
@@ -185,7 +194,10 @@ class OutletSettingScreen extends StatelessWidget {
                           onTap: () => Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => const RakMonitoringScreen(),
+                              builder: (_) => RakMonitoringScreen(
+                                storeId: storeId,
+                                outletId: outletId,
+                              ),
                             ),
                           ),
                         ),
@@ -210,7 +222,10 @@ class OutletSettingScreen extends StatelessWidget {
                           onTap: () => Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => const LayananScreen(),
+                              builder: (_) => LayananScreen(
+                                storeId: storeId,
+                                outletId: outletId,
+                              ),
                             ),
                           ),
                         ),
@@ -228,7 +243,10 @@ class OutletSettingScreen extends StatelessWidget {
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => const DaftarPelangganPage(),
+                      builder: (_) => DaftarPelangganPage(
+                        storeId: storeId,
+                        outletId: outletId,
+                      ),
                     ),
                   ),
                 ),
@@ -250,7 +268,10 @@ class OutletSettingScreen extends StatelessWidget {
                           onTap: () => Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => const OutletPage(),
+                              builder: (_) => OutletPage(
+                                storeId: storeId,
+                                outletId: outletId,
+                              ),
                             ),
                           ),
                         ),
@@ -273,7 +294,8 @@ class OutletSettingScreen extends StatelessWidget {
                       onTap: () => Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => const ManageAdminAccessScreen(),
+                          builder: (_) =>
+                              ManageAdminAccessScreen(storeId: storeId),
                         ),
                       ),
                     );

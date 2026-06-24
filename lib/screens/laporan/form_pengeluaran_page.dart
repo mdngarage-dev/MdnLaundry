@@ -4,7 +4,13 @@ import '../main_screens.dart';
 import 'package:flutter/services.dart';
 
 class FormPengeluaranPage extends StatefulWidget {
-  const FormPengeluaranPage({super.key});
+  final String storeId;
+  final String outletId;
+  const FormPengeluaranPage({
+    super.key,
+    required this.storeId,
+    required this.outletId,
+  });
 
   @override
   State<FormPengeluaranPage> createState() => _FormPengeluaranPageState();
@@ -90,6 +96,8 @@ class _FormPengeluaranPageState extends State<FormPengeluaranPage> {
         'nominal': nominal,
         'kategori': _selectedKategori,
         'tanggal': Timestamp.fromDate(_selectedTanggal),
+        'store_id': widget.storeId,
+        'outlet_id': widget.outletId,
       });
 
       if (mounted) {

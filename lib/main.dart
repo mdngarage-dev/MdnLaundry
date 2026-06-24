@@ -68,8 +68,6 @@ void main() async {
   }
 
   await NotifLaundryService().inisialisasiNotifikasi();
-  await OutletSettingsService.load();
-  await PrinterSettingsService.load();
 
   runApp(
     ChangeNotifierProvider(

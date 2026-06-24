@@ -32,7 +32,14 @@ class _PegawaiKinerja {
 // SCREEN
 // ════════════════════════════════════════════════════════════
 class KinerjaPegawaiPage extends StatefulWidget {
-  const KinerjaPegawaiPage({super.key});
+  final String storeId;
+  final String outletId;
+
+  const KinerjaPegawaiPage({
+    super.key,
+    required this.storeId,
+    required this.outletId,
+  });
 
   @override
   State<KinerjaPegawaiPage> createState() => _KinerjaPegawaiPageState();
@@ -75,7 +82,11 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
   Future<void> _fetchData() async {
     setState(() => _isLoading = true);
     try {
-      final snap = await FirebaseFirestore.instance.collection('order').get();
+      final snap = await FirebaseFirestore.instance
+          .collection('order')
+          .where('store_id', isEqualTo: widget.storeId)
+          .where('outlet_id', isEqualTo: widget.outletId)
+          .get();
 
       final DateTime start = DateTime(
         _startDate.year,

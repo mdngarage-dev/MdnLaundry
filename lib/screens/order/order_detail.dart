@@ -11,9 +11,17 @@ import '../main_screens.dart';
 //  ORDER DETAIL SCREEN
 // ════════════════════════════════════════════════════════════════════════════
 class OrderDetailScreen extends StatefulWidget {
+  final String storeId;
+  final String outletId;
   final String docId;
   final Map<String, dynamic> data;
-  const OrderDetailScreen({super.key, required this.docId, required this.data});
+  const OrderDetailScreen({
+    super.key,
+    required this.docId,
+    required this.data,
+    required this.storeId,
+    required this.outletId,
+  });
 
   @override
   State<OrderDetailScreen> createState() => _OrderDetailScreenState();
@@ -38,6 +46,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     showDialog(
       context: context,
       builder: (ctx) => _PilihRakDialog(
+        storeId: widget.storeId,
+        outletId: widget.outletId,
         onRakSelected: (rakId, rakNama) async {
           Navigator.pop(ctx);
           await _updateStatusDenganRak(newStatus, rakId, rakNama);
@@ -3068,7 +3078,11 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     final result = await Navigator.push<Map<String, dynamic>>(
       context,
       MaterialPageRoute(
-        builder: (_) => const DaftarPelangganPage(isSelecting: true),
+        builder: (_) => DaftarPelangganPage(
+          storeId: widget.storeId,
+          outletId: widget.outletId,
+          isSelecting: true,
+        ),
       ),
     );
 
@@ -3147,9 +3161,16 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
 //  DIALOG: Pilih Rak
 // ════════════════════════════════════════════════════════════════════════════
 class _PilihRakDialog extends StatefulWidget {
+  final String storeId;
+  final String outletId;
+
   final void Function(String rakId, String rakNama) onRakSelected;
 
-  const _PilihRakDialog({required this.onRakSelected});
+  const _PilihRakDialog({
+    required this.storeId,
+    required this.outletId,
+    required this.onRakSelected,
+  });
 
   @override
   State<_PilihRakDialog> createState() => _PilihRakDialogState();
@@ -3177,6 +3198,8 @@ class _PilihRakDialogState extends State<_PilihRakDialog> {
     try {
       final snap = await FirebaseFirestore.instance
           .collection('rak')
+          .where('store_id', isEqualTo: widget.storeId)
+          .where('outlet_id', isEqualTo: widget.outletId)
           .orderBy('urutan')
           .get();
       setState(() {
@@ -3196,6 +3219,8 @@ class _PilihRakDialogState extends State<_PilihRakDialog> {
     await FirebaseFirestore.instance.collection('rak').add({
       'nama': nama.trim(),
       'urutan': snap.docs.length + 1,
+      'store_id': widget.storeId,
+      'outlet_id': widget.outletId,
     });
     _namaRakCtrl.clear();
     await _loadRak();

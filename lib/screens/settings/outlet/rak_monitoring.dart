@@ -9,7 +9,13 @@ import '../../main_screens.dart';
 //  RAK MONITORING SCREEN
 // ════════════════════════════════════════════════════════════════════════════
 class RakMonitoringScreen extends StatefulWidget {
-  const RakMonitoringScreen({super.key});
+  final String storeId;
+  final String outletId;
+  const RakMonitoringScreen({
+    super.key,
+    required this.storeId,
+    required this.outletId,
+  });
 
   @override
   State<RakMonitoringScreen> createState() => _RakMonitoringScreenState();
@@ -24,10 +30,14 @@ class _RakMonitoringScreenState extends State<RakMonitoringScreen> {
     super.initState();
     _orderStream = FirebaseFirestore.instance
         .collection('order')
+        .where('store_id', isEqualTo: widget.storeId)
+        .where('outlet_id', isEqualTo: widget.outletId)
         .where('status', isEqualTo: 'siap ambil')
         .snapshots();
     _rakStream = FirebaseFirestore.instance
         .collection('rak')
+        .where('store_id', isEqualTo: widget.storeId)
+        .where('outlet_id', isEqualTo: widget.outletId)
         .orderBy('urutan')
         .snapshots();
   }
@@ -129,10 +139,15 @@ class _RakMonitoringScreenState extends State<RakMonitoringScreen> {
 
   Future<void> _tambahRak(String nama) async {
     try {
-      final snap = await FirebaseFirestore.instance.collection('rak').get();
+      final snap = await FirebaseFirestore.instance
+          .collection('rak')
+          .where('store_id', isEqualTo: widget.storeId)
+          .get();
       await FirebaseFirestore.instance.collection('rak').add({
         'nama': nama,
         'urutan': snap.docs.length + 1,
+        'store_id': widget.storeId,
+        'outlet_id': widget.outletId,
       });
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -286,6 +301,8 @@ class _RakMonitoringScreenState extends State<RakMonitoringScreen> {
                       orders: orders,
                       isDark: isDark,
                       primary: primary,
+                      storeId: widget.storeId,
+                      outletId: widget.outletId,
                     );
                   }),
 
@@ -299,6 +316,8 @@ class _RakMonitoringScreenState extends State<RakMonitoringScreen> {
                       isDark: isDark,
                       primary: Colors.orange.shade700,
                       isWarning: true,
+                      storeId: widget.storeId,
+                      outletId: widget.outletId,
                     ),
                   ],
 
@@ -347,6 +366,8 @@ class _RakCard extends StatefulWidget {
   final bool isDark;
   final Color primary;
   final bool isWarning;
+  final String storeId;
+  final String outletId;
 
   const _RakCard({
     required this.rakId,
@@ -354,6 +375,8 @@ class _RakCard extends StatefulWidget {
     required this.orders,
     required this.isDark,
     required this.primary,
+    required this.storeId,
+    required this.outletId,
     this.isWarning = false,
   });
 
@@ -463,6 +486,7 @@ class _RakCardState extends State<_RakCard> {
       // Sync rak_nama di semua order yang pakai rak ini
       final ordersSnap = await FirebaseFirestore.instance
           .collection('order')
+          .where('store_id', isEqualTo: widget.storeId)
           .where('rak_id', isEqualTo: widget.rakId)
           .get();
 
@@ -790,8 +814,12 @@ class _RakCardState extends State<_RakCard> {
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) =>
-                        OrderDetailScreen(docId: orderDoc.id, data: data),
+                    builder: (_) => OrderDetailScreen(
+                      docId: orderDoc.id,
+                      data: data,
+                      storeId: widget.storeId,
+                      outletId: widget.outletId,
+                    ),
                   ),
                 ),
                 child: Container(

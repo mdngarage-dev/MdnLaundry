@@ -314,3 +314,87 @@ exports.resetNotifFlagOnOrderUpdate = onDocumentUpdated(
     return event.data.after.ref.update(updates);
   }
 );
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FUNCTION 4: Hapus Akun Admin
+// ─────────────────────────────────────────────────────────────────────────────
+const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { defineSecret } = require("firebase-functions/params");
+
+const GITHUB_PAT = defineSecret("GITHUB_PAT");
+
+exports.deleteAdmin = onCall(
+  {
+    region: "asia-southeast1",
+    secrets: [GITHUB_PAT],
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Harus login dulu");
+    }
+
+    const callerUid = request.auth.uid;
+    const targetUid = request.data.targetUid;
+
+    if (!targetUid) {
+      throw new HttpsError("invalid-argument", "targetUid wajib diisi");
+    }
+
+    const callerDoc = await admin
+      .firestore()
+      .collection("users")
+      .doc(callerUid)
+      .get();
+
+    if (!callerDoc.exists || callerDoc.data()?.can_access_admin !== true) {
+      throw new HttpsError("permission-denied", "Tidak punya izin hapus admin");
+    }
+
+    // Trigger GitHub Actions pakai https bawaan Node.js
+    await new Promise((resolve, reject) => {
+      const body = JSON.stringify({
+        ref: "main",
+        inputs: {
+          caller_uid: callerUid,
+          target_uid: targetUid,
+        },
+      });
+
+      const options = {
+        hostname: "api.github.com",
+        port: 443,
+        path: "/repos/mdngarage-dev/MdnLaundry/actions/workflows/delete-admin.yml/dispatches",
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${GITHUB_PAT.value()}`,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(body),
+          "User-Agent": "MdnLaundry-App",
+        },
+      };
+
+      const req = https.request(options, (res) => {
+        let data = "";
+        res.on("data", (chunk) => (data += chunk));
+        res.on("end", () => {
+          if (res.statusCode === 204) {
+            resolve();
+          } else {
+            reject(new Error(`GitHub error ${res.statusCode}: ${data}`));
+          }
+        });
+      });
+
+      req.on("error", reject);
+      req.write(body);
+      req.end();
+    });
+
+    await admin.firestore().collection("users").doc(targetUid).delete();
+
+    console.log(`✅ Admin ${targetUid} dihapus oleh ${callerUid}`);
+    return { success: true };
+  }
+);

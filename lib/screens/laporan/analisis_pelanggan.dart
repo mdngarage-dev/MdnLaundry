@@ -36,7 +36,13 @@ enum _SortMode { topSpending, palingSering }
 // SCREEN
 // ════════════════════════════════════════════════════════════
 class AnalisisPelangganPage extends StatefulWidget {
-  const AnalisisPelangganPage({super.key});
+  final String storeId;
+  final String outletId;
+  const AnalisisPelangganPage({
+    super.key,
+    required this.storeId,
+    required this.outletId,
+  });
 
   @override
   State<AnalisisPelangganPage> createState() => _AnalisisPelangganPageState();
@@ -90,8 +96,16 @@ class _AnalisisPelangganPageState extends State<AnalisisPelangganPage> {
     setState(() => _isLoading = true);
     try {
       final results = await Future.wait([
-        FirebaseFirestore.instance.collection('order').get(),
-        FirebaseFirestore.instance.collection('pelanggan').get(),
+        FirebaseFirestore.instance
+            .collection('order')
+            .where('store_id', isEqualTo: widget.storeId)
+            .where('outlet_id', isEqualTo: widget.outletId)
+            .get(),
+        FirebaseFirestore.instance
+            .collection('pelanggan')
+            .where('store_id', isEqualTo: widget.storeId)
+            .where('outlet_id', isEqualTo: widget.outletId)
+            .get(),
       ]);
 
       final orderSnap = results[0];

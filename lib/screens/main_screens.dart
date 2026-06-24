@@ -42,7 +42,7 @@ export 'package:mdnlaundry_project/screens/settings/outlet/daftar_pelanggan.dart
 export 'package:mdnlaundry_project/screens/settings/outlet/printer_setting.dart';
 
 export 'package:mdnlaundry_project/screens/settings/outlet_setting.dart';
-export 'package:mdnlaundry_project/screens/settings/outlet/admin.dart';
+export 'package:mdnlaundry_project/screens/settings/outlet/list_admin.dart';
 
 export 'package:mdnlaundry_project/components/global_refresh.dart';
 export 'package:mdnlaundry_project/screens/laporan/ringkasan_outlet.dart';

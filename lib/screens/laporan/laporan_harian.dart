@@ -3,7 +3,15 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../main_screens.dart';
 
 class LaporanHarianPage extends StatefulWidget {
-  const LaporanHarianPage({super.key});
+  final String storeId;
+  final String outletId;
+  final bool isGabungan;
+  const LaporanHarianPage({
+    super.key,
+    required this.storeId,
+    required this.outletId,
+    this.isGabungan = false,
+  });
 
   @override
   State<LaporanHarianPage> createState() => _LaporanHarianPageState();
@@ -81,9 +89,21 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
 
       // Ambil keuangan, order, pengeluaran paralel
       final results = await Future.wait([
-        FirebaseFirestore.instance.collection('keuangan').get(),
-        FirebaseFirestore.instance.collection('order').get(),
-        FirebaseFirestore.instance.collection('pengeluaran').get(),
+        FirebaseFirestore.instance
+            .collection('keuangan')
+            .where('store_id', isEqualTo: widget.storeId)
+            .where('outlet_id', isEqualTo: widget.outletId)
+            .get(),
+        FirebaseFirestore.instance
+            .collection('order')
+            .where('store_id', isEqualTo: widget.storeId)
+            .where('outlet_id', isEqualTo: widget.outletId)
+            .get(),
+        FirebaseFirestore.instance
+            .collection('pengeluaran')
+            .where('store_id', isEqualTo: widget.storeId)
+            .where('outlet_id', isEqualTo: widget.outletId)
+            .get(),
       ]);
 
       final keuanganSnap = results[0];

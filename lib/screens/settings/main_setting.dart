@@ -1,12 +1,25 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:mdnlaundry_project/screens/settings/outlet/admin_activation.dart';
+import 'package:onesignal_flutter/onesignal_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
 import '../main_screens.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
+import 'package:flutter/services.dart';
 
 class SettingScreen extends StatefulWidget {
-  const SettingScreen({super.key});
+  final String storeId;
+  final String outletId;
+  final bool isOwner;
+
+  const SettingScreen({
+    super.key,
+    required this.storeId,
+    required this.outletId,
+    required this.isOwner,
+  });
 
   @override
   State<SettingScreen> createState() => _SettingScreenState();
@@ -60,6 +73,157 @@ class _SettingScreenState extends State<SettingScreen> {
     );
   }
 
+  Future<String?> _getKodeToko() async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('stores')
+          .doc(widget.storeId)
+          .get();
+      return doc.data()?['kode_toko']?.toString();
+    } catch (e) {
+      debugPrint("Gagal mengambil kode_toko: $e");
+      return null;
+    }
+  }
+
+  Widget _buildKodeTokoCard(BuildContext context) {
+    return FutureBuilder<String?>(
+      future: _getKodeToko(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Theme.of(context).cardColor,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: Theme.of(context).dividerColor.withOpacity(0.5),
+              ),
+            ),
+            child: const Center(
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          );
+        }
+
+        final kodeToko = snapshot.data ?? '-';
+
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [kPrimary, const Color(0xFF2563EB)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: kPrimary.withOpacity(0.3),
+                blurRadius: 12,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    Icons.vpn_key_rounded,
+                    color: Colors.white.withOpacity(0.85),
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    "Kode Undangan Admin",
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.9),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                "Bagikan kode ini ke Admin agar bisa daftar dan terhubung ke toko Anda",
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.75),
+                  fontSize: 11,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.white.withOpacity(0.3),
+                        ),
+                      ),
+                      child: Text(
+                        kodeToko,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 26,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 2,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  GestureDetector(
+                    onTap: () {
+                      Clipboard.setData(ClipboardData(text: kodeToko));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: const Text("Kode toko disalin ke clipboard"),
+                          backgroundColor: Colors.green,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.copy_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Future<File?> _loadLocalProfileImage() async {
     try {
       final directory = await getApplicationDocumentsDirectory();
@@ -74,6 +238,8 @@ class _SettingScreenState extends State<SettingScreen> {
 
   Future<void> _handleSignOut(BuildContext context) async {
     try {
+      OneSignal.User.removeTag("store_id");
+      OneSignal.User.removeTag("role");
       await FirebaseAuth.instance.signOut();
 
       SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -130,115 +296,126 @@ class _SettingScreenState extends State<SettingScreen> {
               const SizedBox(height: 20),
 
               // ── Card Profil Utama ───────────────────────────────────────
-              InkWell(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const ProfileScreen(),
-                    ),
-                  ).then((_) => setState(() {}));
-                },
-                borderRadius: BorderRadius.circular(20),
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).cardColor,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: Theme.of(context).dividerColor.withOpacity(0.5),
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(
-                          Theme.of(context).brightness == Brightness.dark
-                              ? 0.3
-                              : 0.02,
+              if (!_isOwner()) ...[
+                InkWell(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const ProfileScreen(),
+                      ),
+                    ).then((_) => setState(() {}));
+                  },
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).cardColor,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: Theme.of(context).dividerColor.withOpacity(0.5),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(
+                            Theme.of(context).brightness == Brightness.dark
+                                ? 0.3
+                                : 0.02,
+                          ),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
                         ),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      FutureBuilder<File?>(
-                        future: _loadLocalProfileImage(),
-                        builder: (context, snapshot) {
-                          final localImageFile = snapshot.data;
-                          return CircleAvatar(
-                            radius: 30,
-                            backgroundColor: Theme.of(
-                              context,
-                            ).primaryColor.withOpacity(0.1),
-                            backgroundImage: localImageFile != null
-                                ? FileImage(localImageFile)
-                                : null,
-                            child: localImageFile == null
-                                ? Text(
-                                    (FirebaseAuth
-                                                .instance
-                                                .currentUser
-                                                ?.displayName ??
-                                            'User')[0]
-                                        .toUpperCase(),
-                                    style: TextStyle(
-                                      color: Theme.of(context).primaryColor,
-                                      fontSize: 24,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  )
-                                : null,
-                          );
-                        },
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              (FirebaseAuth.instance.currentUser?.displayName ??
-                                      'User')
-                                  .split('|')[0]
-                                  .trim(),
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: Theme.of(
-                                  context,
-                                ).textTheme.bodyLarge?.color,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Theme.of(
-                                  context,
-                                ).primaryColor.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                getUserRole(),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        FutureBuilder<File?>(
+                          future: _loadLocalProfileImage(),
+                          builder: (context, snapshot) {
+                            final localImageFile = snapshot.data;
+                            return CircleAvatar(
+                              radius: 30,
+                              backgroundColor: Theme.of(
+                                context,
+                              ).primaryColor.withOpacity(0.1),
+                              backgroundImage: localImageFile != null
+                                  ? FileImage(localImageFile)
+                                  : null,
+                              child: localImageFile == null
+                                  ? Text(
+                                      (FirebaseAuth
+                                                  .instance
+                                                  .currentUser
+                                                  ?.displayName ??
+                                              'User')[0]
+                                          .toUpperCase(),
+                                      style: TextStyle(
+                                        color: Theme.of(context).primaryColor,
+                                        fontSize: 24,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    )
+                                  : null,
+                            );
+                          },
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                (FirebaseAuth
+                                            .instance
+                                            .currentUser
+                                            ?.displayName ??
+                                        'User')
+                                    .split('|')[0]
+                                    .trim(),
                                 style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: Theme.of(context).primaryColor,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Theme.of(
+                                    context,
+                                  ).textTheme.bodyLarge?.color,
                                 ),
                               ),
-                            ),
-                          ],
+                              const SizedBox(height: 4),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Theme.of(
+                                    context,
+                                  ).primaryColor.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  getUserRole(),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: Theme.of(context).primaryColor,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-              ),
+              ],
+
+              if (_isOwner()) ...[
+                const SizedBox(height: 16),
+                _buildKodeTokoCard(context),
+              ],
+
               const SizedBox(height: 25),
 
               Text(
@@ -289,17 +466,35 @@ class _SettingScreenState extends State<SettingScreen> {
                           icon: Icons.store_outlined,
                           title: "Outlet Setting",
                           subtitle: "Printer, Layanan, Informasi Outlet",
-                          onTap: () {
-                            Navigator.push(
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => OutletSettingScreen(
+                                storeId: widget.storeId,
+                                outletId: widget.outletId,
+                              ),
+                            ),
+                          ),
+                        ),
+                        // ── Kelola Admin (hanya tampil jika Owner) ── TAMBAH INI
+                        if (widget.isOwner) ...[
+                          _buildDivider(context),
+                          _buildGroupedMenuItem(
+                            context: context,
+                            icon: Icons.how_to_reg_outlined,
+                            title: "Aktivasi & Akses Admin",
+                            subtitle:
+                                "Setujui pendaftaran dan atur izin admin per outlet",
+                            onTap: () => Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (context) =>
-                                    const OutletSettingScreen(),
+                                builder: (_) => AdminActivationScreen(
+                                  storeId: widget.storeId,
+                                ),
                               ),
-                            );
-                          },
-                        ),
-
+                            ),
+                          ),
+                        ],
                         // ── Ganti Password ─────────────────────────────────
                         _buildDivider(context),
                         _buildGroupedMenuItem(
@@ -591,6 +786,13 @@ class _SettingScreenState extends State<SettingScreen> {
         );
       },
     );
+  }
+
+  bool _isOwner() {
+    final displayName = FirebaseAuth.instance.currentUser?.displayName ?? '';
+    final parts = displayName.split('|');
+    if (parts.length < 3) return false;
+    return parts[2].trim() == 'Owner';
   }
 }
 

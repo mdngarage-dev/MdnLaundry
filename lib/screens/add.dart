@@ -1,12 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'main_screens.dart';
 import 'package:http/http.dart' as http;
 
 class AddOrderScreen extends StatefulWidget {
-  const AddOrderScreen({super.key});
+  final String storeId;
+  final String outletId;
+
+  const AddOrderScreen({
+    super.key,
+    required this.storeId,
+    required this.outletId,
+  });
 
   @override
   State<AddOrderScreen> createState() => _AddOrderScreenState();
@@ -15,6 +23,12 @@ class AddOrderScreen extends StatefulWidget {
 class _AddOrderScreenState extends State<AddOrderScreen> {
   final _formKey = GlobalKey<FormState>();
   DateTime _viewMonth = DateTime(DateTime.now().year, DateTime.now().month, 1);
+
+  // ── Store / Toko ──────────────────────────────────────────────────────────
+  // 🌟 INI YANG TADINYA HILANG / SALAH TEMPAT — sekarang ada di class yang benar
+  String _currentStoreId = '';
+  String _currentOutletId = '';
+  bool _isStoreLoading = true;
 
   // ── Pelanggan ─────────────────────────────────────────────────────────────
   String? _selectedNama;
@@ -75,6 +89,14 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
       );
     }
     return DateTime.now();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _currentStoreId = widget.storeId;
+    _currentOutletId = widget.outletId;
+    _isStoreLoading = false;
   }
 
   @override
@@ -208,7 +230,11 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
     final result = await Navigator.push<Map<String, dynamic>>(
       context,
       MaterialPageRoute(
-        builder: (_) => const DaftarPelangganPage(isSelecting: true),
+        builder: (_) => DaftarPelangganPage(
+          isSelecting: true,
+          storeId: _currentStoreId,
+          outletId: _currentOutletId,
+        ),
       ),
     );
     if (result != null && mounted) {
@@ -224,11 +250,24 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
   Future<void> _openTambahLayanan() async {
     if (!mounted) return;
 
+    // 🌟 Jaga-jaga: kalau store_id belum siap, jangan buka picker dulu
+    if (_currentStoreId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Data toko belum siap, coba lagi sebentar'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => _LayananPickerSheet(
+        storeId: _currentStoreId,
+        outletId: _currentOutletId,
         onSelected: (layanan) {
           Navigator.pop(ctx);
           Future.delayed(const Duration(milliseconds: 200), () {
@@ -1549,6 +1588,18 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
       );
       return;
     }
+    // 🌟 Validasi store_id SEBELUM mulai submit (dulu ini langsung
+    // dieksekusi di tengah-tengah fungsi tanpa setState(_isSubmitting=false)
+    // yang benar, sekarang dirapikan di awal)
+    if (_currentStoreId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Gagal memproses, Store ID tidak ditemukan!'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
     setState(() => _isSubmitting = true);
 
@@ -1558,8 +1609,15 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
           FirebaseAuth.instance.currentUser?.displayName?.split('|')[0] ??
           'Admin';
 
-      // Generate nomor struk
-      final counterRef = firestore.collection('counters').doc('pelanggan');
+      // 🌟 Counter nomor struk sekarang masuk ke sub-collection toko ini
+      final counterRef = firestore
+          .collection('stores')
+          .doc(_currentStoreId)
+          .collection('outlets')
+          .doc(_currentOutletId) // ← TAMBAH
+          .collection('counters')
+          .doc('pelanggan');
+
       final String nomorStruk = await firestore
           .runTransaction<String>((tx) async {
             final snap = await tx.get(counterRef);
@@ -1583,8 +1641,10 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
 
       final firstItem = _items.first;
 
-      // Simpan dokumen order utama — include diskon
+      // Simpan dokumen order utama — include diskon + store_id
       final orderRef = await firestore.collection('order').add({
+        'store_id': _currentStoreId,
+        'outlet_id': widget.outletId,
         'nomor_pelanggan': nomorStruk,
         'nama_pelanggan': _selectedNama,
         'no_hp': _selectedHp ?? '',
@@ -1620,7 +1680,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
       }
 
       // Simpan subcollection items
-      // Simpan subcollection items
       for (final item in _items) {
         final itemData = Map<String, dynamic>.from(item);
         itemData.remove('_itemDocId');
@@ -1644,8 +1703,11 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
         await orderRef.collection('items').add(itemData);
       }
 
-      // Simpan keuangan
+      // Simpan keuangan — ikut disertakan store_id agar laporan keuangan
+      // bisa difilter per toko juga
       await firestore.collection('keuangan').add({
+        'store_id': _currentStoreId,
+        'outlet_id': widget.outletId,
         'nomor_pelanggan': nomorStruk,
         'biaya': _grandTotalFinal,
         'dp_amount': dpInt,
@@ -1659,6 +1721,7 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
 
       // Data untuk dikirim ke OrderDetailScreen
       final savedOrderData = {
+        'store_id': _currentStoreId,
         'nomor_pelanggan': nomorStruk,
         'nama_pelanggan': _selectedNama,
         'no_hp': _selectedHp ?? '',
@@ -1723,8 +1786,12 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) =>
-                  OrderDetailScreen(docId: orderRef.id, data: savedOrderData),
+              builder: (_) => OrderDetailScreen(
+                docId: orderRef.id,
+                data: savedOrderData,
+                storeId: widget.storeId,
+                outletId: widget.outletId,
+              ),
             ),
           );
         }
@@ -1779,1144 +1846,1216 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
           ),
         ),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // ── GROUP 1: PILIH PELANGGAN ──────────────────────────────
-              _buildCardGroup(
-                title: 'Data Pelanggan',
-                icon: Icons.person_outline,
-                isDark: isDark,
-                children: [
-                  GestureDetector(
-                    onTap: _pilihPelanggan,
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 15,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).cardColor,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: _selectedNama != null
-                              ? kPrimary.withOpacity(0.5)
-                              : Theme.of(context).dividerColor,
-                          width: _selectedNama != null ? 1.5 : 1,
-                        ),
-                      ),
-                      child: _selectedNama == null
-                          ? Row(
-                              children: [
-                                Icon(
-                                  Icons.person_search_outlined,
-                                  color: kPrimary,
-                                  size: 20,
-                                ),
-                                const SizedBox(width: 12),
-                                Text(
-                                  'Pilih dari Daftar Pelanggan',
-                                  style: TextStyle(
-                                    color: Theme.of(context).hintColor,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                const Spacer(),
-                                Icon(
-                                  Icons.chevron_right_rounded,
-                                  color: Theme.of(context).hintColor,
-                                ),
-                              ],
-                            )
-                          : Row(
-                              children: [
-                                CircleAvatar(
-                                  radius: 18,
-                                  backgroundColor: kPrimary.withOpacity(0.15),
-                                  child: Text(
-                                    _selectedNama!.isNotEmpty
-                                        ? _selectedNama![0].toUpperCase()
-                                        : '?',
-                                    style: TextStyle(
-                                      color: kPrimary,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        _selectedNama!,
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 14,
-                                          color: isDark
-                                              ? Colors.white
-                                              : kTextDark,
-                                        ),
-                                      ),
-                                      if (_selectedHp != null)
-                                        Text(
-                                          _selectedHp!,
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: Theme.of(context).hintColor,
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                                GestureDetector(
-                                  onTap: _pilihPelanggan,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: kPrimary.withOpacity(0.08),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Text(
-                                      'Ganti',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: kPrimary,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
+      // 🌟 Tampilkan loading spinner dulu kalau store_id masih diambil
+      body: _isStoreLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // ── GROUP 1: PILIH PELANGGAN ──────────────────────────────
+                    _buildCardGroup(
+                      title: 'Data Pelanggan',
+                      icon: Icons.person_outline,
+                      isDark: isDark,
+                      children: [
+                        GestureDetector(
+                          onTap: _pilihPelanggan,
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 15,
                             ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // ── GROUP 2: ITEM PESANAN ─────────────────────────────────
-              _buildCardGroup(
-                title: 'Item Pesanan',
-                icon: Icons.local_laundry_service_outlined,
-                isDark: isDark,
-                trailingWidget: _items.isNotEmpty
-                    ? Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 3,
-                        ),
-                        decoration: BoxDecoration(
-                          color: primary.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          '${_items.length} item',
-                          style: TextStyle(
-                            color: primary,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      )
-                    : null,
-                children: [
-                  if (_items.isEmpty)
-                    Container(
-                      padding: const EdgeInsets.symmetric(vertical: 20),
-                      child: Center(
-                        child: Column(
-                          children: [
-                            Icon(
-                              Icons.add_shopping_cart_outlined,
-                              size: 40,
-                              color: Colors.grey.shade300,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Belum ada layanan ditambahkan',
-                              style: TextStyle(
-                                color: Colors.grey.shade400,
-                                fontSize: 13,
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).cardColor,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: _selectedNama != null
+                                    ? kPrimary.withOpacity(0.5)
+                                    : Theme.of(context).dividerColor,
+                                width: _selectedNama != null ? 1.5 : 1,
                               ),
                             ),
-                          ],
-                        ),
-                      ),
-                    )
-                  else
-                    ..._items.asMap().entries.map((entry) {
-                      final idx = entry.key;
-                      final item = entry.value;
-                      final tipe = item['layanan_tipe']?.toString() ?? '';
-                      final satuan = tipe == 'kiloan'
-                          ? 'kg'
-                          : tipe == 'meter'
-                          ? 'm²'
-                          : 'pcs';
-                      final berat = (item['berat_kg'] as num?)?.toDouble() ?? 0;
-                      final beratStr = berat % 1 == 0
-                          ? berat.toStringAsFixed(0)
-                          : NumberFormat('#,##0.##', 'id_ID').format(berat);
-                      final harga =
-                          (item['harga_satuan'] as num?)?.toInt() ?? 0;
-                      final subtotal = (berat * harga).toInt();
-                      final jenis = item['jenis_pakaian']?.toString() ?? '';
-                      final catatan = item['catatan']?.toString() ?? '';
-
-                      Color chipColor;
-                      switch (tipe) {
-                        case 'kiloan':
-                          chipColor = Colors.blue;
-                          break;
-                        case 'meter':
-                          chipColor = Colors.orange;
-                          break;
-                        default:
-                          chipColor = Colors.green;
-                      }
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 10),
-                        padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
-                        decoration: BoxDecoration(
-                          color: isDark
-                              ? Colors.white.withOpacity(0.05)
-                              : Colors.grey.shade50,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: chipColor.withOpacity(0.25),
-                            width: 1.5,
+                            child: _selectedNama == null
+                                ? Row(
+                                    children: [
+                                      Icon(
+                                        Icons.person_search_outlined,
+                                        color: kPrimary,
+                                        size: 20,
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Text(
+                                        'Pilih dari Daftar Pelanggan',
+                                        style: TextStyle(
+                                          color: Theme.of(context).hintColor,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      Icon(
+                                        Icons.chevron_right_rounded,
+                                        color: Theme.of(context).hintColor,
+                                      ),
+                                    ],
+                                  )
+                                : Row(
+                                    children: [
+                                      CircleAvatar(
+                                        radius: 18,
+                                        backgroundColor: kPrimary.withOpacity(
+                                          0.15,
+                                        ),
+                                        child: Text(
+                                          _selectedNama!.isNotEmpty
+                                              ? _selectedNama![0].toUpperCase()
+                                              : '?',
+                                          style: TextStyle(
+                                            color: kPrimary,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              _selectedNama!,
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 14,
+                                                color: isDark
+                                                    ? Colors.white
+                                                    : kTextDark,
+                                              ),
+                                            ),
+                                            if (_selectedHp != null)
+                                              Text(
+                                                _selectedHp!,
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: Theme.of(
+                                                    context,
+                                                  ).hintColor,
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                      GestureDetector(
+                                        onTap: _pilihPelanggan,
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 4,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: kPrimary.withOpacity(0.08),
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            'Ganti',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: kPrimary,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                           ),
                         ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    item['layanan_nama']?.toString() ?? '-',
-                                    style: Theme.of(context).textTheme.bodyLarge
-                                        ?.copyWith(
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    // ── GROUP 2: ITEM PESANAN ─────────────────────────────────
+                    _buildCardGroup(
+                      title: 'Item Pesanan',
+                      icon: Icons.local_laundry_service_outlined,
+                      isDark: isDark,
+                      trailingWidget: _items.isNotEmpty
+                          ? Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: primary.withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                '${_items.length} item',
+                                style: TextStyle(
+                                  color: primary,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            )
+                          : null,
+                      children: [
+                        if (_items.isEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(vertical: 20),
+                            child: Center(
+                              child: Column(
+                                children: [
+                                  Icon(
+                                    Icons.add_shopping_cart_outlined,
+                                    size: 40,
+                                    color: Colors.grey.shade300,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Belum ada layanan ditambahkan',
+                                    style: TextStyle(
+                                      color: Colors.grey.shade400,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
+                        else
+                          ..._items.asMap().entries.map((entry) {
+                            final idx = entry.key;
+                            final item = entry.value;
+                            final tipe = item['layanan_tipe']?.toString() ?? '';
+                            final satuan = tipe == 'kiloan'
+                                ? 'kg'
+                                : tipe == 'meter'
+                                ? 'm²'
+                                : 'pcs';
+                            final berat =
+                                (item['berat_kg'] as num?)?.toDouble() ?? 0;
+                            final beratStr = berat % 1 == 0
+                                ? berat.toStringAsFixed(0)
+                                : NumberFormat(
+                                    '#,##0.##',
+                                    'id_ID',
+                                  ).format(berat);
+                            final harga =
+                                (item['harga_satuan'] as num?)?.toInt() ?? 0;
+                            final subtotal = (berat * harga).toInt();
+                            final jenis =
+                                item['jenis_pakaian']?.toString() ?? '';
+                            final catatan = item['catatan']?.toString() ?? '';
+
+                            Color chipColor;
+                            switch (tipe) {
+                              case 'kiloan':
+                                chipColor = Colors.blue;
+                                break;
+                              case 'meter':
+                                chipColor = Colors.orange;
+                                break;
+                              default:
+                                chipColor = Colors.green;
+                            }
+
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 10),
+                              padding: const EdgeInsets.fromLTRB(
+                                14,
+                                12,
+                                14,
+                                10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: isDark
+                                    ? Colors.white.withOpacity(0.05)
+                                    : Colors.grey.shade50,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: chipColor.withOpacity(0.25),
+                                  width: 1.5,
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          item['layanan_nama']?.toString() ??
+                                              '-',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodyLarge
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 13,
+                                              ),
+                                        ),
+                                      ),
+                                      Text(
+                                        NumberFormat.currency(
+                                          locale: 'id_ID',
+                                          symbol: 'Rp ',
+                                          decimalDigits: 0,
+                                        ).format(subtotal),
+                                        style: TextStyle(
                                           fontWeight: FontWeight.bold,
                                           fontSize: 13,
+                                          color: chipColor,
                                         ),
+                                      ),
+                                    ],
                                   ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    '$beratStr $satuan × Rp ${NumberFormat('#,###', 'id_ID').format(harga)}',
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(fontSize: 11),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Row(
+                                    children: [
+                                      if (jenis.isNotEmpty) ...[
+                                        _miniPill(jenis, Colors.teal),
+                                        const SizedBox(width: 4),
+                                      ],
+                                      _miniPill(tipe, chipColor),
+                                      const Spacer(),
+                                      GestureDetector(
+                                        onTap: () => _hapusItem(idx),
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 3,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.red.withOpacity(0.08),
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                            border: Border.all(
+                                              color: Colors.red.withOpacity(
+                                                0.3,
+                                              ),
+                                            ),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: const [
+                                              Icon(
+                                                Icons.delete_outline,
+                                                size: 12,
+                                                color: Colors.red,
+                                              ),
+                                              SizedBox(width: 3),
+                                              Text(
+                                                'Hapus',
+                                                style: TextStyle(
+                                                  color: Colors.red,
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  if (catatan.isNotEmpty) ...[
+                                    const SizedBox(height: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 6,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: isDark
+                                            ? Colors.white10
+                                            : Colors.grey.shade100,
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            Icons.notes_rounded,
+                                            size: 12,
+                                            color: Colors.grey.shade400,
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Expanded(
+                                            child: Text(
+                                              catatan,
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall
+                                                  ?.copyWith(fontSize: 11),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            );
+                          }),
+
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: _openTambahLayanan,
+                            icon: Icon(
+                              Icons.add_circle_outline,
+                              color: primary,
+                              size: 18,
+                            ),
+                            label: Text(
+                              'Tambah Layanan',
+                              style: TextStyle(
+                                color: primary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: BorderSide(color: primary.withOpacity(0.5)),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                          ),
+                        ),
+
+                        if (_items.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: kPrimary.withOpacity(0.07),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: kPrimary.withOpacity(0.2),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.calculate_outlined,
+                                  color: kPrimary,
+                                  size: 18,
                                 ),
+                                const SizedBox(width: 10),
+                                Text(
+                                  'Total Sementara',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                                const Spacer(),
                                 Text(
                                   NumberFormat.currency(
                                     locale: 'id_ID',
                                     symbol: 'Rp ',
                                     decimalDigits: 0,
-                                  ).format(subtotal),
+                                  ).format(_grandTotal),
                                   style: TextStyle(
+                                    color: kPrimary,
                                     fontWeight: FontWeight.bold,
-                                    fontSize: 13,
-                                    color: chipColor,
+                                    fontSize: 15,
                                   ),
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 3),
-                            Text(
-                              '$beratStr $satuan × Rp ${NumberFormat('#,###', 'id_ID').format(harga)}',
-                              style: Theme.of(
-                                context,
-                              ).textTheme.bodySmall?.copyWith(fontSize: 11),
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                if (jenis.isNotEmpty) ...[
-                                  _miniPill(jenis, Colors.teal),
-                                  const SizedBox(width: 4),
-                                ],
-                                _miniPill(tipe, chipColor),
-                                const Spacer(),
-                                GestureDetector(
-                                  onTap: () => _hapusItem(idx),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 3,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.red.withOpacity(0.08),
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(
-                                        color: Colors.red.withOpacity(0.3),
-                                      ),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: const [
-                                        Icon(
-                                          Icons.delete_outline,
-                                          size: 12,
-                                          color: Colors.red,
-                                        ),
-                                        SizedBox(width: 3),
-                                        Text(
-                                          'Hapus',
-                                          style: TextStyle(
-                                            color: Colors.red,
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            if (catatan.isNotEmpty) ...[
-                              const SizedBox(height: 6),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 6,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: isDark
-                                      ? Colors.white10
-                                      : Colors.grey.shade100,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      Icons.notes_rounded,
-                                      size: 12,
-                                      color: Colors.grey.shade400,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Expanded(
-                                      child: Text(
-                                        catatan,
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodySmall
-                                            ?.copyWith(fontSize: 11),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      );
-                    }),
-
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: _openTambahLayanan,
-                      icon: Icon(
-                        Icons.add_circle_outline,
-                        color: primary,
-                        size: 18,
-                      ),
-                      label: Text(
-                        'Tambah Layanan',
-                        style: TextStyle(
-                          color: primary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        side: BorderSide(color: primary.withOpacity(0.5)),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  if (_items.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: kPrimary.withOpacity(0.07),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: kPrimary.withOpacity(0.2)),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(
-                            Icons.calculate_outlined,
-                            color: kPrimary,
-                            size: 18,
                           ),
-                          const SizedBox(width: 10),
-                          Text(
-                            'Total Sementara',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                          const Spacer(),
-                          Text(
-                            NumberFormat.currency(
-                              locale: 'id_ID',
-                              symbol: 'Rp ',
-                              decimalDigits: 0,
-                            ).format(_grandTotal),
-                            style: TextStyle(
-                              color: kPrimary,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15,
-                            ),
-                          ),
+                          const SizedBox(height: 8),
                         ],
-                      ),
+                      ],
                     ),
-                    const SizedBox(height: 8),
-                  ],
-                ],
-              ),
-              const SizedBox(height: 16),
+                    const SizedBox(height: 16),
 
-              // ── GROUP TANGGAL ORDER ───────────────────────────────────
-              _buildCardGroup(
-                title: 'Tanggal Order',
-                icon: Icons.calendar_today_outlined,
-                isDark: isDark,
-                children: [
-                  GestureDetector(
-                    onTap: () => _showDatePickerSheet(),
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 13,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).cardColor,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: _customTanggal != null
-                              ? kPrimary.withOpacity(0.5)
-                              : Theme.of(context).dividerColor,
-                          width: _customTanggal != null ? 1.5 : 1,
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            _customTanggal != null
-                                ? Icons.event_available_outlined
-                                : Icons.calendar_today_outlined,
-                            color: _customTanggal != null
-                                ? kPrimary
-                                : Theme.of(context).hintColor,
-                            size: 18,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _customTanggal != null
-                                ? Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        DateFormat(
-                                          'EEEE, dd MMMM yyyy',
-                                          'id_ID',
-                                        ).format(_customTanggal!),
-                                        style: TextStyle(
-                                          color: kPrimary,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 13,
-                                        ),
-                                      ),
-                                      Text(
-                                        'Jam otomatis: 18:00',
-                                        style: TextStyle(
-                                          color: kPrimary.withOpacity(0.7),
-                                          fontSize: 11,
-                                        ),
-                                      ),
-                                    ],
-                                  )
-                                : Text(
-                                    'Tanggal sekarang (jam input)',
-                                    style: TextStyle(
-                                      color: Theme.of(context).hintColor,
-                                      fontSize: 13,
-                                    ),
-                                  ),
-                          ),
-                          if (_customTanggal != null)
-                            GestureDetector(
-                              onTap: () =>
-                                  setState(() => _customTanggal = null),
-                              child: Container(
-                                padding: const EdgeInsets.all(4),
-                                decoration: BoxDecoration(
-                                  color: Colors.red.withOpacity(0.08),
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(
-                                  Icons.close_rounded,
-                                  color: Colors.red,
-                                  size: 14,
-                                ),
-                              ),
-                            )
-                          else
-                            Icon(
-                              Icons.keyboard_arrow_down_rounded,
-                              color: Theme.of(context).hintColor,
+                    // ── GROUP TANGGAL ORDER ───────────────────────────────────
+                    _buildCardGroup(
+                      title: 'Tanggal Order',
+                      icon: Icons.calendar_today_outlined,
+                      isDark: isDark,
+                      children: [
+                        GestureDetector(
+                          onTap: () => _showDatePickerSheet(),
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 13,
                             ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.event_available_outlined,
-                        color: kPrimary,
-                        size: 16,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Est. Selesai: ',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      Text(
-                        _estimasiDariCustom,
-                        style: TextStyle(
-                          color: kPrimary,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // ── GROUP BIAYA TAMBAHAN ──────────────────────────────────
-              _buildCardGroup(
-                title: 'Biaya Tambahan',
-                icon: Icons.add_card_outlined,
-                isDark: isDark,
-                trailingWidget: _biayaTambahan.isNotEmpty
-                    ? Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 3,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.purple.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          '${_biayaTambahan.length} item',
-                          style: const TextStyle(
-                            color: Colors.purple,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      )
-                    : null,
-                children: [
-                  if (_biayaTambahan.isEmpty)
-                    Container(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      child: Center(
-                        child: Column(
-                          children: [
-                            const SizedBox(height: 6),
-                            Text(
-                              'Belum ada biaya tambahan',
-                              style: TextStyle(
-                                color: Colors.grey.shade400,
-                                fontSize: 12,
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).cardColor,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: _customTanggal != null
+                                    ? kPrimary.withOpacity(0.5)
+                                    : Theme.of(context).dividerColor,
+                                width: _customTanggal != null ? 1.5 : 1,
                               ),
                             ),
-                          ],
-                        ),
-                      ),
-                    )
-                  else
-                    ..._biayaTambahan.asMap().entries.map((entry) {
-                      final idx = entry.key;
-                      final b = entry.value;
-                      final nominal = (b['nominal'] as num).toInt();
-                      final qty = (b['qty'] as num).toInt();
-                      final subtotal = nominal * qty;
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                        decoration: BoxDecoration(
-                          color: isDark
-                              ? Colors.white.withOpacity(0.05)
-                              : Colors.purple.withOpacity(0.04),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: Colors.purple.withOpacity(0.2),
-                            width: 1,
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 32,
-                              height: 32,
-                              decoration: BoxDecoration(
-                                color: Colors.purple.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Icon(
-                                Icons.receipt_outlined,
-                                color: Colors.purple,
-                                size: 16,
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    b['keterangan']?.toString() ?? '-',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodyMedium
-                                        ?.copyWith(
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: 13,
-                                        ),
-                                  ),
-                                  Text(
-                                    '${_formatRupiah(nominal)} × $qty',
-                                    style: Theme.of(context).textTheme.bodySmall
-                                        ?.copyWith(fontSize: 11),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Text(
-                                  _formatRupiah(subtotal),
-                                  style: const TextStyle(
-                                    color: Colors.purple,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                                GestureDetector(
-                                  onTap: () => setState(
-                                    () => _biayaTambahan.removeAt(idx),
-                                  ),
-                                  child: Container(
-                                    margin: const EdgeInsets.only(top: 4),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 6,
-                                      vertical: 2,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.red.withOpacity(0.08),
-                                      borderRadius: BorderRadius.circular(6),
-                                      border: Border.all(
-                                        color: Colors.red.withOpacity(0.3),
-                                      ),
-                                    ),
-                                    child: const Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          Icons.delete_outline,
-                                          size: 10,
-                                          color: Colors.red,
-                                        ),
-                                        SizedBox(width: 2),
-                                        Text(
-                                          'Hapus',
-                                          style: TextStyle(
-                                            color: Colors.red,
-                                            fontSize: 9,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      );
-                    }),
-
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: _showTambahBiayaSheet,
-                      icon: const Icon(Icons.add_circle_outline, size: 18),
-                      label: const Text(
-                        'Tambah Biaya',
-                        style: TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.purple,
-                        side: BorderSide(color: Colors.purple.withOpacity(0.5)),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  if (_biayaTambahan.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.purple.withOpacity(0.07),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: Colors.purple.withOpacity(0.2),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(
-                            Icons.summarize_outlined,
-                            color: Colors.purple,
-                            size: 16,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Total Biaya Tambahan',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                          const Spacer(),
-                          Text(
-                            _formatRupiah(_totalBiayaTambahan),
-                            style: const TextStyle(
-                              color: Colors.purple,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // ══════════════════════════════════════════════════════════
-              // GROUP DISKON — di atas card pembayaran
-              // ══════════════════════════════════════════════════════════
-              _buildCardGroup(
-                title: 'Diskon',
-                icon: Icons.local_offer_outlined,
-                isDark: isDark,
-                trailingWidget: _diskonNominal > 0
-                    ? Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 3,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.red.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          '- ${_formatRupiah(_diskonNominal)}',
-                          style: TextStyle(
-                            color: Colors.red.shade600,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      )
-                    : null,
-                children: [
-                  // ── Tombol/card diskon — selalu sebagai button ──────
-                  GestureDetector(
-                    onTap: _showDiskonSheet,
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 14,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _diskonNominal > 0
-                            ? Colors.red.withOpacity(0.05)
-                            : Theme.of(context).cardColor,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: _diskonNominal > 0
-                              ? Colors.red.withOpacity(0.4)
-                              : Theme.of(context).dividerColor,
-                          width: _diskonNominal > 0 ? 1.5 : 1,
-                        ),
-                      ),
-                      child: _diskonNominal == 0
-                          ? Row(
+                            child: Row(
                               children: [
                                 Icon(
-                                  Icons.local_offer_outlined,
-                                  color: Colors.red.shade400,
-                                  size: 20,
-                                ),
-                                const SizedBox(width: 12),
-                                Text(
-                                  'Tambahkan Diskon',
-                                  style: TextStyle(
-                                    color: Theme.of(context).hintColor,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                const Spacer(),
-                                Icon(
-                                  Icons.chevron_right_rounded,
-                                  color: Theme.of(context).hintColor,
-                                ),
-                              ],
-                            )
-                          : Row(
-                              children: [
-                                Container(
-                                  width: 36,
-                                  height: 36,
-                                  decoration: BoxDecoration(
-                                    color: Colors.red.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Icon(
-                                    Icons.local_offer_rounded,
-                                    color: Colors.red.shade500,
-                                    size: 18,
-                                  ),
+                                  _customTanggal != null
+                                      ? Icons.event_available_outlined
+                                      : Icons.calendar_today_outlined,
+                                  color: _customTanggal != null
+                                      ? kPrimary
+                                      : Theme.of(context).hintColor,
+                                  size: 18,
                                 ),
                                 const SizedBox(width: 12),
                                 Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        '- ${_formatRupiah(_diskonNominal)}',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 14,
-                                          color: Colors.red.shade600,
-                                        ),
-                                      ),
-                                      if (_diskonCatatan.isNotEmpty)
-                                        Text(
-                                          _diskonCatatan,
+                                  child: _customTanggal != null
+                                      ? Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              DateFormat(
+                                                'EEEE, dd MMMM yyyy',
+                                                'id_ID',
+                                              ).format(_customTanggal!),
+                                              style: TextStyle(
+                                                color: kPrimary,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 13,
+                                              ),
+                                            ),
+                                            Text(
+                                              'Jam otomatis: 18:00',
+                                              style: TextStyle(
+                                                color: kPrimary.withOpacity(
+                                                  0.7,
+                                                ),
+                                                fontSize: 11,
+                                              ),
+                                            ),
+                                          ],
+                                        )
+                                      : Text(
+                                          'Tanggal sekarang (jam input)',
                                           style: TextStyle(
-                                            fontSize: 11,
                                             color: Theme.of(context).hintColor,
+                                            fontSize: 13,
                                           ),
                                         ),
-                                    ],
-                                  ),
                                 ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.red.withOpacity(0.08),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(
-                                    'Ubah',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: Colors.red.shade500,
-                                      fontWeight: FontWeight.w600,
+                                if (_customTanggal != null)
+                                  GestureDetector(
+                                    onTap: () =>
+                                        setState(() => _customTanggal = null),
+                                    child: Container(
+                                      padding: const EdgeInsets.all(4),
+                                      decoration: BoxDecoration(
+                                        color: Colors.red.withOpacity(0.08),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(
+                                        Icons.close_rounded,
+                                        color: Colors.red,
+                                        size: 14,
+                                      ),
                                     ),
+                                  )
+                                else
+                                  Icon(
+                                    Icons.keyboard_arrow_down_rounded,
+                                    color: Theme.of(context).hintColor,
                                   ),
-                                ),
                               ],
                             ),
-                    ),
-                  ),
-
-                  // Preview kalkulasi diskon jika sudah diisi
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // ── GROUP 3: PEMBAYARAN ───────────────────────────────────
-              _buildCardGroup(
-                title: 'Pembayaran',
-                icon: Icons.payments_outlined,
-                isDark: isDark,
-                children: [
-                  // ── Ringkasan Total ───────────────────────────────────────
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    margin: const EdgeInsets.only(bottom: 14),
-                    decoration: BoxDecoration(
-                      color: kPrimary.withOpacity(0.05),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: kPrimary.withOpacity(0.15)),
-                    ),
-                    child: Column(
-                      children: [
+                          ),
+                        ),
+                        const SizedBox(height: 8),
                         Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
+                            Icon(
+                              Icons.event_available_outlined,
+                              color: kPrimary,
+                              size: 16,
+                            ),
+                            const SizedBox(width: 6),
                             Text(
-                              'Total Layanan',
+                              'Est. Selesai: ',
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
                             Text(
-                              _formatRupiah(_grandTotal),
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                          ],
-                        ),
-                        if (_biayaTambahan.isNotEmpty) ...[
-                          const SizedBox(height: 4),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                'Biaya Tambahan',
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                              Text(
-                                _formatRupiah(_totalBiayaTambahan),
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                            ],
-                          ),
-                        ],
-                        if (_diskonNominal > 0) ...[
-                          const SizedBox(height: 4),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                'Diskon',
-                                style: TextStyle(
-                                  color: Colors.red.shade400,
-                                  fontSize: 12,
-                                ),
-                              ),
-                              Text(
-                                '- ${_formatRupiah(_diskonNominal)}',
-                                style: TextStyle(
-                                  color: Colors.red.shade400,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                        Divider(height: 14, color: kPrimary.withOpacity(0.15)),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'Total Akhir',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                                color: kPrimary,
-                              ),
-                            ),
-                            Text(
-                              _formatRupiah(_grandTotalFinal),
+                              _estimasiDariCustom,
                               style: TextStyle(
                                 color: kPrimary,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 12,
                               ),
                             ),
                           ],
                         ),
                       ],
                     ),
-                  ),
-                  Text(
-                    'Status Pembayaran',
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: kPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      _buildBayarChip(
-                        'belum_bayar',
-                        'Bayar Akhir',
-                        Icons.schedule_outlined,
-                        Colors.grey,
-                      ),
-                      const SizedBox(width: 8),
-                      _buildBayarChip(
-                        'dp',
-                        'DP',
-                        Icons.payments_outlined,
-                        Colors.orange,
-                      ),
-                      const SizedBox(width: 8),
-                      _buildBayarChip(
-                        'lunas',
-                        'Lunas',
-                        Icons.check_circle_outline,
-                        Colors.green,
-                      ),
-                    ],
-                  ),
-                  AnimatedSize(
-                    duration: const Duration(milliseconds: 250),
-                    curve: Curves.easeInOut,
-                    child: _statusBayar == 'dp'
-                        ? Padding(
-                            padding: const EdgeInsets.only(top: 12),
-                            child: TextFormField(
-                              controller: _dpCtrl,
-                              keyboardType: TextInputType.number,
-                              inputFormatters: [
-                                FilteringTextInputFormatter.digitsOnly,
-                                CurrencyInputFormatter(),
-                              ],
-                              style: TextStyle(
-                                color: isDark ? Colors.white : kTextDark,
-                                fontSize: 14,
+                    const SizedBox(height: 16),
+
+                    // ── GROUP BIAYA TAMBAHAN ──────────────────────────────────
+                    _buildCardGroup(
+                      title: 'Biaya Tambahan',
+                      icon: Icons.add_card_outlined,
+                      isDark: isDark,
+                      trailingWidget: _biayaTambahan.isNotEmpty
+                          ? Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
                               ),
-                              validator: (v) {
-                                if (_statusBayar == 'dp' &&
-                                    (v == null || v.isEmpty)) {
-                                  return 'Nominal DP tidak boleh kosong';
-                                }
-                                return null;
-                              },
-                              decoration: InputDecoration(
-                                hintText: 'Nominal DP',
-                                prefixIcon: SizedBox(
-                                  width: 48,
-                                  child: Center(
-                                    child: Text(
-                                      'Rp',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w700,
-                                        color: Colors.orange,
-                                      ),
+                              decoration: BoxDecoration(
+                                color: Colors.purple.withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                '${_biayaTambahan.length} item',
+                                style: const TextStyle(
+                                  color: Colors.purple,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            )
+                          : null,
+                      children: [
+                        if (_biayaTambahan.isEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            child: Center(
+                              child: Column(
+                                children: [
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Belum ada biaya tambahan',
+                                    style: TextStyle(
+                                      color: Colors.grey.shade400,
+                                      fontSize: 12,
                                     ),
                                   ),
-                                ),
-                                prefixIconConstraints: const BoxConstraints(
-                                  minWidth: 48,
-                                  minHeight: 48,
-                                ),
-                                filled: true,
-                                fillColor: Colors.orange.withOpacity(0.05),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  vertical: 15,
-                                  horizontal: 16,
-                                ),
-                                enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                  borderSide: BorderSide(
-                                    color: Colors.orange.withOpacity(0.4),
-                                    width: 1.5,
-                                  ),
-                                ),
-                                focusedBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                  borderSide: const BorderSide(
-                                    color: Colors.orange,
-                                    width: 2,
-                                  ),
-                                ),
-                                errorBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                  borderSide: const BorderSide(
-                                    color: Colors.red,
-                                    width: 1,
-                                  ),
-                                ),
+                                ],
                               ),
                             ),
                           )
-                        : const SizedBox.shrink(),
-                  ),
-                  const SizedBox(height: 14),
-                  _buildStatusTopologi(),
-                ],
-              ),
-
-              const SizedBox(height: 24),
-
-              // Tombol simpan
-              SizedBox(
-                width: double.infinity,
-                height: 55,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: kPrimary,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(15),
-                    ),
-                    elevation: 2,
-                  ),
-                  onPressed: _isSubmitting ? null : _submitData,
-                  child: _isSubmitting
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.receipt_long_outlined, size: 20),
-                            SizedBox(width: 10),
-                            Text(
-                              'SIMPAN & LIHAT ORDER',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
+                        else
+                          ..._biayaTambahan.asMap().entries.map((entry) {
+                            final idx = entry.key;
+                            final b = entry.value;
+                            final nominal = (b['nominal'] as num).toInt();
+                            final qty = (b['qty'] as num).toInt();
+                            final subtotal = nominal * qty;
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              padding: const EdgeInsets.fromLTRB(
+                                12,
+                                10,
+                                12,
+                                10,
                               ),
+                              decoration: BoxDecoration(
+                                color: isDark
+                                    ? Colors.white.withOpacity(0.05)
+                                    : Colors.purple.withOpacity(0.04),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Colors.purple.withOpacity(0.2),
+                                  width: 1,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 32,
+                                    height: 32,
+                                    decoration: BoxDecoration(
+                                      color: Colors.purple.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const Icon(
+                                      Icons.receipt_outlined,
+                                      color: Colors.purple,
+                                      size: 16,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          b['keterangan']?.toString() ?? '-',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodyMedium
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.w600,
+                                                fontSize: 13,
+                                              ),
+                                        ),
+                                        Text(
+                                          '${_formatRupiah(nominal)} × $qty',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall
+                                              ?.copyWith(fontSize: 11),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Text(
+                                        _formatRupiah(subtotal),
+                                        style: const TextStyle(
+                                          color: Colors.purple,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                      GestureDetector(
+                                        onTap: () => setState(
+                                          () => _biayaTambahan.removeAt(idx),
+                                        ),
+                                        child: Container(
+                                          margin: const EdgeInsets.only(top: 4),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.red.withOpacity(0.08),
+                                            borderRadius: BorderRadius.circular(
+                                              6,
+                                            ),
+                                            border: Border.all(
+                                              color: Colors.red.withOpacity(
+                                                0.3,
+                                              ),
+                                            ),
+                                          ),
+                                          child: const Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.delete_outline,
+                                                size: 10,
+                                                color: Colors.red,
+                                              ),
+                                              SizedBox(width: 2),
+                                              Text(
+                                                'Hapus',
+                                                style: TextStyle(
+                                                  color: Colors.red,
+                                                  fontSize: 9,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: _showTambahBiayaSheet,
+                            icon: const Icon(
+                              Icons.add_circle_outline,
+                              size: 18,
+                            ),
+                            label: const Text(
+                              'Tambah Biaya',
+                              style: TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.purple,
+                              side: BorderSide(
+                                color: Colors.purple.withOpacity(0.5),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                        ),
+
+                        if (_biayaTambahan.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.purple.withOpacity(0.07),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: Colors.purple.withOpacity(0.2),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.summarize_outlined,
+                                  color: Colors.purple,
+                                  size: 16,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Total Biaya Tambahan',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                                const Spacer(),
+                                Text(
+                                  _formatRupiah(_totalBiayaTambahan),
+                                  style: const TextStyle(
+                                    color: Colors.purple,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    // ══════════════════════════════════════════════════════════
+                    // GROUP DISKON — di atas card pembayaran
+                    // ══════════════════════════════════════════════════════════
+                    _buildCardGroup(
+                      title: 'Diskon',
+                      icon: Icons.local_offer_outlined,
+                      isDark: isDark,
+                      trailingWidget: _diskonNominal > 0
+                          ? Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                '- ${_formatRupiah(_diskonNominal)}',
+                                style: TextStyle(
+                                  color: Colors.red.shade600,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            )
+                          : null,
+                      children: [
+                        // ── Tombol/card diskon — selalu sebagai button ──────
+                        GestureDetector(
+                          onTap: _showDiskonSheet,
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 14,
+                            ),
+                            decoration: BoxDecoration(
+                              color: _diskonNominal > 0
+                                  ? Colors.red.withOpacity(0.05)
+                                  : Theme.of(context).cardColor,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: _diskonNominal > 0
+                                    ? Colors.red.withOpacity(0.4)
+                                    : Theme.of(context).dividerColor,
+                                width: _diskonNominal > 0 ? 1.5 : 1,
+                              ),
+                            ),
+                            child: _diskonNominal == 0
+                                ? Row(
+                                    children: [
+                                      Icon(
+                                        Icons.local_offer_outlined,
+                                        color: Colors.red.shade400,
+                                        size: 20,
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Text(
+                                        'Tambahkan Diskon',
+                                        style: TextStyle(
+                                          color: Theme.of(context).hintColor,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      Icon(
+                                        Icons.chevron_right_rounded,
+                                        color: Theme.of(context).hintColor,
+                                      ),
+                                    ],
+                                  )
+                                : Row(
+                                    children: [
+                                      Container(
+                                        width: 36,
+                                        height: 36,
+                                        decoration: BoxDecoration(
+                                          color: Colors.red.withOpacity(0.1),
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
+                                        ),
+                                        child: Icon(
+                                          Icons.local_offer_rounded,
+                                          color: Colors.red.shade500,
+                                          size: 18,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              '- ${_formatRupiah(_diskonNominal)}',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 14,
+                                                color: Colors.red.shade600,
+                                              ),
+                                            ),
+                                            if (_diskonCatatan.isNotEmpty)
+                                              Text(
+                                                _diskonCatatan,
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: Theme.of(
+                                                    context,
+                                                  ).hintColor,
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.red.withOpacity(0.08),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          'Ubah',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.red.shade500,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                          ),
+                        ),
+
+                        // Preview kalkulasi diskon jika sudah diisi
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    // ── GROUP 3: PEMBAYARAN ───────────────────────────────────
+                    _buildCardGroup(
+                      title: 'Pembayaran',
+                      icon: Icons.payments_outlined,
+                      isDark: isDark,
+                      children: [
+                        // ── Ringkasan Total ───────────────────────────────────────
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          margin: const EdgeInsets.only(bottom: 14),
+                          decoration: BoxDecoration(
+                            color: kPrimary.withOpacity(0.05),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: kPrimary.withOpacity(0.15),
+                            ),
+                          ),
+                          child: Column(
+                            children: [
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'Total Layanan',
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodySmall,
+                                  ),
+                                  Text(
+                                    _formatRupiah(_grandTotal),
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                              if (_biayaTambahan.isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      'Biaya Tambahan',
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodySmall,
+                                    ),
+                                    Text(
+                                      _formatRupiah(_totalBiayaTambahan),
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                              if (_diskonNominal > 0) ...[
+                                const SizedBox(height: 4),
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      'Diskon',
+                                      style: TextStyle(
+                                        color: Colors.red.shade400,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                    Text(
+                                      '- ${_formatRupiah(_diskonNominal)}',
+                                      style: TextStyle(
+                                        color: Colors.red.shade400,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                              Divider(
+                                height: 14,
+                                color: kPrimary.withOpacity(0.15),
+                              ),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'Total Akhir',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                      color: kPrimary,
+                                    ),
+                                  ),
+                                  Text(
+                                    _formatRupiah(_grandTotalFinal),
+                                    style: TextStyle(
+                                      color: kPrimary,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          'Status Pembayaran',
+                          style: Theme.of(context).textTheme.bodyLarge
+                              ?.copyWith(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: kPrimary,
+                              ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            _buildBayarChip(
+                              'belum_bayar',
+                              'Bayar Akhir',
+                              Icons.schedule_outlined,
+                              Colors.grey,
+                            ),
+                            const SizedBox(width: 8),
+                            _buildBayarChip(
+                              'dp',
+                              'DP',
+                              Icons.payments_outlined,
+                              Colors.orange,
+                            ),
+                            const SizedBox(width: 8),
+                            _buildBayarChip(
+                              'lunas',
+                              'Lunas',
+                              Icons.check_circle_outline,
+                              Colors.green,
                             ),
                           ],
                         ),
+                        AnimatedSize(
+                          duration: const Duration(milliseconds: 250),
+                          curve: Curves.easeInOut,
+                          child: _statusBayar == 'dp'
+                              ? Padding(
+                                  padding: const EdgeInsets.only(top: 12),
+                                  child: TextFormField(
+                                    controller: _dpCtrl,
+                                    keyboardType: TextInputType.number,
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.digitsOnly,
+                                      CurrencyInputFormatter(),
+                                    ],
+                                    style: TextStyle(
+                                      color: isDark ? Colors.white : kTextDark,
+                                      fontSize: 14,
+                                    ),
+                                    validator: (v) {
+                                      if (_statusBayar == 'dp' &&
+                                          (v == null || v.isEmpty)) {
+                                        return 'Nominal DP tidak boleh kosong';
+                                      }
+                                      return null;
+                                    },
+                                    decoration: InputDecoration(
+                                      hintText: 'Nominal DP',
+                                      prefixIcon: SizedBox(
+                                        width: 48,
+                                        child: Center(
+                                          child: Text(
+                                            'Rp',
+                                            style: TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w700,
+                                              color: Colors.orange,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      prefixIconConstraints:
+                                          const BoxConstraints(
+                                            minWidth: 48,
+                                            minHeight: 48,
+                                          ),
+                                      filled: true,
+                                      fillColor: Colors.orange.withOpacity(
+                                        0.05,
+                                      ),
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                            vertical: 15,
+                                            horizontal: 16,
+                                          ),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        borderSide: BorderSide(
+                                          color: Colors.orange.withOpacity(0.4),
+                                          width: 1.5,
+                                        ),
+                                      ),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        borderSide: const BorderSide(
+                                          color: Colors.orange,
+                                          width: 2,
+                                        ),
+                                      ),
+                                      errorBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        borderSide: const BorderSide(
+                                          color: Colors.red,
+                                          width: 1,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                )
+                              : const SizedBox.shrink(),
+                        ),
+                        const SizedBox(height: 14),
+                        _buildStatusTopologi(),
+                      ],
+                    ),
+
+                    const SizedBox(height: 24),
+
+                    // Tombol simpan
+                    SizedBox(
+                      width: double.infinity,
+                      height: 55,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: kPrimary,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(15),
+                          ),
+                          elevation: 2,
+                        ),
+                        onPressed: _isSubmitting ? null : _submitData,
+                        child: _isSubmitting
+                            ? const CircularProgressIndicator(
+                                color: Colors.white,
+                              )
+                            : const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.receipt_long_outlined, size: 20),
+                                  SizedBox(width: 10),
+                                  Text(
+                                    'SIMPAN & LIHAT ORDER',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                      ),
+                    ),
+                    const SizedBox(height: 80),
+                  ],
                 ),
               ),
-              const SizedBox(height: 80),
-            ],
-          ),
-        ),
-      ),
+            ),
     );
   }
 
@@ -3111,27 +3250,21 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
       }).toList(),
     );
   }
-
-  int _toInt(dynamic val) {
-    if (val == null) return 0;
-    if (val is int) return val;
-    if (val is double) return val.round();
-    if (val is num) return val.toInt();
-    try {
-      return int.parse(val.toString().replaceAll(RegExp(r'[^0-9]'), ''));
-    } catch (_) {
-      return 0;
-    }
-  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
 //  BOTTOM SHEET: Pilih Layanan
 // ════════════════════════════════════════════════════════════════════════════
 class _LayananPickerSheet extends StatefulWidget {
+  final String storeId;
+  final String outletId;
   final void Function(Layanan) onSelected;
 
-  const _LayananPickerSheet({required this.onSelected});
+  const _LayananPickerSheet({
+    required this.storeId,
+    required this.outletId,
+    required this.onSelected,
+  });
 
   @override
   State<_LayananPickerSheet> createState() => _LayananPickerSheetState();
@@ -3148,13 +3281,20 @@ class _LayananPickerSheetState extends State<_LayananPickerSheet> {
   void initState() {
     super.initState();
     _loadLayanan();
+    // 🌟 _getStoreId() DIHAPUS dari sini — class ini bukan tempatnya.
+    // storeId sekarang didapat dari widget.storeId (dikirim oleh AddOrderScreen)
   }
 
   Future<void> _loadLayanan() async {
     if (!mounted) return;
     setState(() => _isLoading = true);
     try {
+      // 🌟 Query layanan sekarang per-toko, bukan collection global lagi
       final snap = await FirebaseFirestore.instance
+          .collection('stores')
+          .doc(widget.storeId)
+          .collection('outlets')
+          .doc(widget.outletId)
           .collection('layanan')
           .orderBy('nama')
           .get();
@@ -3179,12 +3319,19 @@ class _LayananPickerSheetState extends State<_LayananPickerSheet> {
       builder: (ctx) => LayananFormSheet(
         existing: null,
         onSave: (nama, tipe, harga, durasiJam) async {
-          await FirebaseFirestore.instance.collection('layanan').add({
-            'nama': nama,
-            'tipe': tipe,
-            'harga': harga,
-            'durasi_jam': durasiJam,
-          });
+          // 🌟 Tambah layanan baru juga masuk ke sub-collection toko ini
+          await FirebaseFirestore.instance
+              .collection('stores')
+              .doc(widget.storeId)
+              .collection('outlets') // ← TAMBAH
+              .doc(widget.outletId)
+              .collection('layanan')
+              .add({
+                'nama': nama,
+                'tipe': tipe,
+                'harga': harga,
+                'durasi_jam': durasiJam,
+              });
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(

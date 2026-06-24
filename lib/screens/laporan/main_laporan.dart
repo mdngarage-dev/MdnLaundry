@@ -1,8 +1,35 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../main_screens.dart';
+import 'package:mdnlaundry_project/screens/outlet/outlet_service.dart';
 
-class LaporanScreen extends StatelessWidget {
-  const LaporanScreen({super.key});
+class LaporanScreen extends StatefulWidget {
+  final String storeId;
+  final String outletId;
+  final bool isOwner;
+
+  const LaporanScreen({
+    super.key,
+    required this.storeId,
+    required this.outletId,
+    this.isOwner = false,
+  });
+
+  @override
+  State<LaporanScreen> createState() => _LaporanScreenState();
+}
+
+class _LaporanScreenState extends State<LaporanScreen> {
+  late String _selectedView; // 'outlet' atau 'gabungan'
+  late String _selectedOutletId;
+  String _selectedMonth = DateTime.now().toString().substring(0, 7);
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedView = widget.isOwner ? 'outlet' : 'outlet';
+    _selectedOutletId = widget.outletId;
+  }
 
   Widget _buildIndividualCard({
     required BuildContext context,
@@ -14,12 +41,10 @@ class LaporanScreen extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       elevation: 0,
-      // ✅ THEME: Warna card mengikuti tema
       color: Theme.of(context).cardColor,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(15),
         side: BorderSide(
-          // ✅ THEME: Border mengikuti dividerColor tema
           color: Theme.of(context).dividerColor.withOpacity(0.5),
         ),
       ),
@@ -27,22 +52,16 @@ class LaporanScreen extends StatelessWidget {
         leading: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            // ✅ THEME: Background icon mengikuti primaryColor tema
             color: Theme.of(context).primaryColor.withOpacity(0.08),
             borderRadius: BorderRadius.circular(10),
           ),
-          child: Icon(
-            icon,
-            // ✅ THEME: Warna icon mengikuti primaryColor tema
-            color: Theme.of(context).primaryColor,
-          ),
+          child: Icon(icon, color: Theme.of(context).primaryColor),
         ),
         title: Text(
           title,
           style: TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 15,
-            // ✅ THEME: Warna judul mengikuti tema
             color: Theme.of(context).textTheme.bodyLarge?.color,
           ),
         ),
@@ -50,13 +69,11 @@ class LaporanScreen extends StatelessWidget {
           subtitle,
           style: TextStyle(
             fontSize: 12,
-            // ✅ THEME: Warna subtitle mengikuti tema
             color: Theme.of(context).textTheme.bodyMedium?.color,
           ),
         ),
         trailing: Icon(
           Icons.chevron_right,
-          // ✅ THEME: Warna chevron mengikuti hintColor tema
           color: Theme.of(context).hintColor,
           size: 18,
         ),
@@ -114,24 +131,63 @@ class LaporanScreen extends StatelessWidget {
     return Divider(
       height: 1,
       thickness: 1,
-      // ✅ THEME: Warna divider mengikuti tema
       color: Theme.of(context).dividerColor.withOpacity(0.5),
       indent: 65,
       endIndent: 15,
     );
   }
 
+  Widget _buildOutletSelector() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('stores')
+          .doc(widget.storeId)
+          .collection('outlets')
+          .orderBy('is_utama', descending: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) return const SizedBox.shrink();
+
+        final outlets = snapshot.data!.docs;
+
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: Theme.of(context).scaffoldBackgroundColor,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Theme.of(context).dividerColor),
+          ),
+          child: DropdownButton<String>(
+            value: _selectedOutletId,
+            isExpanded: true,
+            underline: const SizedBox.shrink(),
+            items: outlets
+                .map(
+                  (outlet) => DropdownMenuItem(
+                    value: outlet.id,
+                    child: Text(outlet['nama_outlet'] ?? 'Outlet'),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) {
+              if (value != null) {
+                setState(() => _selectedOutletId = value);
+              }
+            },
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // ✅ THEME: Background mengikuti tema
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-
       appBar: AppBar(
         title: Text(
           "Laporan",
           style: TextStyle(
-            // ✅ THEME: Warna teks AppBar mengikuti appBarTheme
             color:
                 Theme.of(context).appBarTheme.titleTextStyle?.color ??
                 Colors.white,
@@ -139,7 +195,6 @@ class LaporanScreen extends StatelessWidget {
           ),
         ),
         centerTitle: true,
-        // ✅ THEME: Warna AppBar mengikuti appBarTheme
         backgroundColor:
             Theme.of(context).appBarTheme.backgroundColor ??
             Theme.of(context).primaryColor,
@@ -154,21 +209,115 @@ class LaporanScreen extends StatelessWidget {
           ),
         ),
       ),
-
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 20.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // ── Filter Section (Owner only) ────────────────────────────
+            if (widget.isOwner) ...[
+              const SizedBox(height: 16),
+              Text(
+                'Tampilkan Laporan',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 10),
+              Container(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).scaffoldBackgroundColor,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Theme.of(context).dividerColor),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setState(() => _selectedView = 'outlet'),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          decoration: BoxDecoration(
+                            color: _selectedView == 'outlet'
+                                ? Theme.of(context).primaryColor
+                                : Colors.transparent,
+                            borderRadius: const BorderRadius.only(
+                              topLeft: Radius.circular(11),
+                              bottomLeft: Radius.circular(11),
+                            ),
+                          ),
+                          child: Center(
+                            child: Text(
+                              'Per Outlet',
+                              style: TextStyle(
+                                color: _selectedView == 'outlet'
+                                    ? Colors.white
+                                    : Theme.of(
+                                        context,
+                                      ).textTheme.bodyMedium?.color,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setState(() => _selectedView = 'gabungan'),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          decoration: BoxDecoration(
+                            color: _selectedView == 'gabungan'
+                                ? Theme.of(context).primaryColor
+                                : Colors.transparent,
+                            borderRadius: const BorderRadius.only(
+                              topRight: Radius.circular(11),
+                              bottomRight: Radius.circular(11),
+                            ),
+                          ),
+                          child: Center(
+                            child: Text(
+                              'Gabungan',
+                              style: TextStyle(
+                                color: _selectedView == 'gabungan'
+                                    ? Colors.white
+                                    : Theme.of(
+                                        context,
+                                      ).textTheme.bodyMedium?.color,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // ── Outlet Selector (jika per outlet) ──────────────────
+              if (_selectedView == 'outlet') ...[
+                Text(
+                  'Outlet',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 10),
+                _buildOutletSelector(),
+                const SizedBox(height: 16),
+              ],
+            ],
+
             // ── Section: Ringkasan ──────────────────────────────────────
             FutureBuilder<List<bool>>(
               future: Future.wait([
-                canAccess('can_view_ringkasan'),
-                canAccess('can_view_harian'),
-                // tambah key lain di sini kalau ada
+                canAccess('can_access_ringkasan'),
+                canAccess('can_access_harian'),
               ]),
               builder: (context, snapshot) {
-                // Tampil label jika minimal 1 diizinkan
                 final anyVisible = (snapshot.data ?? []).any((v) => v == true);
                 if (!anyVisible) return const SizedBox.shrink();
                 return Column(
@@ -190,7 +339,7 @@ class LaporanScreen extends StatelessWidget {
               },
             ),
 
-            // Menu yang hanya muncul untuk owner (hanya Admin yang diizinkan)
+            // ── Ringkasan Outlet ─────────────────────────────────────
             FutureBuilder<bool>(
               future: canAccess('can_access_ringkasan'),
               builder: (context, snapshot) {
@@ -204,7 +353,13 @@ class LaporanScreen extends StatelessWidget {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => const RingkasanPage(),
+                        builder: (context) => RingkasanPage(
+                          storeId: widget.storeId,
+                          outletId: _selectedView == 'gabungan'
+                              ? ''
+                              : _selectedOutletId,
+                          isGabungan: _selectedView == 'gabungan',
+                        ),
                       ),
                     );
                   },
@@ -212,7 +367,7 @@ class LaporanScreen extends StatelessWidget {
               },
             ),
 
-            // Menu yang hanya muncul untuk owner (hanya Admin yang diizinkan)
+            // ── Laporan Harian ──────────────────────────────────────
             FutureBuilder<bool>(
               future: canAccess('can_access_harian'),
               builder: (context, snapshot) {
@@ -226,7 +381,13 @@ class LaporanScreen extends StatelessWidget {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => const LaporanHarianPage(),
+                        builder: (context) => LaporanHarianPage(
+                          storeId: widget.storeId,
+                          outletId: _selectedView == 'gabungan'
+                              ? ''
+                              : _selectedOutletId,
+                          isGabungan: _selectedView == 'gabungan',
+                        ),
                       ),
                     );
                   },
@@ -234,7 +395,7 @@ class LaporanScreen extends StatelessWidget {
               },
             ),
 
-            // ── Section: Laporan Keuangan ───────────────────────────────
+            // ── Jarak ───────────────────────────────────────────────
             FutureBuilder<List<bool>>(
               future: Future.wait([
                 canAccess('can_access_ringkasan'),
@@ -242,11 +403,11 @@ class LaporanScreen extends StatelessWidget {
               ]),
               builder: (context, snapshot) {
                 final anyVisible = (snapshot.data ?? []).any((v) => v == true);
-                // Kalau TIDAK ada card yang tampil, beri jarak ke appbar
-                // Kalau ADA card yang tampil, tidak perlu jarak (card sudah dorong otomatis)
                 return SizedBox(height: anyVisible ? 0 : 25);
               },
             ),
+
+            // ── Section: Detail Laporan ─────────────────────────────
             Text(
               "DETAIL LAPORAN",
               style: TextStyle(
@@ -269,10 +430,10 @@ class LaporanScreen extends StatelessWidget {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(20),
                 child: Material(
-                  // ← TAMBAH INI
-                  color: Colors.transparent, // ← TAMBAH INI
+                  color: Colors.transparent,
                   child: Column(
                     children: [
+                      // ── Tambah Pengeluaran ──────────────────────────
                       FutureBuilder<bool>(
                         future: canAccess('', ownerOnly: true),
                         builder: (context, snapshot) {
@@ -287,7 +448,12 @@ class LaporanScreen extends StatelessWidget {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (_) => const FormPengeluaranPage(),
+                                  builder: (_) => FormPengeluaranPage(
+                                    storeId: widget.storeId,
+                                    outletId: _selectedView == 'gabungan'
+                                        ? ''
+                                        : _selectedOutletId,
+                                  ),
                                 ),
                               );
                             },
@@ -295,6 +461,7 @@ class LaporanScreen extends StatelessWidget {
                         },
                       ),
 
+                      // ── Pengeluaran ─────────────────────────────────
                       FutureBuilder<bool>(
                         future: canAccess('can_access_lispengeluaran'),
                         builder: (context, snapshot) {
@@ -309,7 +476,12 @@ class LaporanScreen extends StatelessWidget {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (_) => const ListPengeluaranPage(),
+                                  builder: (_) => ListPengeluaranPage(
+                                    storeId: widget.storeId,
+                                    outletId: _selectedView == 'gabungan'
+                                        ? ''
+                                        : _selectedOutletId,
+                                  ),
                                 ),
                               );
                             },
@@ -318,6 +490,8 @@ class LaporanScreen extends StatelessWidget {
                       ),
 
                       _buildDivider(context),
+
+                      // ── Laporan Order ───────────────────────────────
                       _buildGroupedItem(
                         context: context,
                         icon: Icons.shopping_cart_outlined,
@@ -327,12 +501,20 @@ class LaporanScreen extends StatelessWidget {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => const LaporanOrderPage(),
+                              builder: (_) => LaporanOrderPage(
+                                storeId: widget.storeId,
+                                outletId: _selectedView == 'gabungan'
+                                    ? ''
+                                    : _selectedOutletId,
+                              ),
                             ),
                           );
                         },
                       ),
+
                       _buildDivider(context),
+
+                      // ── Analisis Pelanggan ──────────────────────────
                       _buildGroupedItem(
                         context: context,
                         icon: Icons.show_chart,
@@ -342,12 +524,20 @@ class LaporanScreen extends StatelessWidget {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => const AnalisisPelangganPage(),
+                              builder: (_) => AnalisisPelangganPage(
+                                storeId: widget.storeId,
+                                outletId: _selectedView == 'gabungan'
+                                    ? ''
+                                    : _selectedOutletId,
+                              ),
                             ),
                           );
                         },
                       ),
+
                       _buildDivider(context),
+
+                      // ── Kinerja Pegawai ────────────────────────────
                       _buildGroupedItem(
                         context: context,
                         icon: Icons.co_present_outlined,
@@ -357,16 +547,22 @@ class LaporanScreen extends StatelessWidget {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => const KinerjaPegawaiPage(),
+                              builder: (_) => KinerjaPegawaiPage(
+                                storeId: widget.storeId,
+                                outletId: _selectedView == 'gabungan'
+                                    ? ''
+                                    : _selectedOutletId,
+                              ),
                             ),
                           );
                         },
                       ),
                     ],
                   ),
-                ), // ← TUTUP Material
+                ),
               ),
             ),
+
             const SizedBox(height: 80),
           ],
         ),

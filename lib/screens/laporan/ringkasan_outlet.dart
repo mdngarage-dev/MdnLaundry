@@ -5,7 +5,16 @@ import 'package:url_launcher/url_launcher.dart';
 import '../main_screens.dart';
 
 class RingkasanPage extends StatefulWidget {
-  const RingkasanPage({super.key});
+  final String storeId;
+  final String outletId;
+  final bool isGabungan;
+
+  const RingkasanPage({
+    super.key,
+    required this.storeId,
+    required this.outletId,
+    this.isGabungan = false,
+  });
 
   @override
   State<RingkasanPage> createState() => _RingkasanPageState();
@@ -88,9 +97,23 @@ class _RingkasanPageState extends State<RingkasanPage> {
     try {
       // ── Fetch paralel ──────────────────────────────────────────────────
       final results = await Future.wait([
-        FirebaseFirestore.instance.collection('order').get(),
-        FirebaseFirestore.instance.collection('pengeluaran').get(),
-        FirebaseFirestore.instance.collection('pelanggan').get(),
+        FirebaseFirestore.instance
+            .collection('order')
+            .where('store_id', isEqualTo: widget.storeId)
+            .where('outlet_id', isEqualTo: widget.outletId)
+            .get(),
+        FirebaseFirestore.instance
+            .collection('pengeluaran')
+            .where('store_id', isEqualTo: widget.storeId)
+            .where('outlet_id', isEqualTo: widget.outletId)
+            .get(),
+        FirebaseFirestore.instance
+            .collection('stores')
+            .doc(widget.storeId)
+            .collection('outlets')
+            .doc(widget.outletId)
+            .collection('pelanggan')
+            .get(),
       ]);
 
       final orderSnap = results[0];
@@ -859,7 +882,10 @@ class _RingkasanPageState extends State<RingkasanPage> {
                       onTap: () => Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => const FormPengeluaranPage(),
+                          builder: (_) => FormPengeluaranPage(
+                            storeId: widget.storeId,
+                            outletId: widget.outletId,
+                          ),
                         ),
                       ),
                     ),

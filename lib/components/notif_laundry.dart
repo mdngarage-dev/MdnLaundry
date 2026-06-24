@@ -10,10 +10,11 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 // ─── Konstanta OneSignal ──────────────────────────────────────────────────────
 const _oneSignalAppId = '54e65963-bfc8-40ad-aef9-cb1d7303590e';
 
-// ─── Tag untuk identifikasi role (admin/owner) ────────────────────────────────
-// Dipakai untuk kirim notif spesifik ke admin/owner saja
-const _tagRole = 'role';
-const _tagRoleValue = 'admin';
+// ─── Tag identifikasi untuk targeting notif per outlet/toko ──────────────────
+// Tag yang sebenarnya (store_id, role, current_outlet_id) di-SET dari
+// HomeWrapper — setelah data user (storeId, role, currentOutletId) berhasil
+// dimuat dari Firestore. Di sini TIDAK di-set apapun karena saat OneSignal
+// init, user belum tentu sudah login / datanya belum tersedia.
 
 // ─── Service utama ────────────────────────────────────────────────────────────
 class NotifLaundryService {
@@ -32,16 +33,11 @@ class NotifLaundryService {
       // ── 2. Minta izin notifikasi ──────────────────────────────────────────
       await OneSignal.Notifications.requestPermission(true);
 
-      // ── 3. Tag role sebagai admin ─────────────────────────────────────────
-      // Ini yang membedakan device admin vs pelanggan biasa
-      await OneSignal.User.addTagWithKey(_tagRole, _tagRoleValue);
-      debugPrint("✅ OneSignal tag role: $_tagRoleValue");
-
-      // ── 4. Log Player ID untuk debug ──────────────────────────────────────
+      // ── 3. Log Player ID untuk debug ──────────────────────────────────────
       final playerId = OneSignal.User.pushSubscription.id;
       debugPrint("📱 OneSignal Player ID: $playerId");
 
-      // ── 5. Handler saat notif diterima (foreground) ───────────────────────
+      // ── 4. Handler saat notif diterima (foreground) ───────────────────────
       OneSignal.Notifications.addForegroundWillDisplayListener((event) async {
         debugPrint("📨 OneSignal Foreground: ${event.notification.title}");
 
@@ -61,13 +57,13 @@ class NotifLaundryService {
         event.notification.display();
       });
 
-      // ── 6. Handler saat user tap notif ────────────────────────────────────
+      // ── 5. Handler saat user tap notif ────────────────────────────────────
       OneSignal.Notifications.addClickListener((event) {
         debugPrint("🔔 Tap notif: ${event.notification.title}");
         _navigateToNotifikasi();
       });
 
-      // ── 7. Handler notif background/terminated ────────────────────────────
+      // ── 6. Handler notif background/terminated ────────────────────────────
       // OneSignal otomatis tampilkan notif saat background/terminated
       // Kita hanya perlu simpan ke history saat app dibuka lagi
       OneSignal.Notifications.addClickListener((event) async {
@@ -85,6 +81,42 @@ class NotifLaundryService {
       debugPrint("✅ OneSignal berhasil diinisialisasi");
     } catch (e, stack) {
       debugPrint("⚠ OneSignal error: $e\n$stack");
+    }
+  }
+
+  // ── Set tag untuk targeting notif (dipanggil dari HomeWrapper) ─────────────
+  // Dipanggil setiap kali storeId / role / currentOutletId berubah atau
+  // berhasil dimuat (saat login, saat ganti outlet, dsb).
+  Future<void> setUserTags({
+    required String storeId,
+    required String role, // 'Owner' atau 'Admin'
+    required String currentOutletId,
+  }) async {
+    try {
+      await OneSignal.User.addTags({
+        'store_id': storeId,
+        'role': role,
+        'current_outlet_id': currentOutletId,
+      });
+      debugPrint(
+        '✅ OneSignal tags diset: store_id=$storeId, role=$role, current_outlet_id=$currentOutletId',
+      );
+    } catch (e) {
+      debugPrint('⚠ Gagal set OneSignal tags: $e');
+    }
+  }
+
+  // ── Hapus semua tag targeting (dipanggil saat logout) ───────────────────────
+  Future<void> clearUserTags() async {
+    try {
+      await OneSignal.User.removeTags([
+        'store_id',
+        'role',
+        'current_outlet_id',
+      ]);
+      debugPrint('✅ OneSignal tags dihapus');
+    } catch (e) {
+      debugPrint('⚠ Gagal hapus OneSignal tags: $e');
     }
   }
 

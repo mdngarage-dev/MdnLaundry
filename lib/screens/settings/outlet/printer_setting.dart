@@ -30,13 +30,20 @@ class PrinterSettings {
 //  PrinterSettingsService — Firestore read / write
 // ════════════════════════════════════════════════════════════════════════════
 class PrinterSettingsService {
-  static final _doc = FirebaseFirestore.instance
+  static DocumentReference<Map<String, dynamic>> _docRef(
+    String storeId,
+    String outletId,
+  ) => FirebaseFirestore.instance
+      .collection('stores')
+      .doc(storeId)
+      .collection('outlets')
+      .doc(outletId)
       .collection('settings')
       .doc('printer');
 
-  static Future<void> load() async {
+  static Future<void> load(String storeId, String outletId) async {
     try {
-      final snap = await _doc.get();
+      final snap = await _docRef(storeId, outletId).get();
       if (!snap.exists) return;
       final d = snap.data()!;
       PrinterSettings.pesanKaki = d['pesan_kaki']?.toString() ?? '';
@@ -67,6 +74,8 @@ class PrinterSettingsService {
   }
 
   static Future<void> save({
+    required String storeId,
+    required String outletId,
     required String pesanKaki,
     required bool tampilkanNoHpOutlet,
     required bool tampilkanAlamatOutlet,
@@ -78,7 +87,7 @@ class PrinterSettingsService {
     required String customNota,
     required List<Map<String, String>> rekeningList,
   }) async {
-    await _doc.set({
+    await _docRef(storeId, outletId).set({
       'pesan_kaki': pesanKaki,
       'tampilkan_no_hp_outlet': tampilkanNoHpOutlet,
       'tampilkan_alamat_outlet': tampilkanAlamatOutlet,
@@ -94,7 +103,12 @@ class PrinterSettingsService {
   }
 
   /// Resize gambar ke 300×300 px lalu upload ke Firebase Storage.
-  static Future<String?> uploadQr(dynamic imageFile, String namaBank) async {
+  static Future<String?> uploadQr(
+    dynamic imageFile,
+    String namaBank,
+    String storeId,
+    String outletId,
+  ) async {
     try {
       final Uint8List rawBytes = kIsWeb
           ? await (imageFile as XFile).readAsBytes()
@@ -117,6 +131,8 @@ class PrinterSettingsService {
       final ref = FirebaseStorage.instance
           .ref()
           .child('qr_rekening')
+          .child(storeId)
+          .child(outletId)
           .child(
             '${namaBank.replaceAll(' ', '_')}_${DateTime.now().millisecondsSinceEpoch}.png',
           );
@@ -137,7 +153,13 @@ class PrinterSettingsService {
 //  PrinterSettingPage
 // ════════════════════════════════════════════════════════════════════════════
 class PrinterSettingPage extends StatefulWidget {
-  const PrinterSettingPage({super.key});
+  final String storeId;
+  final String outletId;
+  const PrinterSettingPage({
+    super.key,
+    required this.storeId,
+    required this.outletId,
+  });
 
   @override
   State<PrinterSettingPage> createState() => _PrinterSettingPageState();
@@ -168,7 +190,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
   }
 
   Future<void> _loadData() async {
-    await PrinterSettingsService.load();
+    await PrinterSettingsService.load(widget.storeId, widget.outletId);
     if (!mounted) return;
     setState(() {
       _pesanKakiController.text = PrinterSettings.pesanKaki;
@@ -200,6 +222,8 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
     setState(() => _isSaving = true);
     try {
       await PrinterSettingsService.save(
+        storeId: widget.storeId,
+        outletId: widget.outletId,
         pesanKaki: _pesanKakiController.text.trim(),
         tampilkanNoHpOutlet: _tampilkanNoHpOutlet,
         tampilkanAlamatOutlet: _tampilkanAlamatOutlet,
@@ -671,6 +695,8 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                                 namaBank.text.trim().isNotEmpty
                                     ? namaBank.text.trim()
                                     : 'rekening',
+                                widget.storeId,
+                                widget.outletId,
                               );
                           if (uploaded != null) finalQrUrl = uploaded;
                           setS(() => isUploadingQr = false);
@@ -1086,6 +1112,8 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                                 namaBank.text.trim().isNotEmpty
                                     ? namaBank.text.trim()
                                     : 'rekening',
+                                widget.storeId,
+                                widget.outletId,
                               );
                           if (uploaded != null) finalQrUrl = uploaded;
                           setS(() => isUploadingQr = false);

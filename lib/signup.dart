@@ -49,26 +49,38 @@ class _SignUpScreenState extends State<SignUpScreen> {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
     final namaToko = _namaTokoController.text.trim();
-    final ownerCodeController = TextEditingController();
+    final inputCode = _ownerCodeController.text.trim();
 
+    // 1. Validasi Standar
     if (name.isEmpty || email.isEmpty || password.isEmpty) {
       _showSnackBar("Semua kolom harus diisi!", isError: true);
       return;
     }
-    // Nama toko wajib hanya jika Owner
+    if (inputCode.isEmpty) {
+      _showSnackBar(
+        _selectedRole == 'Owner'
+            ? "Kode undangan Owner harus diisi!"
+            : "Kode Toko harus diisi agar terhubung dengan Owner!",
+        isError: true,
+      );
+      return;
+    }
     if (_selectedRole == 'Owner' && namaToko.isEmpty) {
       _showSnackBar("Nama toko wajib diisi untuk Owner!", isError: true);
       return;
     }
-    // ── Validasi kode Owner ──────────────────────────────────────────────
-    if (_selectedRole == 'Owner') {
-      final inputCode = ownerCodeController.text.trim();
-      if (inputCode.isEmpty) {
-        _showSnackBar("Kode undangan Owner harus diisi!", isError: true);
-        return;
-      }
+    if (!_agreed) {
+      _showSnackBar("Anda harus menyetujui privacy policy", isError: true);
+      return;
+    }
 
-      try {
+    setState(() => _isLoading = true);
+    String? targetStoreId;
+    String cleanNamaToko = namaToko;
+
+    try {
+      // 2. Validasi Kode Berdasarkan Role SEBELUM membuat akun Auth
+      if (_selectedRole == 'Owner') {
         final doc = await FirebaseFirestore.instance
             .collection('config')
             .doc('owner_code')
@@ -77,24 +89,32 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
         final validCode = doc.data()?['code'] ?? '';
         if (inputCode != validCode) {
-          _showSnackBar("Kode undangan tidak valid!", isError: true);
+          _showSnackBar("Kode undangan Owner tidak valid!", isError: true);
+          setState(() => _isLoading = false);
           return;
         }
-      } catch (e) {
-        _showSnackBar("Gagal verifikasi kode: $e", isError: true);
-        return;
+      } else {
+        final storeQuery = await FirebaseFirestore.instance
+            .collection('stores')
+            .where('kode_toko', isEqualTo: inputCode.toUpperCase())
+            .limit(1)
+            .get()
+            .timeout(const Duration(seconds: 10));
+
+        if (storeQuery.docs.isEmpty) {
+          _showSnackBar(
+            "Kode Toko tidak ditemukan! Silakan minta ke Owner Anda.",
+            isError: true,
+          );
+          setState(() => _isLoading = false);
+          return;
+        }
+
+        targetStoreId = storeQuery.docs.first.id;
+        cleanNamaToko = storeQuery.docs.first.data()['nama_toko'] ?? '';
       }
-    }
 
-    if (!_agreed) {
-      _showSnackBar("Anda harus menyetujui privacy policy", isError: true);
-      return;
-    }
-
-    setState(() => _isLoading = true);
-
-    try {
-      // ── Step 1: Buat akun Firebase Auth dulu (paling cepat) ──────────────
+      // 3. Step Pembuatan Akun di Firebase Auth
       UserCredential userCredential;
       try {
         userCredential = await FirebaseAuth.instance
@@ -104,58 +124,113 @@ class _SignUpScreenState extends State<SignUpScreen> {
         String message = "Terjadi kesalahan";
         if (e.code == 'weak-password') {
           message = "Password terlalu lemah (min 6 karakter)";
-        } else if (e.code == 'email-already-in-use')
+        } else if (e.code == 'email-already-in-use') {
           message = "Email sudah digunakan";
-        else if (e.code == 'invalid-email')
+        } else if (e.code == 'invalid-email') {
           message = "Format email salah";
+        }
         _showSnackBar(message, isError: true);
+        setState(() => _isLoading = false);
         return;
       }
 
-      // ── Step 2: Generate NIP via counter (dengan timeout) ─────────────────
-      String generatedNip = "AdmLnd-010"; // fallback
-      try {
-        final firestore = FirebaseFirestore.instance;
-        final counterRef = firestore.collection('counters').doc('admin');
-        generatedNip = await firestore
-            .runTransaction<String>((tx) async {
-              final snap = await tx.get(counterRef);
-              final int next = (snap.data()?['last'] ?? 0) + 1;
-              tx.set(counterRef, {'last': next});
-              return "AdmLnd-${next.toString().padLeft(3, '0')}";
-            })
-            .timeout(const Duration(seconds: 10));
-      } catch (e) {
-        // Kalau counter gagal, pakai timestamp sebagai fallback NIP
-        final ts = DateTime.now().millisecondsSinceEpoch % 10000;
-        generatedNip = "AdmLnd-$ts";
-        debugPrint("Counter gagal, pakai fallback NIP: $generatedNip");
+      final String currentUid = userCredential.user!.uid;
+
+      if (_selectedRole == 'Owner') {
+        targetStoreId = currentUid;
       }
 
-      // ── Step 3: Update displayName ────────────────────────────────────────
+      // 4. Generate NIP acak berdasarkan role
+      final ts = DateTime.now().millisecondsSinceEpoch.toString();
+      final randomPart = ts.substring(ts.length - 10);
+      final prefix = _selectedRole == 'Owner' ? 'OWN' : 'ADM';
+      final generatedNip = '$prefix$randomPart';
+
+      // 5. Update Profile DisplayName di Firebase Auth
       try {
         await userCredential.user
-            ?.updateDisplayName("$name|$generatedNip|$_selectedRole|$namaToko")
+            ?.updateDisplayName(
+              "$name|$generatedNip|$_selectedRole|$cleanNamaToko",
+            )
             .timeout(const Duration(seconds: 10));
       } catch (e) {
         debugPrint("updateDisplayName gagal: $e");
       }
 
-      // ── Step 4: Simpan ke Firestore users (fire and forget) ───────────────
-      FirebaseFirestore.instance
-          .collection('users')
-          .doc(userCredential.user!.uid)
-          .set({
-            'nama': name,
-            'email': email,
-            'nip': generatedNip,
-            'role': _selectedRole,
-            'nama_toko': namaToko,
-            'created_at': FieldValue.serverTimestamp(),
-          })
-          .catchError((e) => debugPrint("Simpan user gagal: $e"));
+      // 6. Simpan Profile User ke Collection 'users'
+      await FirebaseFirestore.instance.collection('users').doc(currentUid).set({
+        'nama': name,
+        'email': email,
+        'nip': generatedNip,
+        'role': _selectedRole,
+        'nama_toko': cleanNamaToko,
+        'store_id': targetStoreId,
+        'is_activated': false,
+        'created_at': FieldValue.serverTimestamp(),
+        if (_selectedRole == 'Owner') ...{
+          'can_access_admin': true,
+          'can_access_ringkasan': true,
+          'can_access_harian': true,
+          'can_access_lispengeluaran': true,
+          'can_eit_layanan': true,
+          'can_hapus_order': true,
+          'can_hapus_pelanggan': true,
+          'can_access_layanan': true,
+          'can_access_rak': true,
+          'can_access_outlet': true,
+          'can_access_togle_nohp': true,
+          'can_access_togle_alamat': true,
+          'can_access_nota': true,
+          'can_kelola_rekening': true,
+          'can_access_wa_setting': true,
+        },
+      });
 
-      // ── Step 5: Kirim verifikasi email ────────────────────────────────────
+      // 7. JIKA REGISTER SEBAGAI OWNER -> Buat Toko, Outlet Utama, & Counter
+      if (_selectedRole == 'Owner') {
+        final randomDigits = (DateTime.now().millisecondsSinceEpoch % 900 + 100)
+            .toString();
+        String kodeTokoBaru = "LND$randomDigits";
+
+        final storeRef = FirebaseFirestore.instance
+            .collection('stores')
+            .doc(currentUid);
+
+        // Buat data toko induk
+        await storeRef.set({
+          'nama_toko': cleanNamaToko,
+          'kode_toko': kodeTokoBaru.toUpperCase(),
+          'owner_uid': currentUid,
+          'created_at': FieldValue.serverTimestamp(),
+        });
+
+        // Buat outlet utama dulu, lalu gunakan ID-nya untuk counter
+        final outletRef = await storeRef.collection('outlets').add({
+          'nama_outlet': cleanNamaToko,
+          'is_utama': true,
+          'alamat': '',
+          'no_hp': '',
+          'logo_url': '',
+          'created_at': FieldValue.serverTimestamp(),
+        });
+
+        // Counter masuk ke dalam outlet yang baru dibuat
+        await outletRef.collection('counters').doc('pelanggan').set({
+          'last': 0,
+        });
+
+        // Simpan current_outlet_id ke dokumen user
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(currentUid)
+            .update({'current_outlet_id': outletRef.id});
+
+        debugPrint(
+          "Toko baru berhasil dibuat dengan Kode Akses Admin: $kodeTokoBaru",
+        );
+      }
+
+      // 8. Kirim Verifikasi Email & Sign Out
       try {
         await userCredential.user!.sendEmailVerification().timeout(
           const Duration(seconds: 10),
@@ -164,7 +239,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
         debugPrint("sendEmailVerification gagal: $e");
       }
 
-      // ── Step 6: Simpan last active & sign out ─────────────────────────────
       await saveLastActiveTime().catchError((_) {});
       await FirebaseAuth.instance.signOut().catchError((_) {});
 
@@ -347,7 +421,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // ── Nama Lengkap ──────────────────────────────────────
                     TextField(
                       controller: _nameController,
                       keyboardType: TextInputType.name,
@@ -361,7 +434,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     ),
                     const SizedBox(height: 14),
 
-                    // ── Email ─────────────────────────────────────────────
                     TextField(
                       controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
@@ -374,7 +446,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     ),
                     const SizedBox(height: 14),
 
-                    // ── Password ──────────────────────────────────────────
                     ValueListenableBuilder<bool>(
                       valueListenable: _obscurePass,
                       builder: (context, obscure, _) {
@@ -414,9 +485,20 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         ),
                       ),
                       const SizedBox(height: 14),
+                    ] else if (_selectedRole == 'Admin') ...[
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: _ownerCodeController,
+                        style: Theme.of(context).textTheme.bodyLarge,
+                        decoration: customInputDecoration(
+                          context: context,
+                          hint: 'Masukkan Kode Toko (Dari Owner Anda)',
+                          icon: Icons.store_mall_directory_outlined,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
                     ],
 
-                    // ── Nama Toko — hanya tampil jika Owner ───────────────────────────────
                     if (_selectedRole == 'Owner') ...[
                       TextField(
                         controller: _namaTokoController,
@@ -431,7 +513,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                       ),
                       const SizedBox(height: 14),
                     ],
-                    // ── Role Selector ─────────────────────────────────────
+
                     Text(
                       "Role Akun",
                       style: Theme.of(context).textTheme.bodyLarge?.copyWith(
@@ -485,7 +567,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
                       ),
                     ),
 
-                    // ── Keterangan Role ───────────────────────────────────
                     const SizedBox(height: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(
@@ -521,7 +602,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
                     const SizedBox(height: 14),
 
-                    // ── Privacy Policy Checkbox ───────────────────────────
                     Row(
                       children: [
                         Checkbox(
@@ -560,7 +640,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     ),
                     const SizedBox(height: 16),
 
-                    // ── Tombol Sign Up ────────────────────────────────────
                     SizedBox(
                       width: double.infinity,
                       height: 52,
@@ -584,7 +663,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
                     const SizedBox(height: 20),
 
-                    // ── Divider ───────────────────────────────────────────
                     Row(
                       children: [
                         Expanded(
@@ -613,7 +691,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     ),
                     const SizedBox(height: 16),
 
-                    // ── Tombol Google Sign Up ─────────────────────────────
                     SizedBox(
                       width: double.infinity,
                       height: 52,
@@ -680,7 +757,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
     );
   }
 
-  // ── Role option widget ────────────────────────────────────────────────────
   Widget _buildRoleOption({
     required String label,
     required IconData icon,

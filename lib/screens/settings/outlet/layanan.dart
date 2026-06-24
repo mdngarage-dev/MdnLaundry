@@ -44,7 +44,14 @@ class Layanan {
 // ─────────────────────────────────────────────────────────────────────────────
 class LayananScreen extends StatefulWidget {
   final bool autoOpenForm;
-  const LayananScreen({super.key, this.autoOpenForm = false});
+  final String storeId;
+  final String outletId;
+  const LayananScreen({
+    super.key,
+    this.autoOpenForm = false,
+    required this.storeId,
+    required this.outletId,
+  });
 
   @override
   State<LayananScreen> createState() => _LayananScreenState();
@@ -154,7 +161,14 @@ class _LayananScreenState extends State<LayananScreen> {
     );
 
     if (confirmed == true) {
-      await _firestore.collection('layanan').doc(layanan.id).delete();
+      await _firestore
+          .collection('stores')
+          .doc(widget.storeId)
+          .collection('outlets')
+          .doc(widget.outletId)
+          .collection('layanan')
+          .doc(layanan.id)
+          .delete();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -185,14 +199,20 @@ class _LayananScreenState extends State<LayananScreen> {
             'harga': harga,
             'durasi_jam': durasiJam,
           };
+
+          final layananRef = _firestore
+              .collection('stores')
+              .doc(widget.storeId)
+              .collection('outlets')
+              .doc(widget.outletId)
+              .collection('layanan');
+
           if (existing == null) {
-            await _firestore.collection('layanan').add(data);
+            await layananRef.add(data);
           } else {
-            await _firestore
-                .collection('layanan')
-                .doc(existing.id)
-                .update(data);
+            await layananRef.doc(existing.id).update(data);
           }
+
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -312,7 +332,14 @@ class _LayananScreenState extends State<LayananScreen> {
         ),
       ),
       body: StreamBuilder<QuerySnapshot>(
-        stream: _firestore.collection('layanan').orderBy('nama').snapshots(),
+        stream: _firestore
+            .collection('stores')
+            .doc(widget.storeId)
+            .collection('outlets')
+            .doc(widget.outletId)
+            .collection('layanan')
+            .orderBy('nama')
+            .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());

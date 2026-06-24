@@ -12,14 +12,22 @@ import '../../main_screens.dart';
 //  Dokumen: settings/outlet
 // ════════════════════════════════════════════════════════════════════════════
 class OutletSettingsService {
-  static final _doc = FirebaseFirestore.instance
+  static DocumentReference<Map<String, dynamic>> _docRef(
+    String storeId,
+    String outletId,
+  ) => FirebaseFirestore.instance
+      .collection('stores')
+      .doc(storeId)
+      .collection('outlets')
+      .doc(outletId)
       .collection('settings')
       .doc('outlet');
 
   /// Muat data dari Firestore lalu update OutletSettings in-memory.
-  static Future<void> load() async {
+  static Future<void> load(String storeId, String outletId) async {
+    // 🌟 TAMBAH parameter
     try {
-      final snap = await _doc.get();
+      final snap = await _docRef(storeId, outletId).get(); // 🌟 UBAH
       if (!snap.exists) return;
       final d = snap.data()!;
       OutletSettings.namaLaundry =
@@ -27,7 +35,6 @@ class OutletSettingsService {
       OutletSettings.noHpLaundry =
           d['no_hp']?.toString() ?? OutletSettings.noHpLaundry;
       OutletSettings.alamat = d['alamat']?.toString() ?? OutletSettings.alamat;
-      // logoPath hanya berlaku di Android (disimpan lokal)
       if (!kIsWeb) {
         OutletSettings.logoPath =
             d['logo_path']?.toString() ?? OutletSettings.logoPath;
@@ -39,12 +46,15 @@ class OutletSettingsService {
 
   /// Simpan data ke Firestore.
   static Future<void> save({
+    required String storeId,
+    required String outletId,
     required String nama,
     required String noHp,
     required String alamat,
     String logoPath = '',
   }) async {
-    await _doc.set({
+    await _docRef(storeId, outletId).set({
+      // 🌟 UBAH
       'nama': nama,
       'no_hp': noHp,
       'alamat': alamat,
@@ -54,13 +64,17 @@ class OutletSettingsService {
   }
 
   /// Stream untuk realtime sync (opsional — dipakai jika ingin live update).
-  static Stream<DocumentSnapshot<Map<String, dynamic>>> get stream =>
-      _doc.snapshots();
+  static Stream<DocumentSnapshot<Map<String, dynamic>>> streamFor(
+    String storeId,
+    String outletId,
+  ) => // 🌟 UBAH jadi method, bukan getter statis
+      _docRef(storeId, outletId).snapshots();
 }
 
 class OutletPage extends StatefulWidget {
-  const OutletPage({super.key});
-
+  final String storeId;
+  final String outletId;
+  const OutletPage({super.key, required this.storeId, required this.outletId});
   @override
   State<OutletPage> createState() => _OutletPageState();
 }
@@ -84,7 +98,7 @@ class _OutletPageState extends State<OutletPage> {
 
   /// Muat data dari Firestore, lalu isi controller.
   Future<void> _loadFromFirestore() async {
-    await OutletSettingsService.load();
+    await OutletSettingsService.load(widget.storeId, widget.outletId);
     if (!mounted) return;
     setState(() {
       _namaController.text = OutletSettings.namaLaundry;
@@ -170,6 +184,8 @@ class _OutletPageState extends State<OutletPage> {
     try {
       // 1. Simpan ke Firestore
       await OutletSettingsService.save(
+        storeId: widget.storeId,
+        outletId: widget.outletId,
         nama: nama,
         noHp: phone,
         alamat: alamat,

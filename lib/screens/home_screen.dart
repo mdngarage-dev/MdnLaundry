@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:mdnlaundry_project/screens/outlet/outlet_service.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,7 +10,20 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'main_screens.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final String storeId;
+  final String outletId;
+  final String outletName;
+  final VoidCallback? onSwitchOutlet;
+  final bool isOwner;
+
+  const HomeScreen({
+    super.key,
+    required this.storeId,
+    required this.outletId,
+    this.outletName = '',
+    this.onSwitchOutlet,
+    this.isOwner = false,
+  });
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -20,6 +34,8 @@ class _HomeScreenState extends State<HomeScreen>
   final bool _isLoading = false;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+  String _currentOutletId = '';
+  String _currentOutletName = '';
 
   late AnimationController _heartController;
   late Animation<double> _heartAnim;
@@ -146,7 +162,12 @@ class _HomeScreenState extends State<HomeScreen>
     final q = query.toLowerCase();
 
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('order').snapshots(),
+      stream: OutletService.getOrdersStream(
+        storeId: widget.storeId,
+        outletId: widget.outletId,
+        // statusFilter tidak diisi → ambil semua status
+      ),
+
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(
@@ -497,7 +518,12 @@ class _HomeScreenState extends State<HomeScreen>
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => OrderDetailScreen(docId: docId, data: data),
+                builder: (_) => OrderDetailScreen(
+                  docId: docId,
+                  data: data,
+                  storeId: widget.storeId,
+                  outletId: widget.outletId,
+                ),
               ),
             ),
             borderRadius: const BorderRadius.only(
@@ -675,6 +701,8 @@ class _HomeScreenState extends State<HomeScreen>
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('order')
+          .where('store_id', isEqualTo: widget.storeId)
+          .where('outlet_id', isEqualTo: widget.outletId) // ← tambah ini
           .where(
             'waktu_order',
             isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart),
@@ -767,7 +795,8 @@ class _HomeScreenState extends State<HomeScreen>
                           onTap: () => Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => const NotifikasiScreen(),
+                              builder: (_) =>
+                                  NotifikasiScreen(storeId: widget.storeId),
                             ),
                           ).then((_) => setState(() {})),
                           child: FutureBuilder<int>(
@@ -952,32 +981,86 @@ class _HomeScreenState extends State<HomeScreen>
                               ),
                             ),
                       const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const SizedBox(width: 5),
-                            Text(
-                              snapshot.connectionState ==
-                                      ConnectionState.waiting
-                                  ? 'Memuat...'
-                                  : '$jumlahOrder order hari ini',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          // Badge jumlah order
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const SizedBox(width: 5),
+                                Text(
+                                  snapshot.connectionState ==
+                                          ConnectionState.waiting
+                                      ? 'Memuat...'
+                                      : '$jumlahOrder order hari ini',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          // Tombol pindah outlet
+                          // Tombol pindah outlet — hanya Owner yang bisa ganti outlet
+                          if (widget.isOwner)
+                            GestureDetector(
+                              onTap: () => widget.onSwitchOutlet?.call(),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: Colors.white.withOpacity(0.4),
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.store_outlined,
+                                      color: Colors.white,
+                                      size: 12,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      widget.outletName.isNotEmpty
+                                          ? widget.outletName
+                                          : 'Pilih Outlet',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 3),
+                                    const Icon(
+                                      Icons.keyboard_arrow_down_rounded,
+                                      color: Colors.white,
+                                      size: 14,
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
-                          ],
-                        ),
+                        ],
                       ),
                     ],
                   ),
@@ -993,7 +1076,10 @@ class _HomeScreenState extends State<HomeScreen>
   // ─── ORDER STATS GRID 3x2 ────────────────────────────────────────────────
   Widget _buildOrderStatsGrid() {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('order').snapshots(),
+      stream: OutletService.getOrdersStream(
+        storeId: widget.storeId,
+        outletId: widget.outletId,
+      ),
       builder: (context, snapshot) {
         int antrian = 0;
         int proses = 0;
@@ -1168,7 +1254,12 @@ class _HomeScreenState extends State<HomeScreen>
         if (item.label == 'Rak Monitoring') {
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => const RakMonitoringScreen()),
+            MaterialPageRoute(
+              builder: (_) => RakMonitoringScreen(
+                storeId: widget.storeId,
+                outletId: widget.outletId,
+              ),
+            ),
           );
           return;
         }
@@ -1176,7 +1267,11 @@ class _HomeScreenState extends State<HomeScreen>
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => const OrderScreen(initialDeadline: true),
+              builder: (_) => OrderScreen(
+                storeId: widget.storeId,
+                outletId: widget.outletId,
+                initialDeadline: true,
+              ),
             ),
           );
           return;
@@ -1245,10 +1340,10 @@ class _HomeScreenState extends State<HomeScreen>
     final bulanEnd = DateTime(now.year, now.month + 1, 1);
 
     return StreamBuilder<QuerySnapshot>(
-      // ── Ambil semua order bulan ini, tanpa orderBy di Firestore
-      //    agar tidak perlu composite index. Sorting dilakukan client-side.
       stream: FirebaseFirestore.instance
           .collection('order')
+          .where('store_id', isEqualTo: widget.storeId)
+          .where('outlet_id', isEqualTo: widget.outletId) // ← tambah ini
           .where(
             'waktu_order',
             isGreaterThanOrEqualTo: Timestamp.fromDate(bulanStart),
@@ -1357,7 +1452,7 @@ class _HomeScreenState extends State<HomeScreen>
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Text(
-                  "Gagal memuat data",
+                  "Gagal memuat data ${snapshot.error}",
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                     color: Colors.grey,
                     fontSize: 14,
@@ -1438,8 +1533,12 @@ class _HomeScreenState extends State<HomeScreen>
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) =>
-                          OrderDetailScreen(docId: doc.id, data: data),
+                      builder: (_) => OrderDetailScreen(
+                        docId: doc.id,
+                        data: data,
+                        storeId: widget.storeId,
+                        outletId: widget.outletId,
+                      ),
                     ),
                   ),
                   child: Container(
@@ -1658,8 +1757,12 @@ class _HomeScreenState extends State<HomeScreen>
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) =>
-            OrderScreen(initialStatus: status, initialBelumBayar: belumBayar),
+        builder: (_) => OrderScreen(
+          storeId: widget.storeId,
+          outletId: widget.outletId,
+          initialStatus: status,
+          initialBelumBayar: belumBayar,
+        ),
       ),
     );
   }

@@ -113,6 +113,7 @@ class ManageAdminAccessScreen extends StatelessWidget {
                         builder: (context) => EditAdminPermissionScreen(
                           adminUid: admin.id,
                           adminName: data['nama'] ?? 'Admin',
+                          storeId: storeId,
                         ),
                       ),
                     );

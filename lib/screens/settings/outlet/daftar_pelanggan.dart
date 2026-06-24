@@ -11,9 +11,15 @@ import 'package:share_plus/share_plus.dart';
 
 class DaftarPelangganPage extends StatefulWidget {
   final bool isSelecting;
+  final String storeId;
+  final String outletId;
 
-  const DaftarPelangganPage({super.key, this.isSelecting = false});
-
+  const DaftarPelangganPage({
+    super.key,
+    this.isSelecting = false,
+    required this.storeId,
+    required this.outletId,
+  });
   @override
   State<DaftarPelangganPage> createState() => _DaftarPelangganPageState();
 }
@@ -249,14 +255,20 @@ class _DaftarPelangganPageState extends State<DaftarPelangganPage> {
                 final noHp = _noHpCtrl.text.trim();
                 if (nama.isEmpty || noHp.isEmpty) return;
 
+                final pelangganRef = _firestore
+                    .collection('stores')
+                    .doc(widget.storeId)
+                    .collection('outlets')
+                    .doc(widget.outletId)
+                    .collection('pelanggan');
                 if (isEdit) {
-                  await _firestore.collection('pelanggan').doc(docId).update({
+                  await pelangganRef.doc(docId).update({
                     'nama': nama,
                     'no_hp': noHp,
                     'updated_at': FieldValue.serverTimestamp(),
                   });
                 } else {
-                  await _firestore.collection('pelanggan').add({
+                  await pelangganRef.add({
                     'nama': nama,
                     'no_hp': noHp,
                     'created_at': FieldValue.serverTimestamp(),
@@ -318,10 +330,17 @@ class _DaftarPelangganPageState extends State<DaftarPelangganPage> {
             onPressed: () async {
               final noHp = _noHpCtrl.text.trim();
               if (noHp.isEmpty) return;
-              await _firestore.collection('pelanggan').doc(docId).update({
-                'no_hp': noHp,
-                'updated_at': FieldValue.serverTimestamp(),
-              });
+              await _firestore
+                  .collection('stores')
+                  .doc(widget.storeId)
+                  .collection('outlets')
+                  .doc(widget.outletId)
+                  .collection('pelanggan')
+                  .doc(docId)
+                  .update({
+                    'no_hp': noHp,
+                    'updated_at': FieldValue.serverTimestamp(),
+                  });
               if (mounted) {
                 Navigator.pop(ctx);
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -350,7 +369,14 @@ class _DaftarPelangganPageState extends State<DaftarPelangganPage> {
           ),
           TextButton(
             onPressed: () async {
-              await _firestore.collection('pelanggan').doc(docId).delete();
+              await _firestore
+                  .collection('stores')
+                  .doc(widget.storeId)
+                  .collection('outlets')
+                  .doc(widget.outletId)
+                  .collection('pelanggan')
+                  .doc(docId)
+                  .delete();
               if (mounted) {
                 Navigator.pop(ctx);
                 ScaffoldMessenger.of(
@@ -371,7 +397,14 @@ class _DaftarPelangganPageState extends State<DaftarPelangganPage> {
     return Scaffold(
       appBar: _buildAppBar(context),
       body: StreamBuilder<QuerySnapshot>(
-        stream: _firestore.collection('pelanggan').orderBy('nama').snapshots(),
+        stream: _firestore
+            .collection('stores')
+            .doc(widget.storeId)
+            .collection('outlets')
+            .doc(widget.outletId)
+            .collection('pelanggan')
+            .orderBy('nama')
+            .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
             return const Center(

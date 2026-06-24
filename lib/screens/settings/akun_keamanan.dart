@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
@@ -149,13 +150,168 @@ class _ProfilPageState extends State<ProfilPage> {
     }
   }
 
+  Future<void> _hapusAkun() async {
+    final userDoc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(_currentUser!.uid)
+        .get();
+
+    if (!userDoc.exists) return;
+
+    final role = userDoc.data()?['role'] ?? '';
+    final storeId = userDoc.data()?['store_id'] ?? '';
+
+    final passwordController = TextEditingController();
+    final konfirmasi = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Hapus Akun"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              role == 'Owner'
+                  ? "⚠️ Seluruh data toko termasuk akun admin akan dihapus permanen!"
+                  : "Akun Anda akan dihapus. Data transaksi tidak ikut terhapus.",
+              style: TextStyle(
+                color: role == 'Owner' ? Colors.red : null,
+                fontSize: 13,
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: passwordController,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: "Masukkan password untuk konfirmasi",
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("Batal"),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("Hapus", style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (konfirmasi != true) return;
+    if (!mounted) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      final credential = EmailAuthProvider.credential(
+        email: _currentUser!.email!,
+        password: passwordController.text.trim(),
+      );
+      await _currentUser!.reauthenticateWithCredential(credential);
+
+      if (role == 'Owner') {
+        await _hapusSemuaDataToko(storeId);
+      } else {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(_currentUser!.uid)
+            .delete();
+      }
+
+      await _currentUser!.delete();
+
+      if (mounted) {
+        Navigator.of(context).pushNamedAndRemoveUntil('/login', (r) => false);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Gagal menghapus akun: $e"),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _hapusSemuaDataToko(String storeId) async {
+    final db = FirebaseFirestore.instance;
+    final batch = db.batch();
+
+    // 1. Hapus semua dokumen di keuangan, order, pengeluaran, rak
+    for (final col in ['keuangan', 'order', 'pengeluaran', 'rak']) {
+      final docs = await db
+          .collection(col)
+          .where('store_id', isEqualTo: storeId)
+          .get();
+      for (final doc in docs.docs) {
+        batch.delete(doc.reference);
+      }
+    }
+
+    // 2. Hapus semua outlets beserta subcollection-nya
+    //    (counters, layanan, settings di dalam setiap outlet)
+    final outlets = await db
+        .collection('stores')
+        .doc(storeId)
+        .collection('outlets')
+        .get();
+    for (final outlet in outlets.docs) {
+      // Hapus counters dalam outlet
+      final counters = await outlet.reference.collection('counters').get();
+      for (final doc in counters.docs) {
+        batch.delete(doc.reference);
+      }
+      // Hapus layanan dalam outlet
+      final layanan = await outlet.reference.collection('layanan').get();
+      for (final doc in layanan.docs) {
+        batch.delete(doc.reference);
+      }
+      // Hapus settings dalam outlet
+      final settings = await outlet.reference.collection('settings').get();
+      for (final doc in settings.docs) {
+        batch.delete(doc.reference);
+      }
+      // Hapus outlet itu sendiri
+      batch.delete(outlet.reference);
+    }
+
+    // 3. Hapus dokumen stores/{storeId}
+    batch.delete(db.collection('stores').doc(storeId));
+
+    // 4. Flag akun admin (store_id sama) sebagai isDeleted
+    //    (tidak bisa hapus Firebase Auth akun lain dari client)
+    final adminDocs = await db
+        .collection('users')
+        .where('store_id', isEqualTo: storeId)
+        .where('role', isEqualTo: 'Admin')
+        .get();
+    for (final doc in adminDocs.docs) {
+      batch.update(doc.reference, {'isDeleted': true});
+    }
+
+    // 5. Hapus dokumen owner sendiri
+    batch.delete(db.collection('users').doc(_currentUser!.uid));
+
+    await batch.commit();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
-      // ✅ Adaptive background
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: _buildAppBar(context),
       body: _isLoading
@@ -171,7 +327,6 @@ class _ProfilPageState extends State<ProfilPage> {
                         children: [
                           CircleAvatar(
                             radius: 50,
-                            // ✅ Adaptive avatar background
                             backgroundColor: isDark
                                 ? Colors.blue.shade900
                                 : Colors.blue.shade50,
@@ -261,6 +416,30 @@ class _ProfilPageState extends State<ProfilPage> {
                         ),
                       ),
                     ),
+
+                    const SizedBox(height: 12),
+
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: OutlinedButton(
+                        onPressed: _hapusAkun,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.red,
+                          side: const BorderSide(color: Colors.red),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: const Text(
+                          "HAPUS AKUN",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -287,7 +466,6 @@ class _ProfilPageState extends State<ProfilPage> {
           Text(
             label,
             style: theme.textTheme.bodyLarge?.copyWith(
-              // ✅ Adaptive label color
               color: theme.textTheme.bodyLarge?.color?.withOpacity(0.6),
               fontSize: 13,
               fontWeight: FontWeight.bold,
@@ -299,18 +477,16 @@ class _ProfilPageState extends State<ProfilPage> {
             obscureText: isPassword,
             keyboardType: keyboardType,
             validator: validator,
-            style: theme.textTheme.bodyLarge, // ✅ Adaptive input text
+            style: theme.textTheme.bodyLarge,
             decoration: InputDecoration(
               prefixIcon: Icon(
                 icon,
-                // ✅ Adaptive icon color
                 color: theme.textTheme.bodyLarge?.color?.withOpacity(0.5),
               ),
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 15,
                 vertical: 15,
               ),
-              // ✅ Adaptive fill color menggunakan cardColor
               filled: true,
               fillColor: theme.cardColor,
               border: OutlineInputBorder(
@@ -332,7 +508,6 @@ class _ProfilPageState extends State<ProfilPage> {
   }
 
   PreferredSizeWidget _buildAppBar(BuildContext context) {
-    // ✅ AppBar mengikuti appBarTheme dari ThemeData
     return PreferredSize(
       preferredSize: const Size.fromHeight(kToolbarHeight),
       child: ClipRRect(
@@ -350,7 +525,6 @@ class _ProfilPageState extends State<ProfilPage> {
                   fontWeight: FontWeight.bold,
                 ),
           ),
-          // backgroundColor & foregroundColor diambil otomatis dari appBarTheme
           elevation: 2,
           centerTitle: true,
           leading: Navigator.canPop(context)

@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -73,6 +74,23 @@ class _SignInScreenState extends State<SignInScreen> {
         user = FirebaseAuth.instance.currentUser;
 
         if (user != null && user.emailVerified) {
+          // ✅ TAMBAHAN BARU: cek isDeleted di Firestore
+          final userDoc = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .get();
+
+          final isDeleted = userDoc.data()?['isDeleted'] ?? false;
+
+          if (isDeleted == true) {
+            await FirebaseAuth.instance.signOut();
+            _showSnackBar(
+              "Akun Anda telah dinonaktifkan oleh pemilik toko.",
+              isError: true,
+            );
+            return;
+          }
+          // ✅ END TAMBAHAN
           // ✅ Email sudah diverifikasi → boleh masuk
           await _saveCredentials();
           await saveLastActiveTime();

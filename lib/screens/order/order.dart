@@ -12,12 +12,16 @@ class OrderScreen extends StatefulWidget {
   final String? initialStatus;
   final bool initialBelumBayar;
   final bool initialDeadline;
+  final String storeId;
+  final String outletId;
 
   const OrderScreen({
     super.key,
     this.initialStatus,
     this.initialBelumBayar = false,
     this.initialDeadline = false,
+    required this.storeId,
+    required this.outletId,
   });
 
   @override
@@ -43,9 +47,11 @@ class _OrderScreenState extends State<OrderScreen> {
         !widget.initialDeadline &&
         !widget.initialBelumBayar &&
         widget.initialStatus == null;
+
     _orderStream = FirebaseFirestore.instance
         .collection('order')
-        .orderBy('waktu_order', descending: true)
+        .where('store_id', isEqualTo: widget.storeId)
+        .where('outlet_id', isEqualTo: widget.outletId)
         .snapshots();
   }
 
@@ -67,18 +73,14 @@ class _OrderScreenState extends State<OrderScreen> {
       if (statusBayar == 'lunas') return false;
     }
 
-    // Filter Deadline — hanya order yang masih perlu diproses & estimasi mepet/lewat
     if (_filterDeadline) {
       final statusOrder = data['status']?.toString().toLowerCase() ?? '';
-      // Exclude semua status yang sudah selesai diproses
       const statusSudahSelesai = {'selesai', 'siap ambil', 'siap antar'};
       if (statusSudahSelesai.contains(statusOrder)) return false;
 
       final estimasi = data['estimasi_selesai'];
       if (estimasi == null) return false;
 
-      // Hanya tampil jika estimasi sudah lewat atau <= 3 hari lagi
-      // Handle tipe Timestamp maupun String dari Firestore
       DateTime? dlDate;
       if (estimasi is Timestamp) {
         dlDate = estimasi.toDate();
@@ -111,7 +113,6 @@ class _OrderScreenState extends State<OrderScreen> {
       }
     }
 
-    // Filter bulan berjalan — hanya aktif saat chip "Semua/Bulan Ini" dipilih
     if (_filterStatus == null &&
         !_filterBelumBayar &&
         !_filterDeadline &&
@@ -125,6 +126,28 @@ class _OrderScreenState extends State<OrderScreen> {
     }
 
     return true;
+  }
+
+  // ── Sort client-side ──────────────────────────────────────────────────────
+  List<QueryDocumentSnapshot> _sortDocs(List<QueryDocumentSnapshot> docs) {
+    final sorted = [...docs];
+    sorted.sort((a, b) {
+      final dataA = a.data() as Map<String, dynamic>;
+      final dataB = b.data() as Map<String, dynamic>;
+      final tA = dataA['waktu_order'];
+      final tB = dataB['waktu_order'];
+      if (tA == null && tB == null) return 0;
+      if (tA == null) return 1;
+      if (tB == null) return -1;
+      final tsA = tA is Timestamp
+          ? tA.toDate()
+          : DateTime.tryParse(tA.toString()) ?? DateTime(0);
+      final tsB = tB is Timestamp
+          ? tB.toDate()
+          : DateTime.tryParse(tB.toString()) ?? DateTime(0);
+      return tsB.compareTo(tsA);
+    });
+    return sorted;
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -351,7 +374,6 @@ class _OrderScreenState extends State<OrderScreen> {
 
               Row(
                 children: [
-                  // Tombol Reset ke Bulan Ini
                   Expanded(
                     child: OutlinedButton(
                       onPressed: () {
@@ -424,7 +446,6 @@ class _OrderScreenState extends State<OrderScreen> {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  // Chip: Bulan Ini / Semua
                   _filterChip(
                     context,
                     label:
@@ -446,10 +467,8 @@ class _OrderScreenState extends State<OrderScreen> {
                       if (_filterStatus == null &&
                           !_filterBelumBayar &&
                           !_filterDeadline) {
-                        // Sudah aktif → buka picker
                         _showBulanPicker();
                       } else {
-                        // Belum aktif → aktifkan dulu
                         setState(() {
                           _filterStatus = null;
                           _filterBelumBayar = false;
@@ -463,7 +482,6 @@ class _OrderScreenState extends State<OrderScreen> {
                   ),
                   const SizedBox(width: 8),
 
-                  // Chips: Antrian, Proses, Selesai
                   ..._chips.map(
                     (c) => Padding(
                       padding: const EdgeInsets.only(right: 8),
@@ -485,7 +503,6 @@ class _OrderScreenState extends State<OrderScreen> {
                     ),
                   ),
 
-                  // Chip: Belum Bayar
                   _filterChipIcon(
                     context,
                     label: 'Belum Bayar',
@@ -503,7 +520,6 @@ class _OrderScreenState extends State<OrderScreen> {
                   ),
                   const SizedBox(width: 8),
 
-                  // Chip: Deadline
                   _filterChipIcon(
                     context,
                     label: 'Deadline',
@@ -544,7 +560,8 @@ class _OrderScreenState extends State<OrderScreen> {
             builder: (context, snapshot) {
               if (!snapshot.hasData) return const SizedBox.shrink();
 
-              final docs = snapshot.data!.docs.where((doc) {
+              final sorted = _sortDocs(snapshot.data!.docs);
+              final docs = sorted.where((doc) {
                 final data = doc.data() as Map<String, dynamic>;
                 return _passesClientFilter(data);
               }).toList();
@@ -562,7 +579,6 @@ class _OrderScreenState extends State<OrderScreen> {
                 }
               }
 
-              // Label sesuai filter aktif
               String filterLabel;
               if (_filterBelumBayar) {
                 filterLabel = 'Belum Bayar';
@@ -649,7 +665,8 @@ class _OrderScreenState extends State<OrderScreen> {
                 }
 
                 final allDocs = snapshot.data?.docs ?? [];
-                final docs = allDocs.where((doc) {
+                final sorted = _sortDocs(allDocs);
+                final docs = sorted.where((doc) {
                   final data = doc.data() as Map<String, dynamic>;
                   return _passesClientFilter(data);
                 }).toList();
@@ -702,7 +719,6 @@ class _OrderScreenState extends State<OrderScreen> {
                       final noHpPelanggan = data['no_hp']?.toString() ?? '';
 
                       // ── Deadline logic ─────────────────────────────────
-                      // Tidak tampil jika sudah selesai diproses
                       const statusTidakPerluDeadline = {
                         'selesai',
                         'siap ambil',
@@ -715,7 +731,6 @@ class _OrderScreenState extends State<OrderScreen> {
                       Color deadlineColor = Colors.red.shade600;
 
                       if (!tidakPerluDeadline && estimasiRaw != null) {
-                        // Handle tipe Timestamp maupun String dari Firestore
                         DateTime? dlDate;
                         if (estimasiRaw is Timestamp) {
                           dlDate = estimasiRaw.toDate();
@@ -766,14 +781,17 @@ class _OrderScreenState extends State<OrderScreen> {
                           }
                         }
                       }
-                      // ──────────────────────────────────────────────────
 
                       return GestureDetector(
                         onTap: () => Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) =>
-                                OrderDetailScreen(docId: doc.id, data: data),
+                            builder: (_) => OrderDetailScreen(
+                              docId: doc.id,
+                              data: data,
+                              storeId: widget.storeId,
+                              outletId: widget.outletId,
+                            ),
                           ),
                         ),
                         child: Container(
@@ -822,7 +840,7 @@ class _OrderScreenState extends State<OrderScreen> {
                                   ),
                                 ),
 
-                                // Main content (left side)
+                                // Main content
                                 Expanded(
                                   child: Padding(
                                     padding: const EdgeInsets.fromLTRB(
@@ -900,7 +918,6 @@ class _OrderScreenState extends State<OrderScreen> {
                                     mainAxisAlignment:
                                         MainAxisAlignment.spaceBetween,
                                     children: [
-                                      // Baris atas: harga (jika belum lunas) + tanggal
                                       Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
@@ -930,8 +947,6 @@ class _OrderScreenState extends State<OrderScreen> {
                                       ),
                                       const SizedBox(height: 4),
 
-                                      // Baris badge:
-                                      // status → belum bayar → deadline → harga (jika lunas)
                                       Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
@@ -953,8 +968,6 @@ class _OrderScreenState extends State<OrderScreen> {
                                               color: deadlineColor,
                                             ),
                                           ],
-                                          // Tampilkan harga jika sudah lunas
-                                          // dan tidak ada badge deadline
                                           if (!belumLunas &&
                                               deadlineLabel == null) ...[
                                             const SizedBox(width: 4),
@@ -973,7 +986,6 @@ class _OrderScreenState extends State<OrderScreen> {
                                       ),
                                       const SizedBox(height: 2),
 
-                                      // Baris HP + chevron
                                       if (noHpPelanggan.isNotEmpty)
                                         Row(
                                           mainAxisSize: MainAxisSize.min,

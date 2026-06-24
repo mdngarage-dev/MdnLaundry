@@ -236,7 +236,13 @@ class NotifStorage {
 
 // ─── Screen ──────────────────────────────────────────────────────────────────
 class NotifikasiScreen extends StatefulWidget {
-  const NotifikasiScreen({super.key});
+  final String? storeId;
+  final String? outletId;
+  const NotifikasiScreen({
+    super.key,
+    this.storeId,
+    this.outletId,
+  }); // ← hapus required
 
   @override
   State<NotifikasiScreen> createState() => _NotifikasiScreenState();
@@ -640,14 +646,24 @@ class _NotifikasiScreenState extends State<NotifikasiScreen> {
 
   void _bukaDetailNotif(NotifItem item) {
     final judul = item.judul.toLowerCase();
+    final store = widget.storeId ?? '';
+    final outlet = widget.outletId ?? '';
 
     Widget screen;
     if (judul.contains('terlambat') || judul.contains('deadline')) {
-      screen = const OrderScreen(initialDeadline: true);
+      screen = OrderScreen(
+        storeId: store,
+        outletId: outlet,
+        initialDeadline: true,
+      );
     } else if (judul.contains('estimasi') || judul.contains('selesai')) {
-      screen = const OrderScreen(initialStatus: 'proses');
+      screen = OrderScreen(
+        storeId: store,
+        outletId: outlet,
+        initialStatus: 'proses',
+      );
     } else {
-      screen = const OrderScreen();
+      screen = OrderScreen(storeId: store, outletId: outlet);
     }
 
     Navigator.push(context, MaterialPageRoute(builder: (_) => screen));

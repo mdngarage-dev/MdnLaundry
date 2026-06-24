@@ -3,7 +3,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../main_screens.dart';
 
 class LaporanOrderPage extends StatefulWidget {
-  const LaporanOrderPage({super.key});
+  final String storeId;
+  final String outletId;
+  const LaporanOrderPage({
+    super.key,
+    required this.storeId,
+    required this.outletId,
+  });
 
   @override
   State<LaporanOrderPage> createState() => _LaporanOrderPageState();
@@ -52,8 +58,16 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
     setState(() => _isLoading = true);
     try {
       final results = await Future.wait([
-        FirebaseFirestore.instance.collection('order').get(),
-        FirebaseFirestore.instance.collection('pelanggan').get(),
+        FirebaseFirestore.instance
+            .collection('order')
+            .where('store_id', isEqualTo: widget.storeId)
+            .where('outlet_id', isEqualTo: widget.outletId)
+            .get(),
+        FirebaseFirestore.instance
+            .collection('pelanggan')
+            .where('store_id', isEqualTo: widget.storeId)
+            .where('outlet_id', isEqualTo: widget.outletId)
+            .get(),
       ]);
 
       final orderSnap = results[0];

@@ -434,11 +434,23 @@ class _LaporanScreenState extends State<LaporanScreen> {
                   child: Column(
                     children: [
                       // ── Tambah Pengeluaran ──────────────────────────
+                      // Hanya untuk Admin yang TIDAK punya akses penuh ke
+                      // halaman "Pengeluaran" (can_access_lispengeluaran).
+                      // Owner tidak pernah lihat card ini sama sekali, dan
+                      // admin yang sudah punya akses penuh juga tidak —
+                      // karena halaman "Pengeluaran" sudah punya tombol
+                      // tambah sendiri di dalamnya.
                       FutureBuilder<bool>(
-                        future: canAccess('', ownerOnly: true),
+                        future: canAccess('can_access_lispengeluaran'),
                         builder: (context, snapshot) {
-                          if (!(snapshot.data ?? false))
+                          final sudahPunyaAksesPengeluaran =
+                              snapshot.data ?? false;
+                          final isOwnerSekarang = getUserRole() == 'Owner';
+
+                          if (isOwnerSekarang || sudahPunyaAksesPengeluaran) {
                             return const SizedBox.shrink();
+                          }
+
                           return _buildGroupedItem(
                             context: context,
                             icon: Icons.shopping_bag_outlined,

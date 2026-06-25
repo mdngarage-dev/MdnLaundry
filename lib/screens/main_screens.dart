@@ -148,13 +148,31 @@ Future<bool> canAccess(String key, {bool ownerOnly = false}) async {
   // Owner selalu bisa
   if (role == 'Owner') return true;
 
-  // Admin — cek Firestore
+  // Admin — cek izin di store_permissions/{storeId}/{outletId}/{uid}
+  // (BUKAN di users/{uid} — itu cuma menyimpan data profil/role/store_id,
+  // tidak pernah diisi field izin seperti can_access_layanan dsb. Field
+  // izin ditulis oleh EditAdminPermissionScreen ke collection terpisah ini.)
   try {
-    final doc = await FirebaseFirestore.instance
+    final userDoc = await FirebaseFirestore.instance
         .collection('users')
         .doc(user.uid)
         .get();
-    return doc.data()?[key] ?? false;
+
+    final userData = userDoc.data();
+    if (userData == null) return false;
+
+    final storeId = userData['store_id'] ?? '';
+    final outletId = userData['current_outlet_id'] ?? '';
+    if (storeId.isEmpty || outletId.isEmpty) return false;
+
+    final permDoc = await FirebaseFirestore.instance
+        .collection('store_permissions')
+        .doc(storeId)
+        .collection(outletId)
+        .doc(user.uid)
+        .get();
+
+    return permDoc.data()?[key] ?? false;
   } catch (e) {
     return false;
   }

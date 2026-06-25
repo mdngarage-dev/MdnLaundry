@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:google_sign_in/google_sign_in.dart';
+import 'package:mdnlaundry_project/email_verification.dart';
 import 'package:mdnlaundry_project/screens/main_screens.dart';
 
 class SignUpScreen extends StatefulWidget {
@@ -13,36 +14,15 @@ class _SignUpScreenState extends State<SignUpScreen> {
   bool _agreed = false;
   final _obscurePass = ValueNotifier<bool>(true);
   bool _isLoading = false;
-  bool _isGoogleLoading = false;
 
-  String _selectedRole = 'Admin'; // Default role
+  String _selectedRole = 'Admin';
 
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _namaTokoController = TextEditingController();
   final _ownerCodeController = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    _prefillNameFromGoogle();
-  }
-
-  Future<void> _prefillNameFromGoogle() async {
-    try {
-      final googleSignIn = GoogleSignIn();
-      final account = await googleSignIn.signInSilently();
-      if (account != null && mounted) {
-        setState(() {
-          _nameController.text = account.displayName ?? '';
-          _emailController.text = account.email;
-        });
-      }
-    } catch (e) {
-      debugPrint("Gagal ambil nama Google: $e");
-    }
-  }
+  final _phoneController = TextEditingController(); // ← no HP
 
   Future<void> _handleSignUp() async {
     final name = _nameController.text.trim();
@@ -50,9 +30,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
     final password = _passwordController.text.trim();
     final namaToko = _namaTokoController.text.trim();
     final inputCode = _ownerCodeController.text.trim();
+    final phone = _phoneController.text.trim();
 
-    // 1. Validasi Standar
-    if (name.isEmpty || email.isEmpty || password.isEmpty) {
+    // 1. Validasi
+    if (name.isEmpty || email.isEmpty || password.isEmpty || phone.isEmpty) {
       _showSnackBar("Semua kolom harus diisi!", isError: true);
       return;
     }
@@ -79,7 +60,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
     String cleanNamaToko = namaToko;
 
     try {
-      // 2. Validasi Kode Berdasarkan Role SEBELUM membuat akun Auth
+      // 2. Validasi kode
       if (_selectedRole == 'Owner') {
         final doc = await FirebaseFirestore.instance
             .collection('config')
@@ -109,12 +90,11 @@ class _SignUpScreenState extends State<SignUpScreen> {
           setState(() => _isLoading = false);
           return;
         }
-
         targetStoreId = storeQuery.docs.first.id;
         cleanNamaToko = storeQuery.docs.first.data()['nama_toko'] ?? '';
       }
 
-      // 3. Step Pembuatan Akun di Firebase Auth
+      // 3. Buat akun Firebase Auth
       UserCredential userCredential;
       try {
         userCredential = await FirebaseAuth.instance
@@ -122,31 +102,25 @@ class _SignUpScreenState extends State<SignUpScreen> {
             .timeout(const Duration(seconds: 15));
       } on FirebaseAuthException catch (e) {
         String message = "Terjadi kesalahan";
-        if (e.code == 'weak-password') {
+        if (e.code == 'weak-password')
           message = "Password terlalu lemah (min 6 karakter)";
-        } else if (e.code == 'email-already-in-use') {
-          message = "Email sudah digunakan";
-        } else if (e.code == 'invalid-email') {
-          message = "Format email salah";
-        }
+        if (e.code == 'email-already-in-use') message = "Email sudah digunakan";
+        if (e.code == 'invalid-email') message = "Format email salah";
         _showSnackBar(message, isError: true);
         setState(() => _isLoading = false);
         return;
       }
 
       final String currentUid = userCredential.user!.uid;
+      if (_selectedRole == 'Owner') targetStoreId = currentUid;
 
-      if (_selectedRole == 'Owner') {
-        targetStoreId = currentUid;
-      }
-
-      // 4. Generate NIP acak berdasarkan role
+      // 4. Generate NIP
       final ts = DateTime.now().millisecondsSinceEpoch.toString();
       final randomPart = ts.substring(ts.length - 10);
       final prefix = _selectedRole == 'Owner' ? 'OWN' : 'ADM';
       final generatedNip = '$prefix$randomPart';
 
-      // 5. Update Profile DisplayName di Firebase Auth
+      // 5. Update displayName
       try {
         await userCredential.user
             ?.updateDisplayName(
@@ -154,18 +128,19 @@ class _SignUpScreenState extends State<SignUpScreen> {
             )
             .timeout(const Duration(seconds: 10));
       } catch (e) {
-        debugPrint("updateDisplayName gagal: $e");
+        debugPrint("updateDisplayName: $e");
       }
 
-      // 6. Simpan Profile User ke Collection 'users'
+      // 6. Simpan ke Firestore
       await FirebaseFirestore.instance.collection('users').doc(currentUid).set({
         'nama': name,
         'email': email,
+        'no_hp': phone,
         'nip': generatedNip,
         'role': _selectedRole,
         'nama_toko': cleanNamaToko,
         'store_id': targetStoreId,
-        'is_activated': false,
+        'is_activated': _selectedRole == 'Owner', // Owner aktif, Admin tunggu
         'created_at': FieldValue.serverTimestamp(),
         if (_selectedRole == 'Owner') ...{
           'can_access_admin': true,
@@ -186,25 +161,23 @@ class _SignUpScreenState extends State<SignUpScreen> {
         },
       });
 
-      // 7. JIKA REGISTER SEBAGAI OWNER -> Buat Toko, Outlet Utama, & Counter
+      // 7. Jika Owner → buat toko, outlet, counter
       if (_selectedRole == 'Owner') {
         final randomDigits = (DateTime.now().millisecondsSinceEpoch % 900 + 100)
             .toString();
-        String kodeTokoBaru = "LND$randomDigits";
+        final kodeTokoBaru = "LND$randomDigits".toUpperCase();
 
         final storeRef = FirebaseFirestore.instance
             .collection('stores')
             .doc(currentUid);
 
-        // Buat data toko induk
         await storeRef.set({
           'nama_toko': cleanNamaToko,
-          'kode_toko': kodeTokoBaru.toUpperCase(),
+          'kode_toko': kodeTokoBaru,
           'owner_uid': currentUid,
           'created_at': FieldValue.serverTimestamp(),
         });
 
-        // Buat outlet utama dulu, lalu gunakan ID-nya untuk counter
         final outletRef = await storeRef.collection('outlets').add({
           'nama_outlet': cleanNamaToko,
           'is_utama': true,
@@ -214,117 +187,38 @@ class _SignUpScreenState extends State<SignUpScreen> {
           'created_at': FieldValue.serverTimestamp(),
         });
 
-        // Counter masuk ke dalam outlet yang baru dibuat
         await outletRef.collection('counters').doc('pelanggan').set({
           'last': 0,
         });
 
-        // Simpan current_outlet_id ke dokumen user
         await FirebaseFirestore.instance
             .collection('users')
             .doc(currentUid)
             .update({'current_outlet_id': outletRef.id});
-
-        debugPrint(
-          "Toko baru berhasil dibuat dengan Kode Akses Admin: $kodeTokoBaru",
-        );
       }
 
-      // 8. Kirim Verifikasi Email & Sign Out
+      // 8. Kirim email verifikasi (via Brevo SMTP)
       try {
         await userCredential.user!.sendEmailVerification().timeout(
           const Duration(seconds: 10),
         );
       } catch (e) {
-        debugPrint("sendEmailVerification gagal: $e");
+        debugPrint("sendEmailVerification: $e");
       }
 
-      await saveLastActiveTime().catchError((_) {});
-      await FirebaseAuth.instance.signOut().catchError((_) {});
-
-      if (mounted) {
-        _showSnackBar(
-          "Registrasi sukses! NIP: $generatedNip\nCek EMAIL untuk verifikasi akun.",
-          isError: false,
-        );
-        await Future.delayed(const Duration(seconds: 2));
-        if (mounted) Navigator.pushReplacementNamed(context, '/login');
-      }
-    } catch (e) {
-      _showSnackBar("Gagal daftar: ${e.toString()}", isError: true);
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _handleGoogleSignUp() async {
-    if (!_agreed) {
-      _showSnackBar("Anda harus menyetujui privacy policy dulu", isError: true);
-      return;
-    }
-    if (_namaTokoController.text.trim().isEmpty) {
-      _showSnackBar("Nama toko harus diisi terlebih dahulu", isError: true);
-      return;
-    }
-
-    setState(() => _isGoogleLoading = true);
-
-    try {
-      final GoogleSignIn googleSignIn = GoogleSignIn();
-      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
-
-      if (googleUser == null) {
-        setState(() => _isGoogleLoading = false);
-        return;
-      }
-
-      final GoogleSignInAuthentication googleAuth =
-          await googleUser.authentication;
-      final credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
-
-      final userCredential = await FirebaseAuth.instance.signInWithCredential(
-        credential,
-      );
-
-      if (userCredential.additionalUserInfo?.isNewUser == true) {
-        final name = googleUser.displayName ?? 'User';
-        final namaToko = _namaTokoController.text.trim();
-        final nip = "AdmLnd-G${DateTime.now().millisecondsSinceEpoch % 1000}";
-
-        await userCredential.user?.updateDisplayName(
-          "$name|$nip|$_selectedRole|$namaToko",
-        );
-
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(userCredential.user!.uid)
-            .set({
-              'nama': name,
-              'email': googleUser.email,
-              'nip': nip,
-              'role': _selectedRole,
-              'nama_toko': namaToko,
-              'created_at': FieldValue.serverTimestamp(),
-            });
-
-        _showSnackBar("Akun berhasil dibuat! NIP: $nip", isError: false);
-      }
-
-      await saveLastActiveTime();
-
+      // 9. JANGAN signOut — user tetap login untuk polling emailVerified
       if (mounted) {
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const HomeWrapper()),
+          MaterialPageRoute(
+            builder: (_) => EmailVerificationScreen(role: _selectedRole),
+          ),
           (route) => false,
         );
       }
     } catch (e) {
-      _showSnackBar("Google Sign Up Gagal: ${e.toString()}", isError: true);
+      _showSnackBar("Gagal daftar: $e", isError: true);
     } finally {
-      if (mounted) setState(() => _isGoogleLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -344,8 +238,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
     _emailController.dispose();
     _passwordController.dispose();
     _namaTokoController.dispose();
-    _obscurePass.dispose();
     _ownerCodeController.dispose();
+    _phoneController.dispose();
+    _obscurePass.dispose();
     super.dispose();
   }
 
@@ -386,7 +281,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   fontSize: 28,
                   fontWeight: FontWeight.bold,
                 ),
-                textAlign: TextAlign.center,
               ),
               const SizedBox(height: 6),
               Text(
@@ -401,7 +295,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   fontSize: 14,
                   fontWeight: FontWeight.bold,
                 ),
-                textAlign: TextAlign.center,
               ),
               const SizedBox(height: 28),
 
@@ -421,11 +314,13 @@ class _SignUpScreenState extends State<SignUpScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Nama
                     TextField(
                       controller: _nameController,
                       keyboardType: TextInputType.name,
                       textCapitalization: TextCapitalization.words,
                       style: Theme.of(context).textTheme.bodyLarge,
+                      onChanged: (_) => setState(() {}),
                       decoration: customInputDecoration(
                         context: context,
                         hint: 'Nama Lengkap',
@@ -434,6 +329,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     ),
                     const SizedBox(height: 14),
 
+                    // Email
                     TextField(
                       controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
@@ -446,35 +342,48 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     ),
                     const SizedBox(height: 14),
 
+                    // No HP ← BARU
+                    TextField(
+                      controller: _phoneController,
+                      keyboardType: TextInputType.phone,
+                      style: Theme.of(context).textTheme.bodyLarge,
+                      decoration: customInputDecoration(
+                        context: context,
+                        hint: 'No. HP (cth: 08123456789)',
+                        icon: Icons.phone_outlined,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Password
                     ValueListenableBuilder<bool>(
                       valueListenable: _obscurePass,
-                      builder: (context, obscure, _) {
-                        return TextField(
-                          controller: _passwordController,
-                          obscureText: obscure,
-                          style: Theme.of(context).textTheme.bodyLarge,
-                          decoration: customInputDecoration(
-                            context: context,
-                            hint: 'Password (min. 6 karakter)',
-                            icon: Icons.lock_outline,
-                            suffixIcon: IconButton(
-                              icon: Icon(
-                                obscure
-                                    ? Icons.visibility_off_outlined
-                                    : Icons.visibility_outlined,
-                                color: Theme.of(context).hintColor,
-                                size: 20,
-                              ),
-                              onPressed: () =>
-                                  _obscurePass.value = !_obscurePass.value,
+                      builder: (context, obscure, _) => TextField(
+                        controller: _passwordController,
+                        obscureText: obscure,
+                        style: Theme.of(context).textTheme.bodyLarge,
+                        decoration: customInputDecoration(
+                          context: context,
+                          hint: 'Password (min. 6 karakter)',
+                          icon: Icons.lock_outline,
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              obscure
+                                  ? Icons.visibility_off_outlined
+                                  : Icons.visibility_outlined,
+                              color: Theme.of(context).hintColor,
+                              size: 20,
                             ),
+                            onPressed: () =>
+                                _obscurePass.value = !_obscurePass.value,
                           ),
-                        );
-                      },
+                        ),
+                      ),
                     ),
+                    const SizedBox(height: 14),
 
+                    // Kode undangan / kode toko
                     if (_selectedRole == 'Owner') ...[
-                      const SizedBox(height: 14),
                       TextField(
                         controller: _ownerCodeController,
                         style: Theme.of(context).textTheme.bodyLarge,
@@ -485,8 +394,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         ),
                       ),
                       const SizedBox(height: 14),
-                    ] else if (_selectedRole == 'Admin') ...[
-                      const SizedBox(height: 14),
+                    ] else ...[
                       TextField(
                         controller: _ownerCodeController,
                         style: Theme.of(context).textTheme.bodyLarge,
@@ -499,6 +407,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                       const SizedBox(height: 14),
                     ],
 
+                    // Nama toko (Owner only)
                     if (_selectedRole == 'Owner') ...[
                       TextField(
                         controller: _namaTokoController,
@@ -514,6 +423,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                       const SizedBox(height: 14),
                     ],
 
+                    // Role selector
                     Text(
                       "Role Akun",
                       style: Theme.of(context).textTheme.bodyLarge?.copyWith(
@@ -566,8 +476,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         ],
                       ),
                     ),
-
                     const SizedBox(height: 8),
+
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 12,
@@ -599,9 +509,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         ],
                       ),
                     ),
-
                     const SizedBox(height: 14),
 
+                    // Privacy policy
                     Row(
                       children: [
                         Checkbox(
@@ -640,6 +550,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     ),
                     const SizedBox(height: 16),
 
+                    // Tombol Sign Up
                     SizedBox(
                       width: double.infinity,
                       height: 52,
@@ -658,92 +569,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
                                 ),
                               )
                             : const Text('Sign Up'),
-                      ),
-                    ),
-
-                    const SizedBox(height: 20),
-
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Divider(
-                            color: Theme.of(context).dividerColor,
-                            thickness: 1,
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          child: Text(
-                            'atau',
-                            style: TextStyle(
-                              color: Theme.of(context).hintColor,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
-                        Expanded(
-                          child: Divider(
-                            color: Theme.of(context).dividerColor,
-                            thickness: 1,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-
-                    SizedBox(
-                      width: double.infinity,
-                      height: 52,
-                      child: OutlinedButton(
-                        onPressed: _isGoogleLoading
-                            ? null
-                            : _handleGoogleSignUp,
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(
-                            color: isDark
-                                ? Colors.white24
-                                : const Color(0xFFE5E7EB),
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(30),
-                          ),
-                          backgroundColor: isDark
-                              ? Colors.white.withOpacity(0.05)
-                              : Colors.white,
-                        ),
-                        child: _isGoogleLoading
-                            ? SizedBox(
-                                width: 22,
-                                height: 22,
-                                child: CircularProgressIndicator(
-                                  color: Theme.of(context).primaryColor,
-                                  strokeWidth: 2.5,
-                                ),
-                              )
-                            : Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const Text(
-                                    'G',
-                                    style: TextStyle(
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF4285F4),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Text(
-                                    'Lanjut dengan Google',
-                                    style: TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w600,
-                                      color: Theme.of(
-                                        context,
-                                      ).textTheme.bodyLarge?.color,
-                                    ),
-                                  ),
-                                ],
-                              ),
                       ),
                     ),
                   ],

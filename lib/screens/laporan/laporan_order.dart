@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:mdnlaundry_project/screens/main_screens.dart';
 
 class LaporanOrderPage extends StatefulWidget {
@@ -29,11 +30,15 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
   double _totalOmzet = 0;
   double _totalTerbayar = 0;
   double _totalPiutang = 0;
-  double _totalMeter = 0; // ← tambah: total m² untuk layanan tipe "meter"
-  double _totalKg = 0; // ← tambah: total kg untuk layanan tipe "kiloan"
+  double _totalMeter = 0;
+  double _totalKg = 0;
 
   List<Map<String, dynamic>> _allOrders = [];
   Map<String, List<Map<String, dynamic>>> _grouped = {};
+
+  // ── Current user role (parsed dari displayName "Nama|NIP|Role")
+  String _currentUserNama = '';
+  String _currentUserRole = ''; // 'owner' | 'admin'
 
   @override
   void initState() {
@@ -42,6 +47,7 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
     final today = DateTime(now.year, now.month, now.day);
     _startDate = today.subtract(const Duration(days: 29));
     _endDate = today;
+    _parseCurrentUser();
     _fetchData();
   }
 
@@ -50,6 +56,22 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
     _searchCtrl.dispose();
     super.dispose();
   }
+
+  // ════════════════════════════════════════════════════════════
+  // PARSE CURRENT USER
+  // displayName format: "Nama|NIP|Role"
+  // ════════════════════════════════════════════════════════════
+  void _parseCurrentUser() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    final parts = (user.displayName ?? '').split('|');
+    _currentUserNama = parts.isNotEmpty ? parts[0].trim() : '';
+    _currentUserRole = parts.length >= 3
+        ? parts[2].trim().toLowerCase()
+        : 'admin';
+  }
+
+  bool get _isOwner => _currentUserRole == 'owner';
 
   // ════════════════════════════════════════════════════════════
   // FETCH
@@ -108,12 +130,20 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
           }
         }
 
+        // ── Nama admin — parse dari field 'admin' (bisa "Nama" atau "Nama|NIP|Role")
+        final String rawAdmin = (data['admin'] ?? '').toString().trim();
+        final String namaAdmin = rawAdmin.contains('|')
+            ? rawAdmin.split('|').first.trim()
+            : rawAdmin;
+
+        // ── FILTER ROLE: Admin hanya lihat order miliknya sendiri
+        if (!_isOwner && namaAdmin != _currentUserNama) continue;
+
         final String nomorPelanggan = (data['nomor_pelanggan'] ?? '')
             .toString()
             .trim();
         if (nomorPelanggan.isEmpty) continue;
 
-        // ── Nama & HP: baca langsung dari document order ─────────────────
         final info = pelangganMap[nomorPelanggan];
         final String namaDariOrder = (data['nama_pelanggan'] ?? '')
             .toString()
@@ -138,9 +168,6 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
         final String layananNama = (data['layanan_nama'] ?? '-')
             .toString()
             .trim();
-        final String admin = (data['admin'] ?? '-').toString().trim();
-
-        // ── Field baru: layanan_tipe dan berat_kg ─────────────────────────
         final String layananTipe = (data['layanan_tipe'] ?? '')
             .toString()
             .toLowerCase()
@@ -164,10 +191,10 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
           'status_bayar': statusBayar,
           'status_order': statusOrder,
           'layanan_nama': layananNama,
-          'admin': admin,
+          'admin': namaAdmin, // sudah di-parse bersih
           'waktu': tgl,
-          'layanan_tipe': layananTipe, // ← simpan tipe layanan
-          'berat_kg': beratKg, // ← simpan berat/meter
+          'layanan_tipe': layananTipe,
+          'berat_kg': beratKg,
         });
       }
 
@@ -196,25 +223,6 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
 
   // ════════════════════════════════════════════════════════════
   // COMPUTE FILTER
-  //
-  // Logika pembayaran:
-  //   status_bayar == 'lunas'
-  //     → terbayar += harga_total  (sudah lunas penuh)
-  //     → piutang  += 0
-  //
-  //   status_bayar == 'dp'
-  //     → terbayar += dp_amount
-  //     → piutang  += harga_total - dp_amount
-  //
-  //   status_bayar lainnya (belum_bayar / kosong)
-  //     → terbayar += 0
-  //     → piutang  += harga_total
-  //
-  //   omzet selalu += harga_total (nilai bruto order)
-  //
-  // Logika meter & kg:
-  //   Jika layanan_tipe == 'meter' → totalMeter += berat_kg (m²)
-  //   Jika layanan_tipe == 'kiloan' → totalKg += berat_kg (kg)
   // ════════════════════════════════════════════════════════════
   Map<String, dynamic> _computeFilter(
     List<Map<String, dynamic>> orders,
@@ -264,7 +272,6 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
         piutang += harga;
       }
 
-      // ── Hitung meter dan kg berdasarkan layanan_tipe ──────────────────
       if (layananTipe == 'meter') {
         totalMeter += beratKg;
       } else if (layananTipe == 'kiloan') {
@@ -322,7 +329,6 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
     final String statusBayar = order['status_bayar'] as String;
     final bool lunas = statusBayar == 'lunas';
     final bool hasDP = statusBayar == 'dp' && dp > 0;
-
     final double sisaBayar = lunas ? 0 : (harga - dp).clamp(0, double.infinity);
 
     final DateTime tgl = order['waktu'] as DateTime;
@@ -479,9 +485,20 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                   children: [
                     _statusBadge(statusOrder),
                     const SizedBox(width: 10),
-                    Text(
-                      'Admin: $admin',
-                      style: bodySmall?.copyWith(fontSize: 12),
+                    // ── Tampilkan nama admin di detail sheet
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.badge_rounded,
+                          size: 13,
+                          color: theme.textTheme.bodySmall?.color,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          admin.isEmpty ? '-' : admin,
+                          style: bodySmall?.copyWith(fontSize: 12),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -514,10 +531,10 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                     'DP Terbayar',
                     _formatRp(dp),
                     bodySmall: bodySmall,
-                    valueStyle: TextStyle(
+                    valueStyle: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.bold,
-                      color: const Color(0xffD97706),
+                      color: Color(0xffD97706),
                     ),
                   ),
                 ],
@@ -834,7 +851,44 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Periode + search
+                          // ── Info banner untuk Admin ───────────────────────
+                          if (!_isOwner)
+                            Container(
+                              margin: const EdgeInsets.only(bottom: 14),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: kPrimary.withOpacity(0.07),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: kPrimary.withOpacity(0.25),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.info_outline_rounded,
+                                    color: kPrimary,
+                                    size: 16,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Menampilkan order Anda: $_currentUserNama',
+                                      style: TextStyle(
+                                        color: kPrimary,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                          // ── Periode + search bar ──────────────────────────
                           Row(
                             children: [
                               GestureDetector(
@@ -969,9 +1023,7 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                           ],
                           const SizedBox(height: 16),
 
-                          // ════════════════════════════════════════════════════════════
-                          // Summary 3×2 (6 cards dalam 2 baris, 3 kolom)
-                          // ════════════════════════════════════════════════════════════
+                          // ── Summary cards 2×3 ─────────────────────────────
                           Row(
                             children: [
                               _summaryCard(
@@ -1044,7 +1096,7 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                                 icon: Icons.straighten_outlined,
                                 iconColor: const Color(0xff06B6D4),
                                 iconBg: const Color(0xffCFFAFE),
-                                label: 'Total Meter (m²)',
+                                label: 'Total Meter',
                                 value: _formatNumber(_totalMeter),
                                 valueColor: const Color(0xff06B6D4),
                                 isCurrency: false,
@@ -1057,7 +1109,7 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                     ),
                   ),
 
-                  // List grouped
+                  // ── Grouped list ─────────────────────────────────────────
                   if (_grouped.isEmpty)
                     SliverFillRemaining(
                       child: Center(
@@ -1143,7 +1195,7 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
               ),
       ),
 
-      // Bottom bar
+      // ── Bottom bar ───────────────────────────────────────────────────────
       bottomNavigationBar: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         decoration: BoxDecoration(
@@ -1172,7 +1224,7 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Pendapatan Kotor',
+                  _isOwner ? 'Pendapatan Kotor' : 'Omzet Saya',
                   style: Theme.of(
                     context,
                   ).textTheme.bodySmall?.copyWith(fontSize: 11),
@@ -1239,7 +1291,6 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Label di atas
             Text(
               label,
               maxLines: 1,
@@ -1247,7 +1298,6 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
               style: bodySmall?.copyWith(fontSize: 10),
             ),
             const SizedBox(height: 6),
-            // Icon + value sejajar dalam satu Row
             Row(
               children: [
                 Container(
@@ -1295,10 +1345,10 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
     final String statusBayar = order['status_bayar'] as String;
     final String statusOrder = order['status_order'] as String;
     final DateTime waktu = order['waktu'] as DateTime;
+    final String adminNama = order['admin'] as String;
 
     final bool lunas = statusBayar == 'lunas';
     final bool hasDP = statusBayar == 'dp' && dp > 0;
-
     final double sisaBayar = lunas ? 0 : (harga - dp).clamp(0, double.infinity);
 
     final Color bayarColor = lunas
@@ -1420,6 +1470,22 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
                   ),
                 ],
               ),
+
+              // ── Nama admin (hanya tampil jika owner yang lihat)
+              if (_isOwner && adminNama.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.badge_rounded,
+                      size: 12,
+                      color: Theme.of(context).textTheme.bodySmall?.color,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(adminNama, style: bodySmall?.copyWith(fontSize: 11)),
+                  ],
+                ),
+              ],
 
               const SizedBox(height: 8),
 
@@ -1569,9 +1635,12 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
           bottomRight: Radius.circular(20),
         ),
         child: AppBar(
-          title: const Text(
-            'Laporan Order',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          title: Text(
+            _isOwner ? 'Laporan Order' : 'Laporan Order Saya',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
           ),
           backgroundColor: kPrimary,
           foregroundColor: Colors.white,

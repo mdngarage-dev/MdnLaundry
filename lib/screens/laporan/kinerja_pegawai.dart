@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:mdnlaundry_project/screens/main_screens.dart';
 
 // ════════════════════════════════════════════════════════════
@@ -7,12 +8,13 @@ import 'package:mdnlaundry_project/screens/main_screens.dart';
 // ════════════════════════════════════════════════════════════
 class _PegawaiKinerja {
   final String nama;
+  final String role; // 'owner' | 'admin'
   int totalOrder;
-  int orderSelesai; // status == 'selesai'
+  int orderSelesai;
   double totalRevenue;
-  Map<String, int> layananCount; // layanan_nama → jumlah
+  Map<String, int> layananCount;
 
-  _PegawaiKinerja({required this.nama})
+  _PegawaiKinerja({required this.nama, required this.role})
     : totalOrder = 0,
       orderSelesai = 0,
       totalRevenue = 0,
@@ -20,7 +22,6 @@ class _PegawaiKinerja {
 
   String get id => nama;
 
-  /// Completion rate = selesai / total × 100
   double get completionRate =>
       totalOrder == 0 ? 0 : (orderSelesai / totalOrder) * 100;
 
@@ -60,6 +61,10 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
 
   final Map<String, bool> _expanded = {};
 
+  // ── Current user info (parsed from displayName "Nama|NIP|Role")
+  String _currentUserNama = '';
+  String _currentUserRole = ''; // 'owner' | 'admin'
+
   @override
   void initState() {
     super.initState();
@@ -67,21 +72,65 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
     final today = DateTime(now.year, now.month, now.day);
     _startDate = today.subtract(const Duration(days: 29));
     _endDate = today;
+    _parseCurrentUser();
     _fetchData();
   }
 
   // ════════════════════════════════════════════════════════════
-  // FETCH — collection: order
-  //   Fields yang dipakai:
-  //     admin           → nama pegawai
-  //     waktu_order     → Timestamp, filter periode
-  //     harga_total     → revenue per order
-  //     status          → untuk hitung completion rate
-  //     layanan_nama    → breakdown layanan
+  // PARSE CURRENT USER ROLE dari Firebase Auth displayName
+  // Format: "Nama|NIP|Role"  →  role = 'owner' atau 'admin'
+  // ════════════════════════════════════════════════════════════
+  void _parseCurrentUser() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final displayName = user.displayName ?? '';
+    final parts = displayName.split('|');
+
+    _currentUserNama = parts.isNotEmpty ? parts[0].trim() : '';
+    _currentUserRole = parts.length >= 3
+        ? parts[2].trim().toLowerCase()
+        : 'admin';
+  }
+
+  bool get _isOwner => _currentUserRole == 'owner';
+
+  // ════════════════════════════════════════════════════════════
+  // FETCH
   // ════════════════════════════════════════════════════════════
   Future<void> _fetchData() async {
     setState(() => _isLoading = true);
     try {
+      // ── Ambil semua user di store ini untuk mengetahui role masing-masing
+      // Kita build map: namaAdmin → role  dari Firestore users / displayName
+      // Strategi: query collection 'users' (atau 'pegawai') dengan store_id
+      // Sesuaikan collection name jika berbeda di project Anda
+      final Map<String, String> namaToRole = {};
+
+      // ── Coba ambil dari collection 'users'
+      try {
+        final usersSnap = await FirebaseFirestore.instance
+            .collection('users')
+            .where('store_id', isEqualTo: widget.storeId)
+            .get();
+
+        for (final doc in usersSnap.docs) {
+          final data = doc.data();
+          // displayName format: "Nama|NIP|Role"
+          final String displayName = (data['displayName'] ?? data['nama'] ?? '')
+              .toString();
+          final parts = displayName.split('|');
+          final nama = parts.isNotEmpty ? parts[0].trim() : '';
+          final role = parts.length >= 3
+              ? parts[2].trim().toLowerCase()
+              : (data['role'] ?? 'admin').toString().toLowerCase();
+          if (nama.isNotEmpty) namaToRole[nama] = role;
+        }
+      } catch (_) {
+        // Jika collection 'users' tidak ada / error, lanjutkan tanpa role map
+      }
+
+      // ── Query orders
       final snap = await FirebaseFirestore.instance
           .collection('order')
           .where('store_id', isEqualTo: widget.storeId)
@@ -104,7 +153,6 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
       for (final doc in snap.docs) {
         final data = doc.data();
 
-        // ── Filter periode via waktu_order (Timestamp)
         final dynamic rawWaktu = data['waktu_order'];
         if (rawWaktu == null) continue;
 
@@ -112,7 +160,6 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
         if (rawWaktu is Timestamp) {
           tgl = rawWaktu.toDate();
         } else {
-          // fallback: string "dd-MM-yyyy" atau "dd/MM/yyyy HH:mm"
           try {
             final s = rawWaktu.toString().trim();
             tgl = s.contains('/')
@@ -126,12 +173,15 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
         final hari = DateTime(tgl.year, tgl.month, tgl.day);
         if (hari.isBefore(start) || hari.isAfter(end)) continue;
 
-        // ── Nama admin (bisa "Ameena" atau "Ameena|ROLE")
+        // ── Nama admin — bisa "Ameena" atau "Ameena|NIP|Role"
         final String rawAdmin = (data['admin'] ?? '').toString().trim();
         final String namaAdmin = rawAdmin.contains('|')
             ? rawAdmin.split('|').first.trim()
             : rawAdmin;
         if (namaAdmin.isEmpty) continue;
+
+        // ── Jika user adalah ADMIN, hanya tampilkan data dirinya sendiri
+        if (!_isOwner && namaAdmin != _currentUserNama) continue;
 
         final String status = (data['status'] ?? '').toString().toLowerCase();
         final String layanan = (data['layanan_nama'] ?? 'Lainnya')
@@ -139,7 +189,20 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
             .trim();
         final double hargaTotal = (data['harga_total'] ?? 0).toDouble();
 
-        map.putIfAbsent(namaAdmin, () => _PegawaiKinerja(nama: namaAdmin));
+        // ── Tentukan role pegawai ini
+        String pegawaiRole = namaToRole[namaAdmin] ?? '';
+        if (pegawaiRole.isEmpty && rawAdmin.contains('|')) {
+          final parts = rawAdmin.split('|');
+          pegawaiRole = parts.length >= 3
+              ? parts[2].trim().toLowerCase()
+              : 'admin';
+        }
+        if (pegawaiRole.isEmpty) pegawaiRole = 'admin';
+
+        map.putIfAbsent(
+          namaAdmin,
+          () => _PegawaiKinerja(nama: namaAdmin, role: pegawaiRole),
+        );
         final p = map[namaAdmin]!;
 
         p.totalOrder += 1;
@@ -148,9 +211,13 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
         p.layananCount[layanan] = (p.layananCount[layanan] ?? 0) + 1;
       }
 
-      // ── Sort by revenue desc
+      // ── Sort: owner duluan, lalu sort by revenue desc
       final list = map.values.where((p) => p.totalOrder > 0).toList()
-        ..sort((a, b) => b.totalRevenue.compareTo(a.totalRevenue));
+        ..sort((a, b) {
+          if (a.role == 'owner' && b.role != 'owner') return -1;
+          if (a.role != 'owner' && b.role == 'owner') return 1;
+          return b.totalRevenue.compareTo(a.totalRevenue);
+        });
 
       final totalPend = list.fold<double>(0, (s, p) => s + p.totalRevenue);
       final totalOrd = list.fold<int>(0, (s, p) => s + p.totalOrder);
@@ -281,7 +348,6 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
               }).toList(),
             ),
             const SizedBox(height: 20),
-            // Custom date range
             GestureDetector(
               onTap: () async {
                 Navigator.pop(context);
@@ -370,7 +436,7 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
         s = DateTime(now.year, now.month - 1, 1);
         e = DateTime(now.year, now.month, 0);
         break;
-      default: // 30 Hari Terakhir
+      default:
         s = today.subtract(const Duration(days: 29));
         e = today;
     }
@@ -438,6 +504,59 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
   }
 
   // ════════════════════════════════════════════════════════════
+  // ROLE BADGE WIDGET
+  // ════════════════════════════════════════════════════════════
+  Widget _roleBadge(String role) {
+    final bool isOwner = role == 'owner';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        gradient: isOwner
+            ? const LinearGradient(
+                colors: [Color(0xFFFFD700), Color(0xFFFF8C00)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              )
+            : null,
+        color: isOwner ? null : kPrimary.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: isOwner
+            ? null
+            : Border.all(color: kPrimary.withOpacity(0.35), width: 1),
+        boxShadow: isOwner
+            ? [
+                BoxShadow(
+                  color: const Color(0xFFFFD700).withOpacity(0.35),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+              ]
+            : null,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isOwner ? Icons.workspace_premium_rounded : Icons.badge_rounded,
+            size: 11,
+            color: isOwner ? Colors.white : kPrimary,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            isOwner ? 'Owner' : 'Admin',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              color: isOwner ? Colors.white : kPrimary,
+              letterSpacing: 0.3,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ════════════════════════════════════════════════════════════
   // BUILD
   // ════════════════════════════════════════════════════════════
   @override
@@ -464,6 +583,43 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          // ── Info banner untuk Admin (hanya lihat diri sendiri)
+                          if (!_isOwner)
+                            Container(
+                              margin: const EdgeInsets.only(bottom: 14),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: kPrimary.withOpacity(0.07),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: kPrimary.withOpacity(0.25),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.info_outline_rounded,
+                                    color: kPrimary,
+                                    size: 16,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Menampilkan kinerja Anda: $_currentUserNama',
+                                      style: TextStyle(
+                                        color: kPrimary,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+
                           // ── Periode bar ──────────────────────────────────
                           Row(
                             children: [
@@ -561,7 +717,9 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
                                 icon: Icons.people_alt_outlined,
                                 iconColor: const Color(0xff0284C7),
                                 iconBg: const Color(0xffE0F2FE),
-                                label: 'Rerata per Admin',
+                                label: _isOwner
+                                    ? 'Rerata per Admin'
+                                    : 'Rerata per Order',
                                 value: _formatRp(_rerataPegawai),
                                 isCurrency: true,
                               ),
@@ -697,7 +855,7 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
             ),
             const Spacer(),
             Text(
-              '${_pegawaiList.length} Admin',
+              _isOwner ? '${_pegawaiList.length} Admin' : 'Kinerja Saya',
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
@@ -773,8 +931,8 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
     TextStyle? bodySmall,
   ) {
     final isExpanded = _expanded[p.id] ?? false;
+    final bool isOwnerCard = p.role == 'owner';
 
-    // Completion rate color
     final Color rateColor = p.completionRate >= 80
         ? const Color(0xFF16A34A)
         : p.completionRate >= 50
@@ -785,220 +943,250 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
       decoration: BoxDecoration(
         color: cardColor,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Theme.of(context).dividerColor),
+        border: Border.all(
+          // Owner card: golden border
+          color: isOwnerCard
+              ? const Color(0xFFFFD700).withOpacity(0.6)
+              : Theme.of(context).dividerColor,
+          width: isOwnerCard ? 1.5 : 1,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: isOwnerCard
+                ? const Color(0xFFFFD700).withOpacity(0.08)
+                : Colors.black.withOpacity(0.03),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
         ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ── Row 1: Medal + Nama + Revenue ───────────────────────
-            Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Colored top accent strip untuk Owner ──────────────────
+          if (isOwnerCard)
+            Container(
+              height: 3,
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFFFFD700), Color(0xFFFF8C00)],
+                ),
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(16),
+                  topRight: Radius.circular(16),
+                ),
+              ),
+            ),
+
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _medal(rank),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+                // ── Row 1: Medal + Nama + Role Badge + Revenue ──────
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _medal(rank),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Flexible(
-                            child: Text(
-                              p.nama,
-                              style: bodyLarge?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 15,
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  p.nama,
+                                  style: bodyLarge?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                              const SizedBox(width: 6),
+                              // ── Role badge ─────────────────────────
+                              _roleBadge(p.role),
+                            ],
                           ),
-                          const SizedBox(width: 6),
-                          Icon(
-                            Icons.verified_rounded,
-                            color: kPrimary,
-                            size: 18,
+                          const SizedBox(height: 2),
+                          Text(
+                            '${p.totalOrder} Order Diproses',
+                            style: bodySmall?.copyWith(fontSize: 12),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 2),
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          _formatRp(p.totalRevenue),
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                            color: kPrimary,
+                          ),
+                        ),
+                        Text(
+                          'Revenue',
+                          style: bodySmall?.copyWith(fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+
+                // ── Row 2: Stats ─────────────────────────────────────
+                Row(
+                  children: [
+                    _statItem(
+                      icon: Icons.check_circle_outline_rounded,
+                      iconColor: rateColor,
+                      label: 'Completion',
+                      value: '${p.completionRate.toStringAsFixed(1)}%',
+                      bodySmall: bodySmall,
+                    ),
+                    const SizedBox(width: 20),
+                    _statItem(
+                      icon: Icons.done_all_rounded,
+                      iconColor: const Color(0xff16A34A),
+                      label: 'Selesai',
+                      value: '${p.orderSelesai}',
+                      bodySmall: bodySmall,
+                    ),
+                    const SizedBox(width: 20),
+                    _statItem(
+                      icon: Icons.local_laundry_service_outlined,
+                      iconColor: const Color(0xFF4F6FE8),
+                      label: 'Total Order',
+                      value: '${p.totalOrder}',
+                      bodySmall: bodySmall,
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+
+                // ── Progress bar ─────────────────────────────────────
+                Row(
+                  children: [
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: p.progressRatio(maxRevenue),
+                          minHeight: 6,
+                          backgroundColor: Theme.of(context).dividerColor,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            isOwnerCard ? const Color(0xFFFF8C00) : kPrimary,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${(p.progressRatio(maxRevenue) * 100).toStringAsFixed(0)}%',
+                      style: bodySmall?.copyWith(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+
+                // ── Rincian Layanan toggle ────────────────────────────
+                GestureDetector(
+                  onTap: () => setState(
+                    () => _expanded[p.id] = !(_expanded[p.id] ?? false),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.format_list_bulleted_rounded,
+                        color: kPrimary,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 6),
                       Text(
-                        '${p.totalOrder} Order Diproses',
-                        style: bodySmall?.copyWith(fontSize: 12),
+                        'Rincian Layanan (${p.layananCount.length})',
+                        style: TextStyle(
+                          color: kPrimary,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const Spacer(),
+                      Icon(
+                        isExpanded
+                            ? Icons.keyboard_arrow_up_rounded
+                            : Icons.keyboard_arrow_down_rounded,
+                        color: kPrimary,
+                        size: 20,
                       ),
                     ],
                   ),
                 ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      _formatRp(p.totalRevenue),
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: kPrimary,
-                      ),
-                    ),
-                    Text('Revenue', style: bodySmall?.copyWith(fontSize: 11)),
-                  ],
-                ),
-              ],
-            ),
 
-            const SizedBox(height: 12),
-
-            // ── Row 2: Stats (Completion Rate | Selesai | Total) ────
-            Row(
-              children: [
-                _statItem(
-                  icon: Icons.check_circle_outline_rounded,
-                  iconColor: rateColor,
-                  label: 'Completion',
-                  value: '${p.completionRate.toStringAsFixed(1)}%',
-                  bodySmall: bodySmall,
-                ),
-                const SizedBox(width: 20),
-                _statItem(
-                  icon: Icons.done_all_rounded,
-                  iconColor: const Color(0xff16A34A),
-                  label: 'Selesai',
-                  value: '${p.orderSelesai}',
-                  bodySmall: bodySmall,
-                ),
-                const SizedBox(width: 20),
-                _statItem(
-                  icon: Icons.local_laundry_service_outlined,
-                  iconColor: const Color(0xFF4F6FE8),
-                  label: 'Total Order',
-                  value: '${p.totalOrder}',
-                  bodySmall: bodySmall,
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 12),
-
-            // ── Progress bar (revenue) ──────────────────────────────
-            Row(
-              children: [
-                Expanded(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: LinearProgressIndicator(
-                      value: p.progressRatio(maxRevenue),
-                      minHeight: 6,
-                      backgroundColor: Theme.of(context).dividerColor,
-                      valueColor: AlwaysStoppedAnimation<Color>(kPrimary),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '${(p.progressRatio(maxRevenue) * 100).toStringAsFixed(0)}%',
-                  style: bodySmall?.copyWith(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 12),
-
-            // ── Rincian Layanan toggle ──────────────────────────────
-            GestureDetector(
-              onTap: () =>
-                  setState(() => _expanded[p.id] = !(_expanded[p.id] ?? false)),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.format_list_bulleted_rounded,
-                    color: kPrimary,
-                    size: 16,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Rincian Layanan (${p.layananCount.length})',
-                    style: TextStyle(
-                      color: kPrimary,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const Spacer(),
-                  Icon(
-                    isExpanded
-                        ? Icons.keyboard_arrow_up_rounded
-                        : Icons.keyboard_arrow_down_rounded,
-                    color: kPrimary,
-                    size: 20,
-                  ),
-                ],
-              ),
-            ),
-
-            // ── Layanan list (expandable) ───────────────────────────
-            if (isExpanded && p.layananCount.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              Divider(color: Theme.of(context).dividerColor, height: 1),
-              const SizedBox(height: 10),
-              // Sort by count desc
-              ...(p.layananCount.entries.toList()
-                    ..sort((a, b) => b.value.compareTo(a.value)))
-                  .map(
-                    (e) => Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 6,
-                            height: 6,
-                            decoration: BoxDecoration(
-                              color: kPrimary,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              e.key,
-                              style: bodySmall?.copyWith(fontSize: 12),
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: kPrimary.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              '${e.value}x',
-                              style: TextStyle(
-                                color: kPrimary,
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
+                // ── Layanan list ──────────────────────────────────────
+                if (isExpanded && p.layananCount.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Divider(color: Theme.of(context).dividerColor, height: 1),
+                  const SizedBox(height: 10),
+                  ...(p.layananCount.entries.toList()
+                        ..sort((a, b) => b.value.compareTo(a.value)))
+                      .map(
+                        (e) => Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 6,
+                                height: 6,
+                                decoration: BoxDecoration(
+                                  color: kPrimary,
+                                  shape: BoxShape.circle,
+                                ),
                               ),
-                            ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  e.key,
+                                  style: bodySmall?.copyWith(fontSize: 12),
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: kPrimary.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  '${e.value}x',
+                                  style: TextStyle(
+                                    color: kPrimary,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
+                        ),
                       ),
-                    ),
-                  ),
-            ],
-          ],
-        ),
+                ],
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1042,9 +1230,12 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
           bottomRight: Radius.circular(20),
         ),
         child: AppBar(
-          title: const Text(
-            'Kinerja Admin',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          title: Text(
+            _isOwner ? 'Kinerja Admin' : 'Kinerja Saya',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
           ),
           backgroundColor: kPrimary,
           foregroundColor: Colors.white,

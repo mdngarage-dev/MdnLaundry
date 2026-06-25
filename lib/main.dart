@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
-import 'screens/main_screens.dart';
+import 'package:mdnlaundry_project/screens/main_screens.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
 import 'package:mdnlaundry_project/components/notif_laundry.dart';

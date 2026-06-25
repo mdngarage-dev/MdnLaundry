@@ -3,7 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
-import '../main_screens.dart';
+import 'package:mdnlaundry_project/screens/main_screens.dart';
 
 class ProfilPage extends StatefulWidget {
   const ProfilPage({super.key});

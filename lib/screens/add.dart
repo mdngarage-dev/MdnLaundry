@@ -3512,18 +3512,26 @@ class _LayananPickerSheetState extends State<_LayananPickerSheet> {
                         fontSize: 13,
                       ),
                     ),
+
                     const SizedBox(height: 16),
-                    ElevatedButton.icon(
-                      onPressed: _showTambahLayananPopup,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Theme.of(context).primaryColor,
-                        foregroundColor: Colors.white,
-                      ),
-                      icon: const Icon(Icons.add),
-                      label: const Text(
-                        'Tambah Layanan',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
+                    FutureBuilder<bool>(
+                      future: canAccess('can_access_layanan'),
+                      builder: (context, snapshot) {
+                        if (!(snapshot.data ?? false))
+                          return const SizedBox.shrink();
+                        return ElevatedButton.icon(
+                          onPressed: _showTambahLayananPopup,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Theme.of(context).primaryColor,
+                            foregroundColor: Colors.white,
+                          ),
+                          icon: const Icon(Icons.add),
+                          label: const Text(
+                            'Tambah Layanan',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        );
+                      },
                     ),
                   ],
                 ),

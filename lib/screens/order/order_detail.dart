@@ -5,7 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:mdnlaundry_project/screens/settings/outlet/wa_settings.dart';
-import '../main_screens.dart';
+import 'package:mdnlaundry_project/screens/main_screens.dart';
 
 // ════════════════════════════════════════════════════════════════════════════
 //  ORDER DETAIL SCREEN

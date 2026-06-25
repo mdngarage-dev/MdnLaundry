@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../screens/main_screens.dart';
+import 'package:mdnlaundry_project/screens/main_screens.dart';
 
 class ButtonBawah extends StatelessWidget {
   final Map<String, dynamic>? resultData;

@@ -795,8 +795,10 @@ class _HomeScreenState extends State<HomeScreen>
                           onTap: () => Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) =>
-                                  NotifikasiScreen(storeId: widget.storeId),
+                              builder: (_) => NotifikasiScreen(
+                                storeId: widget.storeId,
+                                outletId: widget.outletId,
+                              ),
                             ),
                           ).then((_) => setState(() {})),
                           child: FutureBuilder<int>(

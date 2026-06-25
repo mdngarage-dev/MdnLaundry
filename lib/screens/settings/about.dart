@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../main_screens.dart';
+import 'package:mdnlaundry_project/screens/main_screens.dart';
 
 class TentangAplikasiPage extends StatelessWidget {
   const TentangAplikasiPage({super.key});

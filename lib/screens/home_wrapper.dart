@@ -5,8 +5,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:mdnlaundry_project/components/notif_laundry.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'main_screens.dart';
-import '../screens/outlet/outlet_management.dart';
-import '../screens/outlet/outlet_selector.dart';
+import 'package:mdnlaundry_project/screens/outlet/outlet_management.dart';
+import 'package:mdnlaundry_project/screens/outlet/outlet_selector.dart';
 
 class HomeWrapper extends StatefulWidget {
   const HomeWrapper({super.key});

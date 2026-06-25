@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 
-import '../../main_screens.dart';
+import 'package:mdnlaundry_project/screens/main_screens.dart';
 
 // ════════════════════════════════════════════════════════════════════════════
 //  RAK MONITORING SCREEN

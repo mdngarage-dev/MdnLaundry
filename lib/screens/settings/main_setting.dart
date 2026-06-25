@@ -4,7 +4,7 @@ import 'package:mdnlaundry_project/screens/settings/outlet/admin_activation.dart
 import 'package:onesignal_flutter/onesignal_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
-import '../main_screens.dart';
+import 'package:mdnlaundry_project/screens/main_screens.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/services.dart';

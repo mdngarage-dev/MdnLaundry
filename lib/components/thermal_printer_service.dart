@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
-import '../screens/main_screens.dart';
+import 'package:mdnlaundry_project/screens/main_screens.dart';
 import 'package:qr/qr.dart';
 import 'package:image/image.dart' as imgLib;
 

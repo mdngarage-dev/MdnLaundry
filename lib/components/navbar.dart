@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:curved_navigation_bar/curved_navigation_bar.dart';
-import '../screens/main_screens.dart';
+import 'package:mdnlaundry_project/screens/main_screens.dart';
 
 class CustomBottomNav extends StatefulWidget {
   final Function(int) onTap; // Fungsi kirim index ke luar

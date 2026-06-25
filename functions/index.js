@@ -398,3 +398,128 @@ exports.deleteAdmin = onCall(
     return { success: true };
   }
 );
+
+const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+
+// Auto-create trial subscription saat outlet baru dibuat
+exports.createTrialSubscription = onDocumentCreated(
+  {
+    document: "stores/{storeId}/outlets/{outletId}",
+    region: "asia-southeast1",
+  },
+  async (event) => {
+    const outletId = event.params.outletId;
+    const storeId = event.params.storeId;
+
+    try {
+      const now = new Date();
+      const trialEndDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // +7 hari
+
+      await admin
+        .firestore()
+        .collection("stores")
+        .doc(storeId)
+        .collection("outlets")
+        .doc(outletId)
+        .collection("subscription")
+        .doc("active")
+        .set({
+          status: "trial",
+          plan: "basic", // default ke basic saat trial
+          trial_start_date: admin.firestore.FieldValue.serverTimestamp(),
+          trial_end_date: admin.firestore.Timestamp.fromDate(trialEndDate),
+          subscription_start_date: null,
+          subscription_end_date: null,
+          last_payment_date: null,
+          next_payment_due: admin.firestore.Timestamp.fromDate(trialEndDate), // bayar sebelum trial habis
+          qris_reference: "",
+          notified_h3: false,
+          created_at: admin.firestore.FieldValue.serverTimestamp(),
+          updated_at: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+      console.log(
+        `✅ Trial subscription created for outlet ${outletId} in store ${storeId}`
+      );
+    } catch (err) {
+      console.error("❌ Error creating trial subscription:", err);
+    }
+  }
+);
+
+// Daily cron: check subscription expiry & send notifications
+exports.checkSubscriptionExpiry = onSchedule(
+  {
+    schedule: "0 9 * * *", // 9 AM setiap hari (WIB)
+    timeZone: "Asia/Jakarta",
+    region: "asia-southeast1",
+  },
+  async (event) => {
+    console.log("🔄 Checking subscription expiry...");
+
+    const db = admin.firestore();
+    const now = new Date();
+    const h3Later = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+
+    try {
+      // 1. Cari semua outlet yang subscription akan expired dalam 3 hari & belum notif
+      const expiringSnap = await db
+        .collectionGroup("subscription")
+        .where("status", "in", ["trial", "active"])
+        .where("next_payment_due", "<=", admin.firestore.Timestamp.fromDate(h3Later))
+        .where("notified_h3", "==", false)
+        .get();
+
+      console.log(`Found ${expiringSnap.size} subscriptions near expiry`);
+
+      const batch = db.batch();
+
+      for (const subDoc of expiringSnap.docs) {
+        const subData = subDoc.data();
+        const daysLeft = Math.ceil(
+          (subData.next_payment_due.toDate() - now) / (1000 * 60 * 60 * 24)
+        );
+
+        console.log(
+          `⚠️  Outlet ${subDoc.ref.parent.parent.id} expires in ${daysLeft} days`
+        );
+
+        // Mark as notified
+        batch.update(subDoc.ref, {
+          notified_h3: true,
+          updated_at: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        // TODO: Send notification ke owner (via FCM/email)
+      }
+
+      await batch.commit();
+      console.log("✅ Notified h-3 updated");
+
+      // 2. Cari semua yang SUDAH expired
+      const expiredSnap = await db
+        .collectionGroup("subscription")
+        .where("next_payment_due", "<", admin.firestore.Timestamp.fromDate(now))
+        .where("status", "==", "active")
+        .get();
+
+      console.log(`Found ${expiredSnap.size} expired subscriptions`);
+
+      const expiredBatch = db.batch();
+
+      for (const subDoc of expiredSnap.docs) {
+        expiredBatch.update(subDoc.ref, {
+          status: "expired",
+          updated_at: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        console.log(`🔴 Outlet ${subDoc.ref.parent.parent.id} set to expired`);
+      }
+
+      await expiredBatch.commit();
+      console.log("✅ Expired subscriptions marked");
+    } catch (err) {
+      console.error("❌ Error checking expiry:", err);
+    }
+  }
+);

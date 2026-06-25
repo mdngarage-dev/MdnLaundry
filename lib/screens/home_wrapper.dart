@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:mdnlaundry_project/components/notif_laundry.dart';
+import 'package:mdnlaundry_project/services/subscription_service.dart';
+import 'package:mdnlaundry_project/screens/subscription/payment_page.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'main_screens.dart';
 import 'package:mdnlaundry_project/screens/outlet/outlet_management.dart';
@@ -23,8 +25,10 @@ class _HomeWrapperState extends State<HomeWrapper> {
   String _ownerNoHp = '';
   bool _isLoading = true;
   bool _isOwner = false;
+  String _subscriptionStatus = 'unknown'; // unknown, active, trial, expired
   StreamSubscription? _userListener;
   StreamSubscription? _outletListener;
+  StreamSubscription? _subscriptionListener;
 
   @override
   void initState() {
@@ -37,6 +41,7 @@ class _HomeWrapperState extends State<HomeWrapper> {
   void dispose() {
     _userListener?.cancel();
     _outletListener?.cancel();
+    _subscriptionListener?.cancel();
     super.dispose();
   }
 
@@ -78,6 +83,23 @@ class _HomeWrapperState extends State<HomeWrapper> {
     } catch (e) {
       debugPrint('Gagal fetch no_hp outlet: $e');
     }
+  }
+
+  // ── Listen subscription status real-time ──────────────────────────────────
+  void _listenSubscriptionStatus(String storeId, String outletId) {
+    _subscriptionListener?.cancel();
+    _subscriptionListener =
+        SubscriptionService.subscriptionStream(
+          storeId: storeId,
+          outletId: outletId,
+        ).listen((snap) {
+          if (snap.exists && mounted) {
+            final data = snap.data() as Map<String, dynamic>;
+            setState(() {
+              _subscriptionStatus = data['status'] ?? 'unknown';
+            });
+          }
+        });
   }
 
   // ── Load store_id, role, dan current_outlet_id ───────────────────────────
@@ -131,7 +153,6 @@ class _HomeWrapperState extends State<HomeWrapper> {
             await PrinterSettingsService.load(storeId, outletId);
           }
 
-          // ── Set tag OneSignal untuk targeting notif ─────────────────────
           await NotifLaundryService().setUserTags(
             storeId: storeId,
             role: 'Owner',
@@ -147,6 +168,7 @@ class _HomeWrapperState extends State<HomeWrapper> {
               _isLoading = false;
             });
             _listenToOutlet(storeId, outletId);
+            _listenSubscriptionStatus(storeId, outletId);
           }
         } else {
           if (mounted) setState(() => _isLoading = false);
@@ -159,9 +181,9 @@ class _HomeWrapperState extends State<HomeWrapper> {
         await OutletSettingsService.load(storeId, currentOutletId);
         await PrinterSettingsService.load(storeId, currentOutletId);
         _listenToOutlet(storeId, currentOutletId);
+        _listenSubscriptionStatus(storeId, currentOutletId);
       }
 
-      // ── Set tag OneSignal untuk targeting notif ───────────────────────────
       if (storeId.isNotEmpty && currentOutletId.isNotEmpty) {
         await NotifLaundryService().setUserTags(
           storeId: storeId,
@@ -216,8 +238,8 @@ class _HomeWrapperState extends State<HomeWrapper> {
       await PrinterSettingsService.load(_storeId, outletId);
 
       _listenToOutlet(_storeId, outletId);
+      _listenSubscriptionStatus(_storeId, outletId);
 
-      // ── Update tag OneSignal current_outlet_id saat switch outlet ─────────
       await NotifLaundryService().setUserTags(
         storeId: _storeId,
         role: _isOwner ? 'Owner' : 'Admin',
@@ -530,6 +552,20 @@ class _HomeWrapperState extends State<HomeWrapper> {
             ),
           ),
         ),
+      );
+    }
+
+    // ── SUBSCRIPTION EXPIRED → Payment Page ────────────────────────────────
+    if (_subscriptionStatus == 'expired') {
+      return SubscriptionPaymentPage(
+        storeId: _storeId,
+        outletId: _currentOutletId,
+        outletName: _currentOutletName,
+        onPaymentSuccess: () {
+          setState(() {
+            _subscriptionStatus = 'active';
+          });
+        },
       );
     }
 

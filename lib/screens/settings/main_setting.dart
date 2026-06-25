@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:mdnlaundry_project/screens/settings/outlet/admin_activation.dart';
+import 'package:mdnlaundry_project/screens/subscription/subscription_dashboard.dart';
 import 'package:onesignal_flutter/onesignal_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
@@ -476,6 +477,23 @@ class _SettingScreenState extends State<SettingScreen> {
                             ),
                           ),
                         ),
+
+                        if (widget.isOwner)
+                          ListTile(
+                            leading: const Icon(Icons.subscriptions_rounded),
+                            title: const Text('Subscription Management'),
+                            subtitle: const Text('Kelola paket dan revenue'),
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => SubscriptionDashboard(
+                                    storeId: widget.storeId,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
                         // ── Kelola Admin (hanya tampil jika Owner) ── TAMBAH INI
                         if (widget.isOwner) ...[
                           _buildDivider(context),

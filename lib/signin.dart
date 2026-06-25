@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import 'package:mdnlaundry_project/screens/main_screens.dart';
 
 class SignInScreen extends StatefulWidget {
@@ -14,7 +14,6 @@ class _SignInScreenState extends State<SignInScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoggingIn = false;
-  bool _isGoogleLoading = false;
   bool _remember = true;
   bool _obscurePass = true;
 
@@ -24,7 +23,6 @@ class _SignInScreenState extends State<SignInScreen> {
     _loadSavedCredentials();
   }
 
-  // ── Load Data Simpanan ────────────────────────────────────────────────────
   Future<void> _loadSavedCredentials() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
@@ -34,7 +32,6 @@ class _SignInScreenState extends State<SignInScreen> {
     });
   }
 
-  // ── Simpan/Hapus Data ─────────────────────────────────────────────────────
   Future<void> _saveCredentials() async {
     final prefs = await SharedPreferences.getInstance();
     if (_remember) {
@@ -49,7 +46,6 @@ class _SignInScreenState extends State<SignInScreen> {
     }
   }
 
-  // ── Sign In Email & Password ──────────────────────────────────────────────
   Future<void> _handleSignIn() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
@@ -62,26 +58,23 @@ class _SignInScreenState extends State<SignInScreen> {
     setState(() => _isLoggingIn = true);
 
     try {
-      // 1. Login dulu
       UserCredential userCredential = await FirebaseAuth.instance
           .signInWithEmailAndPassword(email: email, password: password);
 
       User? user = userCredential.user;
 
       if (user != null) {
-        // 2. Reload dari server supaya emailVerified up-to-date
         await user.reload();
         user = FirebaseAuth.instance.currentUser;
 
         if (user != null && user.emailVerified) {
-          // ✅ TAMBAHAN BARU: cek isDeleted di Firestore
+          // Cek isDeleted
           final userDoc = await FirebaseFirestore.instance
               .collection('users')
               .doc(user.uid)
               .get();
 
           final isDeleted = userDoc.data()?['isDeleted'] ?? false;
-
           if (isDeleted == true) {
             await FirebaseAuth.instance.signOut();
             _showSnackBar(
@@ -90,12 +83,12 @@ class _SignInScreenState extends State<SignInScreen> {
             );
             return;
           }
-          // ✅ END TAMBAHAN
-          // ✅ Email sudah diverifikasi → boleh masuk
+
           await _saveCredentials();
           await saveLastActiveTime();
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString('auth_uid', user.uid);
+
           if (mounted) {
             Navigator.of(context).pushAndRemoveUntil(
               MaterialPageRoute(builder: (_) => const HomeWrapper()),
@@ -103,7 +96,6 @@ class _SignInScreenState extends State<SignInScreen> {
             );
           }
         } else {
-          // ❌ Belum verifikasi → tolak & sign out
           await FirebaseAuth.instance.signOut();
           _showSnackBar(
             "Email belum diverifikasi. Cek kotak masuk atau folder spam Anda.",
@@ -113,61 +105,15 @@ class _SignInScreenState extends State<SignInScreen> {
       }
     } on FirebaseAuthException catch (e) {
       String message = "Terjadi kesalahan";
-      if (e.code == 'user-not-found') {
-        message = "Email tidak terdaftar";
-      } else if (e.code == 'wrong-password') {
-        message = "Password salah";
-      } else if (e.code == 'invalid-email') {
-        message = "Format email salah";
-      } else if (e.code == 'invalid-credential') {
-        message = "Email atau password salah";
-      }
+      if (e.code == 'user-not-found') message = "Email tidak terdaftar";
+      if (e.code == 'wrong-password') message = "Password salah";
+      if (e.code == 'invalid-email') message = "Format email salah";
+      if (e.code == 'invalid-credential') message = "Email atau password salah";
       _showSnackBar(message, isError: true);
     } catch (e) {
       _showSnackBar("Login Gagal: ${e.toString()}", isError: true);
     } finally {
       if (mounted) setState(() => _isLoggingIn = false);
-    }
-  }
-
-  // ── Sign In dengan Google ─────────────────────────────────────────────────
-  Future<void> _handleGoogleSignIn() async {
-    setState(() => _isGoogleLoading = true);
-
-    try {
-      final GoogleSignIn googleSignIn = GoogleSignIn();
-      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
-
-      // User cancel popup Google
-      if (googleUser == null) {
-        setState(() => _isGoogleLoading = false);
-        return;
-      }
-
-      final GoogleSignInAuthentication googleAuth =
-          await googleUser.authentication;
-
-      final credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
-
-      await FirebaseAuth.instance.signInWithCredential(credential);
-      await saveLastActiveTime();
-      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('auth_uid', uid);
-
-      if (mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const HomeWrapper()),
-          (route) => false,
-        );
-      }
-    } catch (e) {
-      _showSnackBar("Google Login Gagal: ${e.toString()}", isError: true);
-    } finally {
-      if (mounted) setState(() => _isGoogleLoading = false);
     }
   }
 
@@ -217,7 +163,6 @@ class _SignInScreenState extends State<SignInScreen> {
                   fit: BoxFit.contain,
                 ),
               ),
-
               const SizedBox(height: 28),
 
               Text(
@@ -228,11 +173,8 @@ class _SignInScreenState extends State<SignInScreen> {
                   fontSize: 28,
                   fontWeight: FontWeight.bold,
                 ),
-                textAlign: TextAlign.center,
               ),
-
               const SizedBox(height: 6),
-
               Text(
                 "Sign in to continue your work.",
                 style: TextStyle(
@@ -241,12 +183,9 @@ class _SignInScreenState extends State<SignInScreen> {
                   fontSize: 14,
                   fontWeight: FontWeight.bold,
                 ),
-                textAlign: TextAlign.center,
               ),
-
               const SizedBox(height: 28),
 
-              // ── Card Form ─────────────────────────────────────────────────
               Container(
                 decoration: BoxDecoration(
                   color: Theme.of(context).cardColor,
@@ -295,6 +234,7 @@ class _SignInScreenState extends State<SignInScreen> {
                       ),
                     ),
                     const SizedBox(height: 6),
+
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -334,7 +274,6 @@ class _SignInScreenState extends State<SignInScreen> {
                     ),
                     const SizedBox(height: 16),
 
-                    // ── Tombol Sign In ────────────────────────────────────
                     SizedBox(
                       width: double.infinity,
                       height: 52,
@@ -351,96 +290,6 @@ class _SignInScreenState extends State<SignInScreen> {
                                 ),
                               )
                             : const Text('Sign In'),
-                      ),
-                    ),
-
-                    const SizedBox(height: 20),
-
-                    // ── Divider "atau" ────────────────────────────────────
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Divider(
-                            color: Theme.of(context).dividerColor,
-                            thickness: 1,
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          child: Text(
-                            'atau',
-                            style: TextStyle(
-                              color: Theme.of(context).hintColor,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
-                        Expanded(
-                          child: Divider(
-                            color: Theme.of(context).dividerColor,
-                            thickness: 1,
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 16),
-
-                    // ── Tombol Google Login ───────────────────────────────
-                    SizedBox(
-                      width: double.infinity,
-                      height: 52,
-                      child: OutlinedButton(
-                        onPressed: _isGoogleLoading
-                            ? null
-                            : _handleGoogleSignIn,
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(
-                            color: isDark
-                                ? Colors.white24
-                                : const Color(0xFFE5E7EB),
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(30),
-                          ),
-                          backgroundColor: isDark
-                              ? Colors.white.withOpacity(0.05)
-                              : Colors.white,
-                        ),
-                        child: _isGoogleLoading
-                            ? SizedBox(
-                                width: 22,
-                                height: 22,
-                                child: CircularProgressIndicator(
-                                  color: Theme.of(context).primaryColor,
-                                  strokeWidth: 2.5,
-                                ),
-                              )
-                            : Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  // Logo Google pakai teks berwarna
-                                  const Text(
-                                    'G',
-                                    style: TextStyle(
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF4285F4),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Text(
-                                    'Lanjut dengan Google',
-                                    style: TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w600,
-                                      color: Theme.of(
-                                        context,
-                                      ).textTheme.bodyLarge?.color,
-                                    ),
-                                  ),
-                                ],
-                              ),
                       ),
                     ),
                   ],

@@ -67,14 +67,19 @@ class _SignInScreenState extends State<SignInScreen> {
         await user.reload();
         user = FirebaseAuth.instance.currentUser;
 
-        if (user != null && user.emailVerified) {
-          // Cek isDeleted
+        if (user != null) {
+          // Get user data dari Firestore
           final userDoc = await FirebaseFirestore.instance
               .collection('users')
               .doc(user.uid)
               .get();
 
-          final isDeleted = userDoc.data()?['isDeleted'] ?? false;
+          final userData = userDoc.data() ?? {};
+          final isDeleted = userData['isDeleted'] ?? false;
+          final isAppOwner = userData['is_app_owner'] ?? false;
+          final role = userData['role'] ?? '';
+
+          // Cek apakah akun sudah di-delete
           if (isDeleted == true) {
             await FirebaseAuth.instance.signOut();
             _showSnackBar(
@@ -84,6 +89,33 @@ class _SignInScreenState extends State<SignInScreen> {
             return;
           }
 
+          // ── DEVELOPER (is_app_owner = true) → Skip email verification ──
+          if (isAppOwner || role == 'Developer') {
+            await _saveCredentials();
+            await saveLastActiveTime();
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString('auth_uid', user.uid);
+
+            if (mounted) {
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const HomeWrapper()),
+                (route) => false,
+              );
+            }
+            return;
+          }
+
+          // ── OWNER & ADMIN → Enforce email verification ──────────────────
+          if (!user.emailVerified) {
+            await FirebaseAuth.instance.signOut();
+            _showSnackBar(
+              "Email belum diverifikasi. Cek kotak masuk atau folder spam Anda.",
+              isError: true,
+            );
+            return;
+          }
+
+          // Email verified → proceed to home
           await _saveCredentials();
           await saveLastActiveTime();
           final prefs = await SharedPreferences.getInstance();
@@ -95,12 +127,6 @@ class _SignInScreenState extends State<SignInScreen> {
               (route) => false,
             );
           }
-        } else {
-          await FirebaseAuth.instance.signOut();
-          _showSnackBar(
-            "Email belum diverifikasi. Cek kotak masuk atau folder spam Anda.",
-            isError: true,
-          );
         }
       }
     } on FirebaseAuthException catch (e) {

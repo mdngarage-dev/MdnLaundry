@@ -117,12 +117,30 @@ class _HomeWrapperState extends State<HomeWrapper> {
           .get();
 
       final data = doc.data() ?? {};
-      final storeId = data['store_id'] ?? '';
       final role = data['role'] ?? '';
+      final isAppOwner = data['is_app_owner'] ?? false;
+      final storeId = data['store_id'] ?? '';
       final currentOutletId = data['current_outlet_id'] ?? '';
       final isActivated = data['is_activated'] ?? false;
 
-      // Admin belum diaktivasi → tampilkan halaman tunggu
+      if (isAppOwner || role == 'Developer') {
+        if (mounted) {
+          Navigator.of(
+            context,
+          ).pushNamedAndRemoveUntil('/developer-dashboard', (route) => false);
+        }
+        return;
+      }
+
+      // ✅ Set tags lebih awal — sebelum return apapun
+      if (storeId.isNotEmpty && currentOutletId.isNotEmpty && role.isNotEmpty) {
+        await NotifLaundryService().setUserTags(
+          storeId: storeId,
+          role: role == 'Owner' ? 'Owner' : 'Admin',
+          currentOutletId: currentOutletId,
+        );
+      }
+
       if (role == 'Admin' && !isActivated) {
         if (storeId.isNotEmpty) await _fetchOwnerNoHp(storeId);
         if (mounted) setState(() => _isLoading = false);

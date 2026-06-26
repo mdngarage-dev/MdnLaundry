@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:mdnlaundry_project/components/theme.dart';
 import 'package:mdnlaundry_project/services/subscription_service.dart';
 import 'package:mdnlaundry_project/services/payment_service.dart';
 
@@ -16,18 +17,64 @@ class SubscriptionDashboard extends StatefulWidget {
 class _SubscriptionDashboardState extends State<SubscriptionDashboard> {
   @override
   Widget build(BuildContext context) {
+    final appBarColor =
+        Theme.of(context).appBarTheme.backgroundColor ?? kPrimary;
+
     return DefaultTabController(
       length: 2,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Subscription Management'),
+          title: const Text(
+            'Subscription Management',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
           centerTitle: true,
-          elevation: 2,
-          bottom: const TabBar(
-            tabs: [
-              Tab(icon: Icon(Icons.store_outlined), text: 'Outlet'),
-              Tab(icon: Icon(Icons.history_rounded), text: 'Revenue'),
-            ],
+          backgroundColor: appBarColor,
+          foregroundColor: Colors.white,
+          elevation: 0,
+          iconTheme: const IconThemeData(color: Colors.white),
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.only(
+              bottomLeft: Radius.circular(20),
+              bottomRight: Radius.circular(20),
+            ),
+          ),
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(56),
+            child: Container(
+              decoration: const BoxDecoration(color: Colors.transparent),
+              child: TabBar(
+                indicator: BoxDecoration(
+                  color: Colors.white.withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                indicatorSize: TabBarIndicatorSize.tab,
+                indicatorPadding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 6,
+                ),
+                dividerColor: Colors.transparent,
+                labelColor: Colors.white,
+                unselectedLabelColor: Colors.white60,
+                labelStyle: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
+                labelPadding: const EdgeInsets.symmetric(vertical: 6),
+                tabs: const [
+                  Tab(
+                    height: 48,
+                    icon: Icon(Icons.store_outlined, size: 20),
+                    text: 'Outlet',
+                  ),
+                  Tab(
+                    height: 48,
+                    icon: Icon(Icons.history_rounded, size: 20),
+                    text: 'Revenue',
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
         body: TabBarView(

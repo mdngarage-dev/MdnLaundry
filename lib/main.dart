@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
+import 'package:mdnlaundry_project/developer/developer_dashboard.dart';
 import 'package:mdnlaundry_project/screens/main_screens.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
@@ -105,6 +106,7 @@ class MadeenalaundryApp extends StatelessWidget {
           '/home': (context) => const HomeWrapper(),
           '/profile': (context) => const ProfileScreen(),
           '/notifikasi': (context) => const NotifikasiScreen(),
+          '/developer-dashboard': (context) => const DeveloperDashboard(),
         },
       ),
     );

@@ -393,7 +393,7 @@ class _ProfilPageState extends State<ProfilPage> {
                       isPassword: true,
                     ),
 
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 15),
 
                     SizedBox(
                       width: double.infinity,
@@ -417,6 +417,37 @@ class _ProfilPageState extends State<ProfilPage> {
                       ),
                     ),
 
+                    const SizedBox(height: 15),
+
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          // ✅ Ganti onTap → onPressed
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const GantiPasswordPage(),
+                            ),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: kPrimary,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: const Text(
+                          "UBAH PASSWORD",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                    ),
                     const SizedBox(height: 12),
 
                     SizedBox(

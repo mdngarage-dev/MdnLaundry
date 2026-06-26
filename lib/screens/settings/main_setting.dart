@@ -478,22 +478,34 @@ class _SettingScreenState extends State<SettingScreen> {
                           ),
                         ),
 
-                        if (widget.isOwner)
-                          ListTile(
-                            leading: const Icon(Icons.subscriptions_rounded),
-                            title: const Text('Subscription Management'),
-                            subtitle: const Text('Kelola paket dan revenue'),
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => SubscriptionDashboard(
-                                    storeId: widget.storeId,
+                        if (widget.isOwner) ...[
+                          _buildDivider(context),
+                          FutureBuilder<bool>(
+                            future: _isAppOwner(),
+                            builder: (context, snapshot) {
+                              // Jika Developer (is_app_owner = true), hide menu ini
+                              if (snapshot.hasData && snapshot.data == true) {
+                                return const SizedBox.shrink();
+                              }
+
+                              return _buildGroupedMenuItem(
+                                context: context,
+                                icon: Icons.subscriptions_rounded,
+                                title: "Subscription Management",
+                                subtitle: "Kelola paket dan revenue",
+                                onTap: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => SubscriptionDashboard(
+                                      storeId: widget.storeId,
+                                    ),
                                   ),
                                 ),
                               );
                             },
                           ),
+                        ],
+
                         // ── Kelola Admin (hanya tampil jika Owner) ── TAMBAH INI
                         if (widget.isOwner) ...[
                           _buildDivider(context),
@@ -513,22 +525,6 @@ class _SettingScreenState extends State<SettingScreen> {
                             ),
                           ),
                         ],
-                        // ── Ganti Password ─────────────────────────────────
-                        _buildDivider(context),
-                        _buildGroupedMenuItem(
-                          context: context,
-                          icon: Icons.lock_outline,
-                          title: "Ganti Password",
-                          subtitle: "Perbarui kata sandi secara berkala",
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => const GantiPasswordPage(),
-                              ),
-                            );
-                          },
-                        ),
 
                         // ── Mode Warna ─────────────────────────────────────
                         _buildDivider(context),
@@ -811,6 +807,22 @@ class _SettingScreenState extends State<SettingScreen> {
     final parts = displayName.split('|');
     if (parts.length < 3) return false;
     return parts[2].trim() == 'Owner';
+  }
+
+  Future<bool> _isAppOwner() async {
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) return false;
+
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
+
+      return doc.data()?['is_app_owner'] ?? false;
+    } catch (e) {
+      return false;
+    }
   }
 }
 

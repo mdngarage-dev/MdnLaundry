@@ -6,24 +6,20 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:mdnlaundry_project/screens/notifikasi.dart';
 import 'package:mdnlaundry_project/screens/main_screens.dart';
 
-// ─── Navigator key global (tetap sama) ───────────────────────────────────────
+// ─── Navigator key global ─────────────────────────────────────────────────────
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 // ─── Konstanta OneSignal ──────────────────────────────────────────────────────
 const _oneSignalAppId = '54e65963-bfc8-40ad-aef9-cb1d7303590e';
 
-// ─── Tag identifikasi untuk targeting notif per outlet/toko ──────────────────
-// Tag yang sebenarnya (store_id, role, current_outlet_id) di-SET dari
-// HomeWrapper — setelah data user (storeId, role, currentOutletId) berhasil
-// dimuat dari Firestore. Di sini TIDAK di-set apapun karena saat OneSignal
-// init, user belum tentu sudah login / datanya belum tersedia.
-
 // ─── Service utama ────────────────────────────────────────────────────────────
 class NotifLaundryService {
-  // Singleton — pastikan hanya ada 1 instance
   static final NotifLaundryService _instance = NotifLaundryService._internal();
   factory NotifLaundryService() => _instance;
   NotifLaundryService._internal();
+
+  // Track apakah OneSignal sudah siap
+  bool _isInitialized = false;
 
   Future<void> inisialisasiNotifikasi() async {
     debugPrint("▶ Inisialisasi notifikasi OneSignal Laundry...");
@@ -35,15 +31,21 @@ class NotifLaundryService {
       // ── 2. Minta izin notifikasi ──────────────────────────────────────────
       await OneSignal.Notifications.requestPermission(true);
 
-      // ── 3. Log Player ID untuk debug ──────────────────────────────────────
+      // ── 3. Tunggu sampai subscription aktif ──────────────────────────────
+      // Ini penting! Kalau langsung set tags sebelum subscription ready,
+      // tags bisa parsial atau tidak tersimpan sama sekali
+      await _waitForSubscription();
+
+      // ── 4. Log Player ID untuk debug ──────────────────────────────────────
       final playerId = OneSignal.User.pushSubscription.id;
       debugPrint("📱 OneSignal Player ID: $playerId");
 
-      // ── 4. Handler saat notif diterima (foreground) ───────────────────────
+      _isInitialized = true;
+
+      // ── 5. Handler saat notif diterima (foreground) ───────────────────────
       OneSignal.Notifications.addForegroundWillDisplayListener((event) async {
         debugPrint("📨 OneSignal Foreground: ${event.notification.title}");
 
-        // Simpan ke history
         try {
           await _simpanKeHistory(
             id: event.notification.notificationId,
@@ -54,15 +56,11 @@ class NotifLaundryService {
           debugPrint("⚠ Simpan error: $e");
         }
 
-        // Tampilkan notif di foreground (default OneSignal tidak tampil)
         event.preventDefault();
         event.notification.display();
       });
 
-      // ── 5. Handler saat user tap notif ────────────────────────────────────
-      // Digabung jadi 1 listener: simpan ke history dulu, baru navigasi.
-      // (Sebelumnya ada 2 addClickListener terpisah untuk event yang sama —
-      // digabung supaya urutannya pasti dan tidak ada race condition.)
+      // ── 6. Handler saat user tap notif ────────────────────────────────────
       OneSignal.Notifications.addClickListener((event) async {
         debugPrint("🔔 Tap notif: ${event.notification.title}");
 
@@ -79,37 +77,146 @@ class NotifLaundryService {
         await _navigateToNotifikasi();
       });
 
-      // ── 6. (dihapus — sudah digabung ke listener nomor 5 di atas) ──────────
-
       debugPrint("✅ OneSignal berhasil diinisialisasi");
     } catch (e, stack) {
       debugPrint("⚠ OneSignal error: $e\n$stack");
     }
   }
 
-  // ── Set tag untuk targeting notif (dipanggil dari HomeWrapper) ─────────────
-  // Dipanggil setiap kali storeId / role / currentOutletId berubah atau
-  // berhasil dimuat (saat login, saat ganti outlet, dsb).
+  // ── Tunggu sampai OneSignal subscription aktif ──────────────────────────────
+  Future<void> _waitForSubscription({int maxRetries = 10}) async {
+    for (int i = 0; i < maxRetries; i++) {
+      final id = OneSignal.User.pushSubscription.id;
+      if (id != null && id.isNotEmpty) {
+        debugPrint("✅ OneSignal subscription aktif: $id");
+        return;
+      }
+      debugPrint("⏳ Menunggu OneSignal subscription... (${i + 1}/$maxRetries)");
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+    debugPrint("⚠ OneSignal subscription timeout, lanjut tanpa menunggu");
+  }
+
+  // ── Set tag untuk targeting notif ──────────────────────────────────────────
+  // PENTING: Selalu set KETIGA tag sekaligus (store_id, role, current_outlet_id)
+  // Jangan set satu per satu karena bisa menyebabkan state tidak konsisten
   Future<void> setUserTags({
     required String storeId,
-    required String role, // 'Owner' atau 'Admin'
+    required String role,
     required String currentOutletId,
   }) async {
-    try {
-      await OneSignal.User.addTags({
-        'store_id': storeId,
-        'role': role,
-        'current_outlet_id': currentOutletId,
-      });
+    // Validasi — jangan set tags kosong
+    if (storeId.isEmpty || role.isEmpty || currentOutletId.isEmpty) {
       debugPrint(
-        '✅ OneSignal tags diset: store_id=$storeId, role=$role, current_outlet_id=$currentOutletId',
+        '⚠ setUserTags diabaikan: ada field kosong '
+        '(storeId=$storeId, role=$role, outletId=$currentOutletId)',
       );
+      return;
+    }
+
+    // Jika OneSignal belum initialized, tunggu dulu
+    if (!_isInitialized) {
+      debugPrint('⏳ OneSignal belum siap, tunggu 1 detik...');
+      await Future.delayed(const Duration(seconds: 1));
+    }
+
+    // Retry mechanism: coba set tags sampai 3x
+    for (int attempt = 1; attempt <= 3; attempt++) {
+      try {
+        // Set semua 3 tags sekaligus dalam 1 call
+        await OneSignal.User.addTags({
+          'store_id': storeId,
+          'role': role,
+          'current_outlet_id': currentOutletId,
+        });
+
+        // Verify tags benar-benar tersimpan
+        await Future.delayed(const Duration(milliseconds: 300));
+        final savedTags = await OneSignal.User.getTags();
+
+        final savedStoreId = savedTags['store_id'] ?? '';
+        final savedRole = savedTags['role'] ?? '';
+        final savedOutletId = savedTags['current_outlet_id'] ?? '';
+
+        if (savedStoreId == storeId &&
+            savedRole == role &&
+            savedOutletId == currentOutletId) {
+          debugPrint('✅ OneSignal tags berhasil di-set & verified:');
+          debugPrint('   store_id=$storeId');
+          debugPrint('   role=$role');
+          debugPrint('   current_outlet_id=$currentOutletId');
+          return; // Sukses, keluar dari loop
+        } else {
+          debugPrint('⚠ Tags tidak match setelah set (attempt $attempt):');
+          debugPrint(
+            '   Expected: store=$storeId, role=$role, outlet=$currentOutletId',
+          );
+          debugPrint(
+            '   Got:      store=$savedStoreId, role=$savedRole, outlet=$savedOutletId',
+          );
+
+          if (attempt < 3) {
+            await Future.delayed(const Duration(milliseconds: 500));
+          }
+        }
+      } catch (e) {
+        debugPrint('⚠ Gagal set OneSignal tags (attempt $attempt): $e');
+        if (attempt < 3) {
+          await Future.delayed(const Duration(milliseconds: 500));
+        }
+      }
+    }
+
+    debugPrint('❌ Gagal set OneSignal tags setelah 3 attempt');
+  }
+
+  // ── Verify & refresh tags (dipanggil setiap kali app resume) ───────────────
+  Future<void> verifyAndRefreshTags({
+    required String storeId,
+    required String role,
+    required String currentOutletId,
+  }) async {
+    if (storeId.isEmpty || role.isEmpty || currentOutletId.isEmpty) return;
+
+    try {
+      final currentTags = await OneSignal.User.getTags();
+
+      final currentStoreId = currentTags['store_id'] ?? '';
+      final currentRole = currentTags['role'] ?? '';
+      final currentOutlet = currentTags['current_outlet_id'] ?? '';
+
+      final isSync =
+          currentStoreId == storeId &&
+          currentRole == role &&
+          currentOutlet == currentOutletId;
+
+      if (!isSync) {
+        debugPrint('⚠ OneSignal tags tidak sinkron, re-set...');
+        debugPrint(
+          '  Expected: store=$storeId, role=$role, outlet=$currentOutletId',
+        );
+        debugPrint(
+          '  Current:  store=$currentStoreId, role=$currentRole, outlet=$currentOutlet',
+        );
+        await setUserTags(
+          storeId: storeId,
+          role: role,
+          currentOutletId: currentOutletId,
+        );
+      } else {
+        debugPrint('✅ OneSignal tags sudah sinkron');
+      }
     } catch (e) {
-      debugPrint('⚠ Gagal set OneSignal tags: $e');
+      debugPrint('⚠ Gagal verify tags, langsung re-set: $e');
+      await setUserTags(
+        storeId: storeId,
+        role: role,
+        currentOutletId: currentOutletId,
+      );
     }
   }
 
-  // ── Hapus semua tag targeting (dipanggil saat logout) ───────────────────────
+  // ── Hapus semua tag targeting (saat logout) ─────────────────────────────────
   Future<void> clearUserTags() async {
     try {
       await OneSignal.User.removeTags([
@@ -123,7 +230,7 @@ class NotifLaundryService {
     }
   }
 
-  // ── Simpan notif ke SharedPreferences ──────────────────────────────────────
+  // ── Simpan notif ke history ─────────────────────────────────────────────────
   Future<void> _simpanKeHistory({
     required String id,
     required String judul,
@@ -141,9 +248,6 @@ class NotifLaundryService {
   }
 
   // ── Navigasi ke halaman notifikasi ─────────────────────────────────────────
-  // Diubah jadi async: fetch storeId & current_outlet_id user dari Firestore
-  // dulu, supaya NotifikasiScreen (dan OrderScreen yang dibuka dari situ saat
-  // tap card order) punya storeId/outletId yang benar — bukan string kosong.
   Future<void> _navigateToNotifikasi() async {
     String storeId = '';
     String outletId = '';

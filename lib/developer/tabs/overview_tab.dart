@@ -1,3 +1,5 @@
+// ── overview_tab.dart ────────────────────────────────────────────────────────
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -5,13 +7,31 @@ import 'package:intl/intl.dart';
 class OverviewTab extends StatelessWidget {
   const OverviewTab({super.key});
 
+  // ── Helper: parse Timestamp atau String ke DateTime ──────────────────────
+  static DateTime? _parseDate(dynamic value) {
+    if (value == null) return null;
+    if (value is Timestamp) return value.toDate();
+    if (value is String && value.isNotEmpty) {
+      try {
+        return DateTime.parse(value);
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<Map<String, dynamic>>(
       future: _getGlobalStats(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
+        }
+
+        if (!snapshot.hasData) {
+          return const Center(child: Text('Gagal load data'));
         }
 
         final stats = snapshot.data!;
@@ -21,6 +41,7 @@ class OverviewTab extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // ── Total Revenue ────────────────────────────────────────────
               _buildStatCard(
                 context: context,
                 title: 'Total Revenue',
@@ -33,24 +54,34 @@ class OverviewTab extends StatelessWidget {
                 color: Colors.green,
               ),
               const SizedBox(height: 12),
+
+              // ── Stats Row ────────────────────────────────────────────────
               Row(
                 children: [
                   Expanded(
                     child: _buildSmallStatCard(
-                      title: 'Total Stores',
+                      title: 'Stores',
                       value: (stats['total_stores'] ?? 0).toString(),
                       color: Colors.blue,
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: _buildSmallStatCard(
-                      title: 'Active Subscriptions',
+                      title: 'Outlets',
+                      value: (stats['total_outlets'] ?? 0).toString(),
+                      color: Colors.purple,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _buildSmallStatCard(
+                      title: 'Active',
                       value: (stats['active_subscriptions'] ?? 0).toString(),
                       color: Colors.green,
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: _buildSmallStatCard(
                       title: 'Expired',
@@ -61,42 +92,118 @@ class OverviewTab extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 20),
+
+              // ── Monthly Revenue ──────────────────────────────────────────
               Text(
-                'Monthly Revenue (Last 6 Months)',
+                'Revenue per Bulan (6 Bulan Terakhir)',
                 style: Theme.of(
                   context,
                 ).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).cardColor,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: Theme.of(context).dividerColor.withOpacity(0.5),
-                  ),
-                ),
-                child: SizedBox(
-                  height: 200,
-                  child: FutureBuilder<List<Map<String, dynamic>>>(
-                    future: _getMonthlyRevenue(),
-                    builder: (context, snapshot) {
-                      if (!snapshot.hasData) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-                      final data = snapshot.data!;
-                      // TODO: Implement chart using fl_chart
-                      return Center(
-                        child: Text('Chart: ${data.length} months data'),
-                      );
-                    },
-                  ),
-                ),
+              FutureBuilder<List<Map<String, dynamic>>>(
+                future: _getMonthlyRevenue(),
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final data = snapshot.data!;
+
+                  if (data.isEmpty) {
+                    return Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).cardColor,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Center(
+                        child: Text(
+                          'Belum ada data revenue',
+                          style: TextStyle(color: Colors.grey.shade500),
+                        ),
+                      ),
+                    );
+                  }
+
+                  // ── Simple Bar Chart tanpa library ──────────────────────
+                  final maxRevenue = data
+                      .map((e) => e['revenue'] as int)
+                      .reduce((a, b) => a > b ? a : b);
+
+                  return Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).cardColor,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Theme.of(context).dividerColor.withOpacity(0.5),
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        SizedBox(
+                          height: 160,
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: data.map((item) {
+                              final revenue = item['revenue'] as int;
+                              final month = item['month'] as String;
+                              final heightRatio = maxRevenue > 0
+                                  ? revenue / maxRevenue
+                                  : 0.0;
+                              final monthLabel = month
+                                  .split('-')
+                                  .last; // ambil bulan saja
+
+                              return Expanded(
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 4,
+                                  ),
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      Text(
+                                        NumberFormat.compact(
+                                          locale: 'id',
+                                        ).format(revenue),
+                                        style: const TextStyle(fontSize: 9),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Container(
+                                        height: 120 * heightRatio,
+                                        decoration: BoxDecoration(
+                                          color: Theme.of(
+                                            context,
+                                          ).primaryColor.withOpacity(0.7),
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        _monthName(monthLabel),
+                                        style: const TextStyle(fontSize: 9),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
               ),
               const SizedBox(height: 20),
+
+              // ── Latest Transactions ──────────────────────────────────────
               Text(
-                'Latest Transactions',
+                'Transaksi Terbaru',
                 style: Theme.of(
                   context,
                 ).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
@@ -108,6 +215,26 @@ class OverviewTab extends StatelessWidget {
         );
       },
     );
+  }
+
+  String _monthName(String monthNum) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'Mei',
+      'Jun',
+      'Jul',
+      'Agu',
+      'Sep',
+      'Okt',
+      'Nov',
+      'Des',
+    ];
+    final idx = int.tryParse(monthNum);
+    if (idx == null || idx < 1 || idx > 12) return monthNum;
+    return months[idx - 1];
   }
 
   Widget _buildStatCard({
@@ -149,8 +276,8 @@ class OverviewTab extends StatelessWidget {
                 Text(
                   value,
                   style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 20,
                     color: color,
                   ),
                 ),
@@ -168,7 +295,7 @@ class OverviewTab extends StatelessWidget {
     required Color color,
   }) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(12),
@@ -179,15 +306,15 @@ class OverviewTab extends StatelessWidget {
           Text(
             value,
             style: TextStyle(
-              fontWeight: FontWeight.w600,
-              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              fontSize: 20,
               color: color,
             ),
           ),
           const SizedBox(height: 4),
           Text(
             title,
-            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+            style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
             textAlign: TextAlign.center,
           ),
         ],
@@ -199,11 +326,11 @@ class OverviewTab extends StatelessWidget {
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: _getLatestTransactions(limit: 5),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        final transactions = snapshot.data!;
+        final transactions = snapshot.data ?? [];
 
         if (transactions.isEmpty) {
           return Container(
@@ -214,7 +341,7 @@ class OverviewTab extends StatelessWidget {
             ),
             child: Center(
               child: Text(
-                'Tidak ada transaksi',
+                'Belum ada transaksi',
                 style: TextStyle(color: Colors.grey.shade500),
               ),
             ),
@@ -223,30 +350,59 @@ class OverviewTab extends StatelessWidget {
 
         return Column(
           children: transactions.map((tx) {
+            // ── Fix: pakai 'settlement' bukan 'completed' ─────────────────
+            final isSettled = tx['status'] == 'settlement';
+            final createdAt = tx['created_at_date'] as DateTime?;
+
             return Card(
               margin: const EdgeInsets.only(bottom: 8),
               child: ListTile(
-                leading: Icon(
-                  tx['status'] == 'completed'
-                      ? Icons.check_circle
-                      : Icons.schedule,
-                  color: tx['status'] == 'completed'
-                      ? Colors.green
-                      : Colors.orange,
+                leading: CircleAvatar(
+                  backgroundColor: isSettled
+                      ? Colors.green.withOpacity(0.1)
+                      : Colors.orange.withOpacity(0.1),
+                  child: Icon(
+                    isSettled
+                        ? Icons.check_circle_rounded
+                        : Icons.schedule_rounded,
+                    color: isSettled ? Colors.green : Colors.orange,
+                    size: 20,
+                  ),
                 ),
-                title: Text('${tx['store_name']} - ${tx['outlet_name']}'),
-                subtitle: Text(
-                  DateFormat(
-                    'dd MMM yyyy HH:mm',
-                  ).format(DateTime.parse(tx['created_at'] as String)),
+                title: Text(
+                  '${tx['store_name']} • ${tx['outlet_name']}',
+                  style: const TextStyle(fontSize: 13),
                 ),
-                trailing: Text(
-                  NumberFormat.currency(
-                    locale: 'id_ID',
-                    symbol: 'Rp ',
-                    decimalDigits: 0,
-                  ).format(tx['amount'] ?? 0),
-                  style: const TextStyle(fontWeight: FontWeight.w600),
+                subtitle: createdAt != null
+                    ? Text(
+                        DateFormat('dd MMM yyyy HH:mm').format(createdAt),
+                        style: const TextStyle(fontSize: 11),
+                      )
+                    : null,
+                trailing: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      NumberFormat.currency(
+                        locale: 'id_ID',
+                        symbol: 'Rp ',
+                        decimalDigits: 0,
+                      ).format(tx['amount'] ?? 0),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                        color: isSettled ? Colors.green : Colors.orange,
+                      ),
+                    ),
+                    Text(
+                      isSettled ? 'LUNAS' : 'PENDING',
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: isSettled ? Colors.green : Colors.orange,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             );
@@ -260,11 +416,11 @@ class OverviewTab extends StatelessWidget {
     try {
       final db = FirebaseFirestore.instance;
       final storesSnap = await db.collection('stores').get();
-      final storeCount = storesSnap.size;
 
       int totalRevenue = 0;
       int activeSubCount = 0;
       int expiredSubCount = 0;
+      int trialSubCount = 0;
       int outletCount = 0;
 
       for (final storeDoc in storesSnap.docs) {
@@ -290,13 +446,15 @@ class OverviewTab extends StatelessWidget {
             final status = subSnap.data()!['status'] ?? 'unknown';
             if (status == 'active') activeSubCount++;
             if (status == 'expired') expiredSubCount++;
+            if (status == 'trial') trialSubCount++;
           }
         }
       }
 
+      // ── Fix: pakai 'settlement' bukan 'completed' ─────────────────────
       final paymentsSnap = await db
           .collectionGroup('payment_history')
-          .where('status', isEqualTo: 'completed')
+          .where('status', isEqualTo: 'settlement')
           .get();
 
       for (final paymentDoc in paymentsSnap.docs) {
@@ -304,11 +462,12 @@ class OverviewTab extends StatelessWidget {
       }
 
       return {
-        'total_stores': storeCount,
+        'total_stores': storesSnap.size,
         'total_outlets': outletCount,
         'total_revenue': totalRevenue,
         'active_subscriptions': activeSubCount,
         'expired_subscriptions': expiredSubCount,
+        'trial_subscriptions': trialSubCount,
       };
     } catch (e) {
       debugPrint('Error getting global stats: $e');
@@ -321,16 +480,21 @@ class OverviewTab extends StatelessWidget {
       final db = FirebaseFirestore.instance;
       final monthlyData = <String, int>{};
 
+      // Ambil 6 bulan terakhir
+      final sixMonthsAgo = DateTime.now().subtract(const Duration(days: 180));
+
+      // ── Fix: pakai 'settlement' bukan 'completed' ─────────────────────
       final paymentsSnap = await db
           .collectionGroup('payment_history')
-          .where('status', isEqualTo: 'completed')
+          .where('status', isEqualTo: 'settlement')
+          .where(
+            'created_at',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(sixMonthsAgo),
+          )
           .get();
 
       for (final paymentDoc in paymentsSnap.docs) {
-        final createdAt = paymentDoc['created_at'] != null
-            ? (paymentDoc['created_at'] as Timestamp).toDate()
-            : null;
-
+        final createdAt = _parseDate(paymentDoc['created_at']);
         if (createdAt != null) {
           final monthKey = DateFormat('yyyy-MM').format(createdAt);
           monthlyData[monthKey] =
@@ -339,10 +503,13 @@ class OverviewTab extends StatelessWidget {
         }
       }
 
-      return monthlyData.entries
-          .map((e) => {'month': e.key, 'revenue': e.value})
-          .toList();
+      // Sort by month ascending
+      final sorted = monthlyData.entries.toList()
+        ..sort((a, b) => a.key.compareTo(b.key));
+
+      return sorted.map((e) => {'month': e.key, 'revenue': e.value}).toList();
     } catch (e) {
+      debugPrint('Error getting monthly revenue: $e');
       return [];
     }
   }
@@ -354,7 +521,9 @@ class OverviewTab extends StatelessWidget {
       final storesSnap = await db.collection('stores').get();
 
       for (final storeDoc in storesSnap.docs) {
-        final storeName = storeDoc['nama_toko'] ?? 'Store';
+        final storeData = storeDoc.data();
+        final storeName = storeData['nama_toko'] ?? 'Store';
+
         final outletsSnap = await db
             .collection('stores')
             .doc(storeDoc.id)
@@ -362,7 +531,9 @@ class OverviewTab extends StatelessWidget {
             .get();
 
         for (final outletDoc in outletsSnap.docs) {
-          final outletName = outletDoc['nama_outlet'] ?? 'Outlet';
+          final outletData = outletDoc.data();
+          final outletName = outletData['nama_outlet'] ?? 'Outlet';
+
           final paymentsSnap = await db
               .collection('stores')
               .doc(storeDoc.id)
@@ -373,20 +544,28 @@ class OverviewTab extends StatelessWidget {
               .get();
 
           for (final paymentDoc in paymentsSnap.docs) {
+            final data = paymentDoc.data();
+            final createdAtDate = _parseDate(data['created_at']);
+
             allPayments.add({
+              'id': paymentDoc.id,
               'store_id': storeDoc.id,
               'outlet_id': outletDoc.id,
               'store_name': storeName,
               'outlet_name': outletName,
-              ...paymentDoc.data(),
+              ...data,
+              'created_at_date': createdAtDate,
             });
           }
         }
       }
 
       allPayments.sort((a, b) {
-        final dateA = DateTime.parse(a['created_at'] as String? ?? '');
-        final dateB = DateTime.parse(b['created_at'] as String? ?? '');
+        final dateA = a['created_at_date'] as DateTime?;
+        final dateB = b['created_at_date'] as DateTime?;
+        if (dateA == null && dateB == null) return 0;
+        if (dateA == null) return 1;
+        if (dateB == null) return -1;
         return dateB.compareTo(dateA);
       });
 
@@ -400,10 +579,6 @@ class OverviewTab extends StatelessWidget {
   Future<List<Map<String, dynamic>>> _getLatestTransactions({
     int limit = 5,
   }) async {
-    try {
-      return (await _getAllPayments()).take(limit).toList();
-    } catch (e) {
-      return [];
-    }
+    return (await _getAllPayments()).take(limit).toList();
   }
 }

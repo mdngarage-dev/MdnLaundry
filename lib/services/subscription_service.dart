@@ -221,8 +221,22 @@ class SubscriptionService {
         outletId: outletId,
       );
 
-      final currentEndDate = (sub['subscription_end_date'] as Timestamp)
-          .toDate();
+      // ── Fix: handle null subscription_end_date ──────────────────────
+      DateTime currentEndDate;
+
+      final endDateRaw = sub['subscription_end_date'];
+      final trialEndRaw = sub['trial_end_date'];
+
+      if (endDateRaw != null) {
+        currentEndDate = (endDateRaw as Timestamp).toDate();
+      } else if (trialEndRaw != null) {
+        // Jika belum pernah bayar, extend dari trial_end_date
+        currentEndDate = (trialEndRaw as Timestamp).toDate();
+      } else {
+        // Fallback: extend dari sekarang
+        currentEndDate = DateTime.now();
+      }
+
       final newEndDate = DateTime(
         currentEndDate.year,
         currentEndDate.month + monthsToAdd,
@@ -237,6 +251,7 @@ class SubscriptionService {
           .collection('subscription')
           .doc('active')
           .update({
+            'status': 'active', // ← Aktifkan juga saat extend
             'subscription_end_date': Timestamp.fromDate(newEndDate),
             'next_payment_due': Timestamp.fromDate(newEndDate),
             'notified_h3': false,

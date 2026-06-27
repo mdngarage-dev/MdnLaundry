@@ -189,7 +189,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
               const SizedBox(height: 16),
 
               Text(
-                "Buka email & klik link verifikasi.\nHalaman ini otomatis lanjut setelah terverifikasi.",
+                "Buka email & klik link verifikasi.\nHalaman ini otomatis lanjut setelah terverifikasi.\nCek folder spam jika tidak masuk ke email utama",
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 13,

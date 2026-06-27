@@ -107,6 +107,7 @@ class MadeenalaundryApp extends StatelessWidget {
           '/profile': (context) => const ProfileScreen(),
           '/notifikasi': (context) => const NotifikasiScreen(),
           '/developer-dashboard': (context) => const DeveloperDashboard(),
+          '/getstarted': (context) => const GetStartedScreen(),
         },
       ),
     );

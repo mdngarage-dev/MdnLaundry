@@ -523,3 +523,11 @@ exports.checkSubscriptionExpiry = onSchedule(
     }
   }
 );
+
+// ── Export semua functions dari subscription_payments.js ──────────────
+const subscriptionPayments = require('./subscription_payments');
+
+exports.createMidtransTransaction = subscriptionPayments.createMidtransTransaction;
+exports.midtransWebhook = subscriptionPayments.midtransWebhook;
+exports.checkPendingTransactions = subscriptionPayments.checkPendingTransactions;
+exports.getPaymentHistory = subscriptionPayments.getPaymentHistory;

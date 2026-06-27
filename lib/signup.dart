@@ -21,8 +21,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _namaTokoController = TextEditingController();
-  final _ownerCodeController = TextEditingController();
-  final _phoneController = TextEditingController(); // ← no HP
+  final _ownerCodeController = TextEditingController(); // hanya untuk Admin
+  final _phoneController = TextEditingController();
 
   Future<void> _handleSignUp() async {
     final name = _nameController.text.trim();
@@ -32,24 +32,27 @@ class _SignUpScreenState extends State<SignUpScreen> {
     final inputCode = _ownerCodeController.text.trim();
     final phone = _phoneController.text.trim();
 
-    // 1. Validasi
+    // 1. Validasi field wajib
     if (name.isEmpty || email.isEmpty || password.isEmpty || phone.isEmpty) {
       _showSnackBar("Semua kolom harus diisi!", isError: true);
       return;
     }
-    if (inputCode.isEmpty) {
-      _showSnackBar(
-        _selectedRole == 'Owner'
-            ? "Kode undangan Owner harus diisi!"
-            : "Kode Toko harus diisi agar terhubung dengan Owner!",
-        isError: true,
-      );
-      return;
-    }
+
+    // Validasi khusus Owner
     if (_selectedRole == 'Owner' && namaToko.isEmpty) {
       _showSnackBar("Nama toko wajib diisi untuk Owner!", isError: true);
       return;
     }
+
+    // Validasi khusus Admin (kode toko wajib)
+    if (_selectedRole == 'Admin' && inputCode.isEmpty) {
+      _showSnackBar(
+        "Kode Toko harus diisi agar terhubung dengan Owner!",
+        isError: true,
+      );
+      return;
+    }
+
     if (!_agreed) {
       _showSnackBar("Anda harus menyetujui privacy policy", isError: true);
       return;
@@ -60,21 +63,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
     String cleanNamaToko = namaToko;
 
     try {
-      // 2. Validasi kode
-      if (_selectedRole == 'Owner') {
-        final doc = await FirebaseFirestore.instance
-            .collection('config')
-            .doc('owner_code')
-            .get()
-            .timeout(const Duration(seconds: 10));
-
-        final validCode = doc.data()?['code'] ?? '';
-        if (inputCode != validCode) {
-          _showSnackBar("Kode undangan Owner tidak valid!", isError: true);
-          setState(() => _isLoading = false);
-          return;
-        }
-      } else {
+      // 2. Validasi kode — hanya untuk Admin
+      if (_selectedRole == 'Admin') {
         final storeQuery = await FirebaseFirestore.instance
             .collection('stores')
             .where('kode_toko', isEqualTo: inputCode.toUpperCase())
@@ -140,7 +130,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
         'role': _selectedRole,
         'nama_toko': cleanNamaToko,
         'store_id': targetStoreId,
-        'is_activated': _selectedRole == 'Owner', // Owner aktif, Admin tunggu
+        'is_activated': _selectedRole == 'Owner',
         'created_at': FieldValue.serverTimestamp(),
         if (_selectedRole == 'Owner') ...{
           'can_access_admin': true,
@@ -197,7 +187,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
             .update({'current_outlet_id': outletRef.id});
       }
 
-      // 8. Kirim email verifikasi (via Brevo SMTP)
+      // 8. Kirim email verifikasi
       try {
         await userCredential.user!.sendEmailVerification().timeout(
           const Duration(seconds: 10),
@@ -206,7 +196,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
         debugPrint("sendEmailVerification: $e");
       }
 
-      // 9. JANGAN signOut — user tetap login untuk polling emailVerified
+      // 9. Navigate ke email verification
       if (mounted) {
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(
@@ -258,7 +248,11 @@ class _SignUpScreenState extends State<SignUpScreen> {
             children: [
               const SizedBox(height: 20),
               IconButton(
-                onPressed: () => Navigator.pop(context),
+                onPressed: () {
+                  Navigator.of(
+                    context,
+                  ).pushNamedAndRemoveUntil('/getstarted', (route) => false);
+                },
                 icon: const Icon(Icons.arrow_back_ios_new, size: 18),
                 color: Theme.of(context).textTheme.bodyLarge?.color,
                 padding: EdgeInsets.zero,
@@ -314,116 +308,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Nama
-                    TextField(
-                      controller: _nameController,
-                      keyboardType: TextInputType.name,
-                      textCapitalization: TextCapitalization.words,
-                      style: Theme.of(context).textTheme.bodyLarge,
-                      onChanged: (_) => setState(() {}),
-                      decoration: customInputDecoration(
-                        context: context,
-                        hint: 'Nama Lengkap',
-                        icon: Icons.person_outline,
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-
-                    // Email
-                    TextField(
-                      controller: _emailController,
-                      keyboardType: TextInputType.emailAddress,
-                      style: Theme.of(context).textTheme.bodyLarge,
-                      decoration: customInputDecoration(
-                        context: context,
-                        hint: 'Email',
-                        icon: Icons.email_outlined,
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-
-                    // No HP ← BARU
-                    TextField(
-                      controller: _phoneController,
-                      keyboardType: TextInputType.phone,
-                      style: Theme.of(context).textTheme.bodyLarge,
-                      decoration: customInputDecoration(
-                        context: context,
-                        hint: 'No. HP (cth: 08123456789)',
-                        icon: Icons.phone_outlined,
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-
-                    // Password
-                    ValueListenableBuilder<bool>(
-                      valueListenable: _obscurePass,
-                      builder: (context, obscure, _) => TextField(
-                        controller: _passwordController,
-                        obscureText: obscure,
-                        style: Theme.of(context).textTheme.bodyLarge,
-                        decoration: customInputDecoration(
-                          context: context,
-                          hint: 'Password (min. 6 karakter)',
-                          icon: Icons.lock_outline,
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              obscure
-                                  ? Icons.visibility_off_outlined
-                                  : Icons.visibility_outlined,
-                              color: Theme.of(context).hintColor,
-                              size: 20,
-                            ),
-                            onPressed: () =>
-                                _obscurePass.value = !_obscurePass.value,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-
-                    // Kode undangan / kode toko
-                    if (_selectedRole == 'Owner') ...[
-                      TextField(
-                        controller: _ownerCodeController,
-                        style: Theme.of(context).textTheme.bodyLarge,
-                        decoration: customInputDecoration(
-                          context: context,
-                          hint: 'Kode Undangan Owner',
-                          icon: Icons.vpn_key_outlined,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                    ] else ...[
-                      TextField(
-                        controller: _ownerCodeController,
-                        style: Theme.of(context).textTheme.bodyLarge,
-                        decoration: customInputDecoration(
-                          context: context,
-                          hint: 'Masukkan Kode Toko (Dari Owner Anda)',
-                          icon: Icons.store_mall_directory_outlined,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                    ],
-
-                    // Nama toko (Owner only)
-                    if (_selectedRole == 'Owner') ...[
-                      TextField(
-                        controller: _namaTokoController,
-                        keyboardType: TextInputType.text,
-                        textCapitalization: TextCapitalization.words,
-                        style: Theme.of(context).textTheme.bodyLarge,
-                        decoration: customInputDecoration(
-                          context: context,
-                          hint: 'Nama Store / Toko',
-                          icon: Icons.store_outlined,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                    ],
-
-                    // Role selector
+                    // ── Role selector (taruh di atas biar user pilih dulu) ──
                     Text(
                       "Role Akun",
                       style: Theme.of(context).textTheme.bodyLarge?.copyWith(
@@ -469,15 +354,16 @@ class _SignUpScreenState extends State<SignUpScreen> {
                             label: 'Owner',
                             icon: Icons.business_center_outlined,
                             isSelected: _selectedRole == 'Owner',
-                            onTap: () =>
-                                setState(() => _selectedRole = 'Owner'),
+                            onTap: () => setState(() {
+                              _selectedRole = 'Owner';
+                              _ownerCodeController.clear();
+                            }),
                             isDark: isDark,
                           ),
                         ],
                       ),
                     ),
                     const SizedBox(height: 8),
-
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 12,
@@ -509,9 +395,104 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         ],
                       ),
                     ),
+                    const SizedBox(height: 16),
+
+                    // ── Field yang sama untuk semua role ──────────────
+                    TextField(
+                      controller: _nameController,
+                      keyboardType: TextInputType.name,
+                      textCapitalization: TextCapitalization.words,
+                      style: Theme.of(context).textTheme.bodyLarge,
+                      onChanged: (_) => setState(() {}),
+                      decoration: customInputDecoration(
+                        context: context,
+                        hint: 'Nama Lengkap',
+                        icon: Icons.person_outline,
+                      ),
+                    ),
                     const SizedBox(height: 14),
 
-                    // Privacy policy
+                    TextField(
+                      controller: _emailController,
+                      keyboardType: TextInputType.emailAddress,
+                      style: Theme.of(context).textTheme.bodyLarge,
+                      decoration: customInputDecoration(
+                        context: context,
+                        hint: 'Email',
+                        icon: Icons.email_outlined,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    TextField(
+                      controller: _phoneController,
+                      keyboardType: TextInputType.phone,
+                      style: Theme.of(context).textTheme.bodyLarge,
+                      decoration: customInputDecoration(
+                        context: context,
+                        hint: 'No. HP (cth: 08123456789)',
+                        icon: Icons.phone_outlined,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    ValueListenableBuilder<bool>(
+                      valueListenable: _obscurePass,
+                      builder: (context, obscure, _) => TextField(
+                        controller: _passwordController,
+                        obscureText: obscure,
+                        style: Theme.of(context).textTheme.bodyLarge,
+                        decoration: customInputDecoration(
+                          context: context,
+                          hint: 'Password (min. 6 karakter)',
+                          icon: Icons.lock_outline,
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              obscure
+                                  ? Icons.visibility_off_outlined
+                                  : Icons.visibility_outlined,
+                              color: Theme.of(context).hintColor,
+                              size: 20,
+                            ),
+                            onPressed: () =>
+                                _obscurePass.value = !_obscurePass.value,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // ── Field khusus Owner: Nama Toko ─────────────────
+                    if (_selectedRole == 'Owner') ...[
+                      TextField(
+                        controller: _namaTokoController,
+                        keyboardType: TextInputType.text,
+                        textCapitalization: TextCapitalization.words,
+                        style: Theme.of(context).textTheme.bodyLarge,
+                        decoration: customInputDecoration(
+                          context: context,
+                          hint: 'Nama Store / Toko',
+                          icon: Icons.store_outlined,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+
+                    // ── Field khusus Admin: Kode Toko ─────────────────
+                    if (_selectedRole == 'Admin') ...[
+                      TextField(
+                        controller: _ownerCodeController,
+                        style: Theme.of(context).textTheme.bodyLarge,
+                        decoration: customInputDecoration(
+                          context: context,
+                          hint: 'Kode Toko (Dari Owner Anda)',
+                          icon: Icons.store_mall_directory_outlined,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+
+                    // ── Privacy policy ────────────────────────────────
                     Row(
                       children: [
                         Checkbox(
@@ -550,7 +531,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     ),
                     const SizedBox(height: 16),
 
-                    // Tombol Sign Up
+                    // ── Tombol Sign Up ────────────────────────────────
                     SizedBox(
                       width: double.infinity,
                       height: 52,

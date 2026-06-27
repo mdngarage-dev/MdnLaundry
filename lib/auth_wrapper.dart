@@ -1,5 +1,7 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:mdnlaundry_project/email_verification.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mdnlaundry_project/screens/main_screens.dart';
 import 'dart:math';
@@ -45,7 +47,24 @@ class _AuthWrapperState extends State<AuthWrapper> {
       user = null;
     }
 
-    if (user != null) return const HomeWrapper();
+    if (user != null) {
+      // ✅ Tambahkan reload dulu supaya status emailVerified fresh
+      await user.reload();
+      user = FirebaseAuth.instance.currentUser;
+
+      // ✅ Cek emailVerified
+      if (user != null && !user.emailVerified) {
+        // Ambil role dari Firestore
+        final doc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
+        final role = doc.data()?['role'] ?? 'Owner';
+        return EmailVerificationScreen(role: role);
+      }
+
+      return const HomeWrapper();
+    }
 
     final prefs = await SharedPreferences.getInstance();
     final savedEmail = prefs.getString('saved_email') ?? '';

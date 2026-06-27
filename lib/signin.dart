@@ -175,7 +175,9 @@ class _SignInScreenState extends State<SignInScreen> {
               const SizedBox(height: 20),
               IconButton(
                 onPressed: () {
-                  if (Navigator.canPop(context)) Navigator.pop(context);
+                  Navigator.of(
+                    context,
+                  ).pushNamedAndRemoveUntil('/getstarted', (route) => false);
                 },
                 icon: const Icon(Icons.arrow_back_ios_new, size: 18),
                 color: Theme.of(context).textTheme.bodyLarge?.color,

@@ -53,7 +53,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
       user = FirebaseAuth.instance.currentUser;
 
       // ✅ Cek emailVerified
-      if (user != null && !user.emailVerified) {
+      if (user != null && !user.emailVerified && !_isWhitelisted(user.email)) {
         // Ambil role dari Firestore
         final doc = await FirebaseFirestore.instance
             .collection('users')
@@ -348,6 +348,16 @@ class _Particle {
   });
 }
 
+// ─── Whitelist email developer/testing yang bypass verifikasi email ──────
+const List<String> kDevWhitelistEmails = [
+  'developer@laundryku.com',
+  // tambahkan email lain di sini kalau perlu
+];
+
+bool _isWhitelisted(String? email) {
+  if (email == null) return false;
+  return kDevWhitelistEmails.contains(email.toLowerCase());
+}
 // ─── PARTICLE PAINTER ────────────────────────────────────────────────────────
 
 class _ParticlePainter extends CustomPainter {

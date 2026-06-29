@@ -164,60 +164,32 @@ class _StoreOutletsPageState extends State<StoreOutletsPage> {
 
     if (konfirmasi != true || !mounted) return;
 
+    if (konfirmasi != true || !mounted) return;
+
     try {
-      final db = FirebaseFirestore.instance;
-      final outletRef = db
-          .collection('stores')
-          .doc(widget.storeId)
-          .collection('outlets')
-          .doc(outletId);
-      final batch = db.batch();
+      final callable = FirebaseFunctions.instanceFor(
+        region: 'asia-southeast1',
+      ).httpsCallable('deleteOutlet');
 
-      for (final sub in [
-        'pelanggan',
-        'settings',
-        'counters',
-        'layanan',
-        'subscription',
-        'payment_history',
-      ]) {
-        final subDocs = await outletRef.collection(sub).get();
-        for (final doc in subDocs.docs) batch.delete(doc.reference);
-      }
-      final permDocs = await db
-          .collection('store_permissions')
-          .doc(widget.storeId)
-          .collection(outletId)
-          .get();
-      for (final doc in permDocs.docs) batch.delete(doc.reference);
-      batch.delete(outletRef);
-
-      final linkedAdmins = await db
-          .collection('users')
-          .where('store_id', isEqualTo: widget.storeId)
-          .where('current_outlet_id', isEqualTo: outletId)
-          .get();
-      for (final doc in linkedAdmins.docs) {
-        batch.update(doc.reference, {'current_outlet_id': ''});
-      }
-
-      await batch.commit();
+      await callable.call({'storeId': widget.storeId, 'outletId': outletId});
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Outlet $outletName berhasil dihapus'),
+            content: Text(
+              'Outlet $outletName beserta seluruh datanya berhasil dihapus',
+            ),
             backgroundColor: Colors.green,
             behavior: SnackBarBehavior.floating,
           ),
         );
-        await _loadOutlets(); // refresh list, tidak pop
+        await _loadOutlets();
       }
-    } catch (e) {
+    } on FirebaseFunctionsException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Gagal hapus outlet: $e'),
+            content: Text('Gagal hapus outlet: ${e.message}'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
           ),

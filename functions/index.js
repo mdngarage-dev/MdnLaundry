@@ -510,6 +510,154 @@ exports.deleteStore = onCall(
   }
 );
 
+// ─────────────────────────────────────────────────────────────────────────────
+// FUNCTION 6: Hapus Outlet (Firestore saja — outlet bukan akun, tidak ada Auth)
+// ─────────────────────────────────────────────────────────────────────────────
+exports.deleteOutlet = onCall(
+  {
+    region: "asia-southeast1",
+    timeoutSeconds: 300,
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Harus login dulu");
+    }
+
+    const callerUid = request.auth.uid;
+    const storeId = request.data.storeId;
+    const outletId = request.data.outletId;
+
+    if (!storeId || !outletId) {
+      throw new HttpsError("invalid-argument", "storeId dan outletId wajib diisi");
+    }
+
+    const db = admin.firestore();
+
+    // ── 1. Verifikasi caller adalah Owner dari store ini ──────────────────
+    const callerDoc = await db.collection("users").doc(callerUid).get();
+    if (
+      !callerDoc.exists ||
+      callerDoc.data()?.role !== "Owner" ||
+      callerDoc.data()?.store_id !== storeId
+    ) {
+      throw new HttpsError(
+        "permission-denied",
+        "Hanya Owner dari store ini yang bisa menghapus outlet"
+      );
+    }
+
+    const outletRef = db
+      .collection("stores")
+      .doc(storeId)
+      .collection("outlets")
+      .doc(outletId);
+
+    const outletDoc = await outletRef.get();
+    if (!outletDoc.exists) {
+      throw new HttpsError("not-found", "Outlet tidak ditemukan");
+    }
+
+    // ── 2. Cegah hapus outlet utama selama masih ada outlet lain ───────────
+    const allOutletsSnap = await db
+      .collection("stores")
+      .doc(storeId)
+      .collection("outlets")
+      .get();
+
+    const isUtama = outletDoc.data()?.is_utama === true;
+    const totalOutlet = allOutletsSnap.size;
+
+    if (isUtama && totalOutlet > 1) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Outlet utama tidak bisa dihapus selama masih ada outlet lain"
+      );
+    }
+
+    // ── 3. Kalau ini outlet terakhir, arahkan untuk pakai deleteStore ──────
+    if (totalOutlet === 1) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Ini outlet terakhir. Gunakan fungsi deleteStore untuk menghapus seluruh store."
+      );
+    }
+
+    console.log(`[deleteOutlet] Mulai hapus outlet ${outletId} dari store ${storeId}`);
+
+    // ── 4. Hapus semua data terkait outlet (Firestore-only, no Auth) ───────
+    let batch = db.batch();
+    let opCount = 0;
+
+    const safeDelete = async (ref) => {
+      batch.delete(ref);
+      opCount++;
+      if (opCount >= 450) {
+        await batch.commit();
+        batch = db.batch();
+        opCount = 0;
+      }
+    };
+
+    // 4a. Subcollection di dalam outlet
+    for (const sub of [
+      "pelanggan",
+      "settings",
+      "counters",
+      "layanan",
+      "subscription",
+      "payment_history",
+    ]) {
+      const subDocs = await outletRef.collection(sub).get();
+      for (const doc of subDocs.docs) await safeDelete(doc.reference);
+    }
+
+    // 4b. store_permissions/{storeId}/{outletId}/{adminUid}
+    const permDocs = await db
+      .collection("store_permissions")
+      .doc(storeId)
+      .collection(outletId)
+      .get();
+    for (const doc of permDocs.docs) await safeDelete(doc.reference);
+
+    // 4c. Koleksi root yang terikat ke outlet ini
+    for (const col of ["order", "keuangan", "pengeluaran", "rak"]) {
+      const colDocs = await db
+        .collection(col)
+        .where("outlet_id", "==", outletId)
+        .get();
+      for (const doc of colDocs.docs) await safeDelete(doc.reference);
+    }
+
+    // 4d. Dokumen outlet itu sendiri
+    await safeDelete(outletRef);
+
+    if (opCount > 0) await batch.commit();
+
+    console.log(`[deleteOutlet] Firestore untuk outlet ${outletId} selesai dihapus`);
+
+    // ── 5. Unassign admin yang masih terhubung outlet ini (bukan dihapus) ──
+    const linkedAdmins = await db
+      .collection("users")
+      .where("store_id", "==", storeId)
+      .where("current_outlet_id", "==", outletId)
+      .get();
+
+    if (!linkedAdmins.empty) {
+      const unassignBatch = db.batch();
+      linkedAdmins.docs.forEach((doc) => {
+        unassignBatch.update(doc.ref, { current_outlet_id: "" });
+      });
+      await unassignBatch.commit();
+      console.log(
+        `[deleteOutlet] ${linkedAdmins.size} admin di-unassign dari outlet ${outletId}`
+      );
+    }
+
+    console.log(`✅ Outlet ${outletId} berhasil dihapus oleh ${callerUid}`);
+
+    return { success: true, outletId };
+  }
+);
 
 const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 

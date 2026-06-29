@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'main_screens.dart';
 import 'package:http/http.dart' as http;
+import 'package:mdnlaundry_project/services/subscription_service.dart';
 
 class AddOrderScreen extends StatefulWidget {
   final String storeId;
@@ -24,21 +25,16 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
   final _formKey = GlobalKey<FormState>();
   DateTime _viewMonth = DateTime(DateTime.now().year, DateTime.now().month, 1);
 
-  // ── Store / Toko ──────────────────────────────────────────────────────────
-  // 🌟 INI YANG TADINYA HILANG / SALAH TEMPAT — sekarang ada di class yang benar
   String _currentStoreId = '';
   String _currentOutletId = '';
   bool _isStoreLoading = true;
 
-  // ── Pelanggan ─────────────────────────────────────────────────────────────
   String? _selectedNama;
   String? _selectedHp;
 
-  // ── Items ─────────────────────────────────────────────────────────────────
   List<Map<String, dynamic>> _items = [];
   List<Map<String, dynamic>> _biayaTambahan = [];
 
-  // ── Diskon ────────────────────────────────────────────────────────────────
   int _diskonNominal = 0;
   String _diskonCatatan = '';
 
@@ -50,7 +46,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
     }
   });
 
-  // Grand total layanan saja
   int get _grandTotal => _items.fold(0, (sum, item) {
     try {
       final berat = (item['berat_kg'] as num).toDouble();
@@ -61,16 +56,13 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
     }
   });
 
-  // Subtotal sebelum diskon (layanan + biaya tambahan)
   int get _grandTotalSebelumDiskon => _grandTotal + _totalBiayaTambahan;
 
-  // Grand total final setelah diskon
   int get _grandTotalFinal {
     final hasil = _grandTotalSebelumDiskon - _diskonNominal;
     return hasil < 0 ? 0 : hasil;
   }
 
-  // ── Status pembayaran ─────────────────────────────────────────────────────
   String _statusBayar = 'belum_bayar';
   final _dpCtrl = TextEditingController();
   final _catatanOrderCtrl = TextEditingController();
@@ -106,13 +98,11 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
     super.dispose();
   }
 
-  // ── Estimasi selesai terpanjang dari semua items ───────────────────────────
   String get _estimasiTerpanjang {
     if (_items.isEmpty) return '-';
     return _items.map((i) => i['estimasi_selesai']?.toString() ?? '-').last;
   }
 
-  // ── share wa ───────────────────────────────────────────────────────
   Future<void> _kirimNotifikasiWa({
     required String noHp,
     required String nomorOrder,
@@ -124,17 +114,14 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
     required int dpAmount,
   }) async {
     final mode = await WaSettings.getMode();
+    if (mode == 'off') return;
 
-    if (mode == 'off') {
-      return; // ── tidak lakukan apa-apa ──
-    }
-
-    // Bersihkan & format nomor HP
     String hp = noHp.replaceAll(RegExp(r'[^0-9]'), '');
     if (hp.startsWith('0')) hp = '62${hp.substring(1)}';
     if (!hp.startsWith('62')) hp = '62$hp';
 
     final trackingUrl = 'https://laundry-ku-id.web.app/$nomorOrder';
+    final footer = await WaSettings.getFooter();
 
     String infoBayar;
     switch (statusBayar) {
@@ -171,12 +158,11 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
         '🔍 *Lacak status order Anda:*\n'
         '$trackingUrl\n\n'
         'Kami segera memproses laundry Anda. Terima kasih! 🙏\n\n'
-        '_Madeena Laundry_';
+        '_${footer}_';
 
     if (mode == 'auto') {
       final token = await WaSettings.getToken();
       if (token.isEmpty) {
-        // fallback ke manual kalau token kosong
         await _bukaWaManual(hp, pesan);
         return;
       }
@@ -206,10 +192,9 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
           );
         }
       } catch (e) {
-        await _bukaWaManual(hp, pesan); // fallback kalau error
+        await _bukaWaManual(hp, pesan);
       }
     } else {
-      // mode == 'manual'
       await _bukaWaManual(hp, pesan);
     }
   }
@@ -217,15 +202,11 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
   Future<void> _bukaWaManual(String hp, String pesan) async {
     final encoded = Uri.encodeComponent(pesan);
     final url = Uri.parse('https://wa.me/$hp?text=$encoded');
-    debugPrint('WA URL: $url');
     if (await canLaunchUrl(url)) {
       await launchUrl(url, mode: LaunchMode.externalApplication);
-    } else {
-      debugPrint('Tidak bisa buka WA'); // ← cek output ini di console
     }
   }
 
-  // ── Pilih pelanggan ───────────────────────────────────────────────────────
   Future<void> _pilihPelanggan() async {
     final result = await Navigator.push<Map<String, dynamic>>(
       context,
@@ -245,12 +226,8 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
     }
   }
 
-  // ── Buka picker layanan ───────────────────────────────────────────────────
-
   Future<void> _openTambahLayanan() async {
     if (!mounted) return;
-
-    // 🌟 Jaga-jaga: kalau store_id belum siap, jangan buka picker dulu
     if (_currentStoreId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -291,7 +268,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
     );
   }
 
-  // ── biaya tambahan ────────────────────────────────────────────────────────
   void _showTambahBiayaSheet() {
     final nominalCtrl = TextEditingController();
     final keteranganCtrl = TextEditingController();
@@ -592,7 +568,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
     );
   }
 
-  // ── Sheet Diskon ──────────────────────────────────────────────────────────
   void _showDiskonSheet() {
     final nominalCtrl = TextEditingController(
       text: _diskonNominal > 0 ? _diskonNominal.toString() : '',
@@ -619,7 +594,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Handle
               Center(
                 child: Container(
                   width: 40,
@@ -656,8 +630,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                 ),
               ),
               const SizedBox(height: 20),
-
-              // Nominal diskon
               Text(
                 'Nominal Diskon (Rp)',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -716,8 +688,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                 ),
               ),
               const SizedBox(height: 14),
-
-              // Catatan diskon
               Text(
                 'Catatan (Opsional)',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -752,8 +722,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                   ),
                 ),
               ),
-
-              // Preview pengurangan
               const SizedBox(height: 14),
               Builder(
                 builder: (_) {
@@ -840,7 +808,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                   );
                 },
               ),
-
               const SizedBox(height: 16),
               Row(
                 children: [
@@ -934,10 +901,7 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
     );
   }
 
-  // ── Hapus item ────────────────────────────────────────────────────────────
-  void _hapusItem(int idx) {
-    setState(() => _items.removeAt(idx));
-  }
+  void _hapusItem(int idx) => setState(() => _items.removeAt(idx));
 
   String get _estimasiDariCustom {
     if (_items.isEmpty) return '-';
@@ -954,13 +918,9 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
     return DateFormat('dd-MM-yyyy').format(base.add(Duration(hours: durasi)));
   }
 
-  // ── Date picker sheet ─────────────────────────────────────────────────────
   void _showDatePickerSheet() {
     final now = DateTime.now();
-    // Mulai dari bulan tanggal yang sudah dipilih, atau bulan sekarang
-
     DateTime? tempSelected = _customTanggal;
-
     const dayLabels = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
 
     showModalBottomSheet(
@@ -990,7 +950,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Handle bar
                 Center(
                   child: Container(
                     width: 40,
@@ -1027,8 +986,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-
-                // ── Navigasi bulan & tahun ──────────────────────────────
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 4,
@@ -1041,15 +998,14 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      // Tombol bulan sebelumnya
                       IconButton(
-                        onPressed: () => setS(() {
-                          _viewMonth = DateTime(
+                        onPressed: () => setS(
+                          () => _viewMonth = DateTime(
                             _viewMonth.year,
                             _viewMonth.month - 1,
                             1,
-                          );
-                        }),
+                          ),
+                        ),
                         icon: Icon(Icons.chevron_left_rounded, color: kPrimary),
                         splashRadius: 20,
                         padding: EdgeInsets.zero,
@@ -1058,24 +1014,18 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                           minHeight: 36,
                         ),
                       ),
-
-                      // Tap untuk buka dialog pilih tahun & bulan
                       GestureDetector(
                         onTap: () {
-                          Navigator.pop(
-                            ctx,
-                          ); // tutup dulu bottom sheet kalender
+                          Navigator.pop(ctx);
                           Future.delayed(const Duration(milliseconds: 300), () {
                             if (!mounted) return;
                             _showYearMonthPicker(context, _viewMonth, (picked) {
-                              setState(
-                                () => _viewMonth = picked,
-                              ); // update state utama
+                              setState(() => _viewMonth = picked);
                               Future.delayed(
                                 const Duration(milliseconds: 200),
                                 () {
                                   if (!mounted) return;
-                                  _showDatePickerSheet(); // buka lagi kalender dengan bulan baru
+                                  _showDatePickerSheet();
                                 },
                               );
                             });
@@ -1114,16 +1064,14 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                           ),
                         ),
                       ),
-
-                      // Tombol bulan berikutnya
                       IconButton(
-                        onPressed: () => setS(() {
-                          _viewMonth = DateTime(
+                        onPressed: () => setS(
+                          () => _viewMonth = DateTime(
                             _viewMonth.year,
                             _viewMonth.month + 1,
                             1,
-                          );
-                        }),
+                          ),
+                        ),
                         icon: Icon(
                           Icons.chevron_right_rounded,
                           color: kPrimary,
@@ -1139,8 +1087,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-
-                // Header hari
                 Row(
                   children: dayLabels
                       .map(
@@ -1162,8 +1108,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                       .toList(),
                 ),
                 const SizedBox(height: 8),
-
-                // Grid tanggal
                 GridView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
@@ -1193,9 +1137,8 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                         tempSelected!.year == _viewMonth.year;
                     final isSunday = date.weekday == DateTime.sunday;
                     return GestureDetector(
-                      onTap: () => setS(() {
-                        tempSelected = isSelected ? null : date;
-                      }),
+                      onTap: () =>
+                          setS(() => tempSelected = isSelected ? null : date),
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 150),
                         margin: const EdgeInsets.all(2),
@@ -1237,8 +1180,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                   },
                 ),
                 const SizedBox(height: 16),
-
-                // Preview tanggal terpilih
                 if (tempSelected != null)
                   Container(
                     width: double.infinity,
@@ -1271,8 +1212,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                     ),
                   ),
                 const SizedBox(height: 16),
-
-                // Tombol aksi
                 Row(
                   children: [
                     Expanded(
@@ -1336,7 +1275,7 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
     final now = DateTime.now();
 
     await showModalBottomSheet(
-      context: context, // pakai context utama, bukan ctx
+      context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (bCtx) => StatefulBuilder(
@@ -1354,7 +1293,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Handle bar
               Center(
                 child: Container(
                   width: 40,
@@ -1383,8 +1321,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                 ],
               ),
               const SizedBox(height: 20),
-
-              // ── Pilih Tahun ──────────────────────────────────────────
               Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
@@ -1453,8 +1389,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-
-              // ── Grid 12 bulan ────────────────────────────────────────
               GridView.builder(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
@@ -1508,8 +1442,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                 },
               ),
               const SizedBox(height: 20),
-
-              // Tombol aksi
               Row(
                 children: [
                   Expanded(
@@ -1558,9 +1490,164 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
     );
   }
 
+  // ── Cek order limit sebelum submit ────────────────────────────────────────
+  Future<bool> _cekOrderLimit() async {
+    try {
+      final limitInfo = await SubscriptionService.getOrderLimitInfo(
+        storeId: _currentStoreId,
+        outletId: _currentOutletId,
+      );
+
+      final limit = limitInfo['limit'] as int;
+      final used = limitInfo['used'] as int;
+      final remaining = limitInfo['remaining'] as int;
+
+      // Pro/unlimited → langsung lolos
+      if (limit >= 999999) return true;
+
+      // Masih ada sisa → lolos
+      if (remaining > 0) return true;
+
+      // Limit habis → tampilkan dialog
+      if (mounted) {
+        await showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.warning_amber_rounded,
+                    color: Colors.orange,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    'Batas Order Tercapai',
+                    style: TextStyle(fontSize: 16),
+                  ),
+                ),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Limit bulan ini',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                          Text(
+                            '$limit order',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Sudah digunakan',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                          Text(
+                            '$used order',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12,
+                              color: Colors.red,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Divider(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Sisa',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                          Text(
+                            '$remaining order',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                              color: Colors.red,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Upgrade ke Paket Pro untuk order unlimited setiap bulannya.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Tutup'),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: kPrimary,
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Upgrade Sekarang'),
+              ),
+            ],
+          ),
+        );
+      }
+
+      return false;
+    } catch (e) {
+      debugPrint('Error cek order limit: $e');
+      return true; // fail open
+    }
+  }
+
   // ── Simpan order ──────────────────────────────────────────────────────────
   Future<void> _submitData() async {
     if (_isSubmitting) return;
+
+    // ── Validasi form ────────────────────────────────────────────────────────
     if (_selectedNama == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1588,9 +1675,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
       );
       return;
     }
-    // 🌟 Validasi store_id SEBELUM mulai submit (dulu ini langsung
-    // dieksekusi di tengah-tengah fungsi tanpa setState(_isSubmitting=false)
-    // yang benar, sekarang dirapikan di awal)
     if (_currentStoreId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1601,6 +1685,11 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
       return;
     }
 
+    // ── Cek order limit ──────────────────────────────────────────────────────
+    final bolehSubmit = await _cekOrderLimit();
+    if (!bolehSubmit) return;
+
+    // ── Mulai simpan ─────────────────────────────────────────────────────────
     setState(() => _isSubmitting = true);
 
     try {
@@ -1609,12 +1698,11 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
           FirebaseAuth.instance.currentUser?.displayName?.split('|')[0] ??
           'Admin';
 
-      // 🌟 Counter nomor struk sekarang masuk ke sub-collection toko ini
       final counterRef = firestore
           .collection('stores')
           .doc(_currentStoreId)
           .collection('outlets')
-          .doc(_currentOutletId) // ← TAMBAH
+          .doc(_currentOutletId)
           .collection('counters')
           .doc('pelanggan');
 
@@ -1624,7 +1712,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
             final int next = (snap.data()?['last'] ?? 0) + 1;
             tx.set(counterRef, {'last': next});
             final tgl = DateFormat('yyMMdd').format(DateTime.now());
-
             final prefix = PrinterSettings.customNota.trim().isEmpty
                 ? 'MDN'
                 : PrinterSettings.customNota.trim();
@@ -1641,7 +1728,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
 
       final firstItem = _items.first;
 
-      // Simpan dokumen order utama — include diskon + store_id
       final orderRef = await firestore.collection('order').add({
         'store_id': _currentStoreId,
         'outlet_id': widget.outletId,
@@ -1664,28 +1750,22 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
         'status': 'antrian',
         'status_bayar': _statusBayar,
         'dp_amount': dpInt,
-        // ── Diskon ──────────────────────────
         'diskon_nominal': _diskonNominal,
         'diskon_catatan': _diskonCatatan,
-        // ── Harga final setelah diskon ───────
         'harga_total': _grandTotalFinal,
         'jumlah_item': _items.length,
       });
 
-      // Simpan subcollection biaya_tambahan
       for (final biaya in _biayaTambahan) {
         final biayaData = Map<String, dynamic>.from(biaya);
         biayaData['created_at'] = FieldValue.serverTimestamp();
         await orderRef.collection('biaya_tambahan').add(biayaData);
       }
 
-      // Simpan subcollection items
       for (final item in _items) {
         final itemData = Map<String, dynamic>.from(item);
         itemData.remove('_itemDocId');
         itemData['created_at'] = FieldValue.serverTimestamp();
-
-        // Hitung ulang estimasi sesuai customTanggal
         if (_customTanggal != null) {
           final durasi = (item['durasi_jam'] as num?)?.toInt() ?? 24;
           final base = DateTime(
@@ -1699,12 +1779,9 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
             'dd-MM-yyyy',
           ).format(base.add(Duration(hours: durasi)));
         }
-
         await orderRef.collection('items').add(itemData);
       }
 
-      // Simpan keuangan — ikut disertakan store_id agar laporan keuangan
-      // bisa difilter per toko juga
       await firestore.collection('keuangan').add({
         'store_id': _currentStoreId,
         'outlet_id': widget.outletId,
@@ -1719,7 +1796,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
       if (!context.mounted) return;
       setState(() => _isSubmitting = false);
 
-      // Data untuk dikirim ke OrderDetailScreen
       final savedOrderData = {
         'store_id': _currentStoreId,
         'nomor_pelanggan': nomorStruk,
@@ -1745,7 +1821,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
         'jumlah_item': _items.length,
       };
 
-      // ── Simpan ke variabel lokal SEBELUM reset ───────────────────
       final hpPelanggan = _selectedHp ?? '';
       final namaPelanggan = _selectedNama ?? '';
       final totalFinal = _grandTotalFinal;
@@ -1753,7 +1828,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
       final statusBayarFinal = _statusBayar;
       final dpFinal = dpInt;
 
-      // Reset form
       setState(() {
         _selectedNama = null;
         _selectedHp = null;
@@ -1767,7 +1841,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
         _diskonCatatan = '';
       });
 
-      // ── Kirim WA dulu, lalu navigate ────────────────────────────────
       if (context.mounted) {
         if (hpPelanggan.isNotEmpty) {
           await _kirimNotifikasiWa(
@@ -1781,7 +1854,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
             dpAmount: dpFinal,
           );
         }
-
         if (context.mounted) {
           Navigator.push(
             context,
@@ -1846,7 +1918,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
           ),
         ),
       ),
-      // 🌟 Tampilkan loading spinner dulu kalau store_id masih diambil
       body: _isStoreLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
@@ -1856,7 +1927,10 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // ── GROUP 1: PILIH PELANGGAN ──────────────────────────────
+                    // ── Order Limit Banner ─────────────────────────────────
+                    _buildOrderLimitBanner(),
+
+                    // ── Data Pelanggan ─────────────────────────────────────
                     _buildCardGroup(
                       title: 'Data Pelanggan',
                       icon: Icons.person_outline,
@@ -1980,7 +2054,7 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                     ),
                     const SizedBox(height: 16),
 
-                    // ── GROUP 2: ITEM PESANAN ─────────────────────────────────
+                    // ── Item Pesanan ───────────────────────────────────────
                     _buildCardGroup(
                       title: 'Item Pesanan',
                       icon: Icons.local_laundry_service_outlined,
@@ -2053,18 +2127,11 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                             final jenis =
                                 item['jenis_pakaian']?.toString() ?? '';
                             final catatan = item['catatan']?.toString() ?? '';
-
-                            Color chipColor;
-                            switch (tipe) {
-                              case 'kiloan':
-                                chipColor = Colors.blue;
-                                break;
-                              case 'meter':
-                                chipColor = Colors.orange;
-                                break;
-                              default:
-                                chipColor = Colors.green;
-                            }
+                            Color chipColor = tipe == 'kiloan'
+                                ? Colors.blue
+                                : tipe == 'meter'
+                                ? Colors.orange
+                                : Colors.green;
 
                             return Container(
                               margin: const EdgeInsets.only(bottom: 10),
@@ -2149,9 +2216,9 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                                               ),
                                             ),
                                           ),
-                                          child: Row(
+                                          child: const Row(
                                             mainAxisSize: MainAxisSize.min,
-                                            children: const [
+                                            children: [
                                               Icon(
                                                 Icons.delete_outline,
                                                 size: 12,
@@ -2283,14 +2350,14 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                     ),
                     const SizedBox(height: 16),
 
-                    // ── GROUP TANGGAL ORDER ───────────────────────────────────
+                    // ── Tanggal Order ──────────────────────────────────────
                     _buildCardGroup(
                       title: 'Tanggal Order',
                       icon: Icons.calendar_today_outlined,
                       isDark: isDark,
                       children: [
                         GestureDetector(
-                          onTap: () => _showDatePickerSheet(),
+                          onTap: _showDatePickerSheet,
                           child: Container(
                             width: double.infinity,
                             padding: const EdgeInsets.symmetric(
@@ -2408,7 +2475,7 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                     ),
                     const SizedBox(height: 16),
 
-                    // ── GROUP BIAYA TAMBAHAN ──────────────────────────────────
+                    // ── Biaya Tambahan ─────────────────────────────────────
                     _buildCardGroup(
                       title: 'Biaya Tambahan',
                       icon: Icons.add_card_outlined,
@@ -2435,20 +2502,12 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                           : null,
                       children: [
                         if (_biayaTambahan.isEmpty)
-                          Container(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            child: Center(
-                              child: Column(
-                                children: [
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'Belum ada biaya tambahan',
-                                    style: TextStyle(
-                                      color: Colors.grey.shade400,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ],
+                          Center(
+                            child: Text(
+                              'Belum ada biaya tambahan',
+                              style: TextStyle(
+                                color: Colors.grey.shade400,
+                                fontSize: 12,
                               ),
                             ),
                           )
@@ -2644,9 +2703,7 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                     ),
                     const SizedBox(height: 16),
 
-                    // ══════════════════════════════════════════════════════════
-                    // GROUP DISKON — di atas card pembayaran
-                    // ══════════════════════════════════════════════════════════
+                    // ── Diskon ─────────────────────────────────────────────
                     _buildCardGroup(
                       title: 'Diskon',
                       icon: Icons.local_offer_outlined,
@@ -2672,7 +2729,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                             )
                           : null,
                       children: [
-                        // ── Tombol/card diskon — selalu sebagai button ──────
                         GestureDetector(
                           onTap: _showDiskonSheet,
                           child: Container(
@@ -2784,19 +2840,16 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                                   ),
                           ),
                         ),
-
-                        // Preview kalkulasi diskon jika sudah diisi
                       ],
                     ),
                     const SizedBox(height: 16),
 
-                    // ── GROUP 3: PEMBAYARAN ───────────────────────────────────
+                    // ── Pembayaran ─────────────────────────────────────────
                     _buildCardGroup(
                       title: 'Pembayaran',
                       icon: Icons.payments_outlined,
                       isDark: isDark,
                       children: [
-                        // ── Ringkasan Total ───────────────────────────────────────
                         Container(
                           padding: const EdgeInsets.all(12),
                           margin: const EdgeInsets.only(bottom: 14),
@@ -2950,9 +3003,8 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
                                     ),
                                     validator: (v) {
                                       if (_statusBayar == 'dp' &&
-                                          (v == null || v.isEmpty)) {
+                                          (v == null || v.isEmpty))
                                         return 'Nominal DP tidak boleh kosong';
-                                      }
                                       return null;
                                     },
                                     decoration: InputDecoration(
@@ -3017,7 +3069,6 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
 
                     const SizedBox(height: 24),
 
-                    // Tombol simpan
                     SizedBox(
                       width: double.infinity,
                       height: 55,
@@ -3059,7 +3110,101 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
     );
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
+  // ── Order Limit Banner ────────────────────────────────────────────────────
+  Widget _buildOrderLimitBanner() {
+    return FutureBuilder<Map<String, dynamic>>(
+      future: SubscriptionService.getOrderLimitInfo(
+        storeId: _currentStoreId,
+        outletId: _currentOutletId,
+      ),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) return const SizedBox.shrink();
+
+        final limit = snapshot.data!['limit'] as int;
+        final used = snapshot.data!['used'] as int;
+        final remaining = snapshot.data!['remaining'] as int;
+
+        if (limit >= 999999) return const SizedBox.shrink();
+
+        final isAlmostFull = remaining <= 5;
+        final isFull = remaining == 0;
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: isFull
+                ? Colors.red.withOpacity(0.1)
+                : isAlmostFull
+                ? Colors.orange.withOpacity(0.1)
+                : Colors.blue.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isFull
+                  ? Colors.red.withOpacity(0.3)
+                  : isAlmostFull
+                  ? Colors.orange.withOpacity(0.3)
+                  : Colors.blue.withOpacity(0.2),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                isFull
+                    ? Icons.block_rounded
+                    : isAlmostFull
+                    ? Icons.warning_amber_rounded
+                    : Icons.shopping_bag_outlined,
+                size: 18,
+                color: isFull
+                    ? Colors.red
+                    : isAlmostFull
+                    ? Colors.orange
+                    : Colors.blue,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  isFull
+                      ? 'Batas order bulan ini sudah habis ($used/$limit)'
+                      : 'Sisa order bulan ini: $remaining dari $limit',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: isFull
+                        ? Colors.red
+                        : isAlmostFull
+                        ? Colors.orange
+                        : Colors.blue,
+                  ),
+                ),
+              ),
+              if (isFull || isAlmostFull)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isFull ? Colors.red : Colors.orange,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    'Upgrade',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildCardGroup({
     required String title,
     required IconData icon,
@@ -3253,7 +3398,7 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  BOTTOM SHEET: Pilih Layanan
+// BOTTOM SHEET: Pilih Layanan — tidak berubah, tetap sama
 // ════════════════════════════════════════════════════════════════════════════
 class _LayananPickerSheet extends StatefulWidget {
   final String storeId;
@@ -3281,15 +3426,12 @@ class _LayananPickerSheetState extends State<_LayananPickerSheet> {
   void initState() {
     super.initState();
     _loadLayanan();
-    // 🌟 _getStoreId() DIHAPUS dari sini — class ini bukan tempatnya.
-    // storeId sekarang didapat dari widget.storeId (dikirim oleh AddOrderScreen)
   }
 
   Future<void> _loadLayanan() async {
     if (!mounted) return;
     setState(() => _isLoading = true);
     try {
-      // 🌟 Query layanan sekarang per-toko, bukan collection global lagi
       final snap = await FirebaseFirestore.instance
           .collection('stores')
           .doc(widget.storeId)
@@ -3319,11 +3461,10 @@ class _LayananPickerSheetState extends State<_LayananPickerSheet> {
       builder: (ctx) => LayananFormSheet(
         existing: null,
         onSave: (nama, tipe, harga, durasiJam) async {
-          // 🌟 Tambah layanan baru juga masuk ke sub-collection toko ini
           await FirebaseFirestore.instance
               .collection('stores')
               .doc(widget.storeId)
-              .collection('outlets') // ← TAMBAH
+              .collection('outlets')
               .doc(widget.outletId)
               .collection('layanan')
               .add({
@@ -3420,8 +3561,6 @@ class _LayananPickerSheetState extends State<_LayananPickerSheet> {
             ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 12),
-
-          // Search
           TextField(
             controller: _searchCtrl,
             onChanged: (val) => setState(() => _searchQuery = val),
@@ -3467,8 +3606,6 @@ class _LayananPickerSheetState extends State<_LayananPickerSheet> {
             ),
           ),
           const SizedBox(height: 16),
-
-          // Filter chips
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
@@ -3484,8 +3621,6 @@ class _LayananPickerSheetState extends State<_LayananPickerSheet> {
             ),
           ),
           const SizedBox(height: 16),
-
-          // Content
           if (_isLoading)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 40),
@@ -3512,7 +3647,6 @@ class _LayananPickerSheetState extends State<_LayananPickerSheet> {
                         fontSize: 13,
                       ),
                     ),
-
                     const SizedBox(height: 16),
                     FutureBuilder<bool>(
                       future: canAccess('can_access_layanan'),
@@ -3650,7 +3784,7 @@ class _LayananPickerSheetState extends State<_LayananPickerSheet> {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  BOTTOM SHEET: Input Detail Item
+// BOTTOM SHEET: Input Detail Item — tidak berubah
 // ════════════════════════════════════════════════════════════════════════════
 class _ItemDetailSheet extends StatefulWidget {
   final Layanan layanan;
@@ -3670,7 +3804,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
   double _jumlah = 1.0;
   final _catatanCtrl = TextEditingController();
   final _jumlahPakaianCtrl = TextEditingController(text: '0');
-
   final _jumlahManualCtrl = TextEditingController();
   bool _isManualMode = false;
 
@@ -3700,14 +3833,14 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
             0,
           )
         : DateTime.now();
-    final selesai = baseDate.add(Duration(hours: widget.layanan.durasiJam));
-    return DateFormat('dd-MM-yyyy').format(selesai);
+    return DateFormat(
+      'dd-MM-yyyy',
+    ).format(baseDate.add(Duration(hours: widget.layanan.durasiJam)));
   }
 
   @override
   void initState() {
     super.initState();
-    // Sinkron nilai awal ke controller manual
     _jumlahManualCtrl.text = _jumlah % 1 == 0
         ? _jumlah.toStringAsFixed(0)
         : _jumlah.toStringAsFixed(2);
@@ -3721,200 +3854,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
     super.dispose();
   }
 
-  Future<void> _showKalkulator() async {
-    final pCtrl = TextEditingController();
-    final lCtrl = TextEditingController();
-    double? hasilDouble;
-
-    await showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setS) {
-          void hitung() {
-            final p = double.tryParse(pCtrl.text) ?? 0;
-            final l = double.tryParse(lCtrl.text) ?? 0;
-            setS(() => hasilDouble = p * l);
-          }
-
-          final hasil = hasilDouble ?? 0.0;
-
-          return AlertDialog(
-            backgroundColor: Theme.of(ctx).cardColor,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
-            ),
-            title: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: kPrimary.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Text('🧮', style: TextStyle(fontSize: 18)),
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  'Kalkulator P × L',
-                  style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(ctx).textTheme.bodyLarge?.color,
-                  ),
-                ),
-              ],
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _kalkulatorField(ctx, pCtrl, 'Panjang (meter)', 'm', hitung),
-                const SizedBox(height: 12),
-                _kalkulatorField(ctx, lCtrl, 'Lebar (meter)', 'm', hitung),
-                const SizedBox(height: 16),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 16,
-                    horizontal: 12,
-                  ),
-                  decoration: BoxDecoration(
-                    color: kPrimary.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Column(
-                    children: [
-                      Text(
-                        'Hasil',
-                        style: TextStyle(
-                          color: Theme.of(ctx).textTheme.bodySmall?.color,
-                          fontSize: 13,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      RichText(
-                        text: TextSpan(
-                          children: [
-                            TextSpan(
-                              text: hasil > 0
-                                  ? NumberFormat(
-                                      '#,##0.##',
-                                      'id_ID',
-                                    ).format(hasil)
-                                  : '0',
-                              style: const TextStyle(
-                                color: kPrimary,
-                                fontSize: 28,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const TextSpan(
-                              text: ' meter²',
-                              style: TextStyle(
-                                color: kPrimary,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (hasil > 0) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          NumberFormat.currency(
-                            locale: 'id_ID',
-                            symbol: 'Rp ',
-                            decimalDigits: 0,
-                          ).format((widget.layanan.harga * hasil).round()),
-                          style: const TextStyle(
-                            color: kPrimary,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        Text(
-                          'Harga: Rp ${NumberFormat('#,###', 'id_ID').format(widget.layanan.harga.round())} / meter²',
-                          style: TextStyle(
-                            color: Theme.of(ctx).textTheme.bodySmall?.color,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: Text(
-                  'Batal',
-                  style: TextStyle(color: Theme.of(ctx).hintColor),
-                ),
-              ),
-              ElevatedButton(
-                onPressed: hasil > 0
-                    ? () {
-                        final nilaiRapi = double.parse(
-                          hasilDouble!.toStringAsFixed(2),
-                        );
-                        setState(() {
-                          _jumlah = nilaiRapi;
-                          _jumlahManualCtrl.text = nilaiRapi % 1 == 0
-                              ? nilaiRapi.toStringAsFixed(0)
-                              : nilaiRapi.toStringAsFixed(2);
-                        });
-                        Navigator.pop(ctx);
-                      }
-                    : null,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: kPrimary,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-                child: const Text(
-                  'Gunakan',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _kalkulatorField(
-    BuildContext ctx,
-    TextEditingController ctrl,
-    String label,
-    String suffix,
-    VoidCallback onChange,
-  ) {
-    return TextField(
-      controller: ctrl,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      inputFormatters: [
-        FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
-      ],
-      onChanged: (_) => onChange(),
-      decoration: InputDecoration(
-        labelText: label,
-        suffixText: suffix,
-        filled: true,
-        fillColor: Theme.of(ctx).scaffoldBackgroundColor,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: kPrimary, width: 2),
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
@@ -3926,8 +3865,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
               ? _jumlah.toStringAsFixed(0)
               : NumberFormat('#,##0.##', 'id_ID').format(_jumlah))
         : _jumlah.toStringAsFixed(0);
-
-    // Keterangan estimasi dari mana dihitung
     final estimasiInfo = _hitungEstimasi();
     final baseLabel = widget.customTanggal != null
         ? 'dari tgl ${DateFormat('dd MMM', 'id_ID').format(widget.customTanggal!)}'
@@ -3960,8 +3897,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // Header nama layanan
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -4003,7 +3938,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
               ],
             ),
             const SizedBox(height: 24),
-
             Text(
               'Jumlah / Berat',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -4012,8 +3946,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
               ),
             ),
             const SizedBox(height: 10),
-
-            // ── PERUBAHAN 3: Kontrol jumlah dengan mode manual ────────
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
               decoration: BoxDecoration(
@@ -4021,10 +3953,8 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
                 borderRadius: BorderRadius.circular(16),
               ),
               child: _isManualMode
-                  // ── Mode ketik manual ─────────────────────────────
                   ? Row(
                       children: [
-                        // Tombol kurang (tetap bisa pakai)
                         GestureDetector(
                           onTap: () {
                             if (_jumlah > _min) {
@@ -4054,8 +3984,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
                             ),
                           ),
                         ),
-
-                        // Input manual
                         Expanded(
                           child: Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -4103,17 +4031,14 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
                               ),
                               onChanged: (val) {
                                 final parsed = double.tryParse(val);
-                                if (parsed != null && parsed >= _min) {
+                                if (parsed != null && parsed >= _min)
                                   setState(() => _jumlah = parsed);
-                                }
                               },
                               onSubmitted: (_) =>
                                   setState(() => _isManualMode = false),
                             ),
                           ),
                         ),
-
-                        // Tombol tambah (tetap bisa pakai)
                         GestureDetector(
                           onTap: () {
                             final newVal = double.parse(
@@ -4138,7 +4063,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
                         ),
                       ],
                     )
-                  // ── Mode tampilan normal ──────────────────────────
                   : Row(
                       children: [
                         GestureDetector(
@@ -4170,8 +4094,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
                             ),
                           ),
                         ),
-
-                        // Tap nilai → masuk mode manual
                         Expanded(
                           child: GestureDetector(
                             onTap: () => setState(() {
@@ -4207,7 +4129,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
                                   ),
                                 ),
                                 const SizedBox(height: 2),
-                                // Hint kecil
                                 Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
@@ -4230,7 +4151,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
                             ),
                           ),
                         ),
-
                         GestureDetector(
                           onTap: () {
                             final newVal = double.parse(
@@ -4257,12 +4177,239 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
                     ),
             ),
             const SizedBox(height: 12),
-
             if (isKarpet) ...[
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                  onPressed: _showKalkulator,
+                  onPressed: () async {
+                    final pCtrl = TextEditingController();
+                    final lCtrl = TextEditingController();
+                    double? hasilDouble;
+                    await showDialog(
+                      context: context,
+                      builder: (ctx) => StatefulBuilder(
+                        builder: (ctx, setS) {
+                          void hitung() {
+                            final p = double.tryParse(pCtrl.text) ?? 0;
+                            final l = double.tryParse(lCtrl.text) ?? 0;
+                            setS(() => hasilDouble = p * l);
+                          }
+
+                          final hasil = hasilDouble ?? 0.0;
+                          return AlertDialog(
+                            backgroundColor: Theme.of(ctx).cardColor,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            title: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: kPrimary.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: const Text(
+                                    '🧮',
+                                    style: TextStyle(fontSize: 18),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Text(
+                                  'Kalkulator P × L',
+                                  style: TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.bold,
+                                    color: Theme.of(
+                                      ctx,
+                                    ).textTheme.bodyLarge?.color,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            content: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                TextField(
+                                  controller: pCtrl,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                      ),
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.allow(
+                                      RegExp(r'^\d+\.?\d{0,2}'),
+                                    ),
+                                  ],
+                                  onChanged: (_) => hitung(),
+                                  decoration: InputDecoration(
+                                    labelText: 'Panjang (meter)',
+                                    suffixText: 'm',
+                                    filled: true,
+                                    fillColor: Theme.of(
+                                      ctx,
+                                    ).scaffoldBackgroundColor,
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      borderSide: const BorderSide(
+                                        color: kPrimary,
+                                        width: 2,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                TextField(
+                                  controller: lCtrl,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                      ),
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.allow(
+                                      RegExp(r'^\d+\.?\d{0,2}'),
+                                    ),
+                                  ],
+                                  onChanged: (_) => hitung(),
+                                  decoration: InputDecoration(
+                                    labelText: 'Lebar (meter)',
+                                    suffixText: 'm',
+                                    filled: true,
+                                    fillColor: Theme.of(
+                                      ctx,
+                                    ).scaffoldBackgroundColor,
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      borderSide: const BorderSide(
+                                        color: kPrimary,
+                                        width: 2,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 16,
+                                    horizontal: 12,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: kPrimary.withOpacity(0.08),
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      Text(
+                                        'Hasil',
+                                        style: TextStyle(
+                                          color: Theme.of(
+                                            ctx,
+                                          ).textTheme.bodySmall?.color,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      RichText(
+                                        text: TextSpan(
+                                          children: [
+                                            TextSpan(
+                                              text: hasil > 0
+                                                  ? NumberFormat(
+                                                      '#,##0.##',
+                                                      'id_ID',
+                                                    ).format(hasil)
+                                                  : '0',
+                                              style: const TextStyle(
+                                                color: kPrimary,
+                                                fontSize: 28,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                            const TextSpan(
+                                              text: ' meter²',
+                                              style: TextStyle(
+                                                color: kPrimary,
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      if (hasil > 0) ...[
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          NumberFormat.currency(
+                                            locale: 'id_ID',
+                                            symbol: 'Rp ',
+                                            decimalDigits: 0,
+                                          ).format(
+                                            (widget.layanan.harga * hasil)
+                                                .round(),
+                                          ),
+                                          style: const TextStyle(
+                                            color: kPrimary,
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx),
+                                child: Text(
+                                  'Batal',
+                                  style: TextStyle(
+                                    color: Theme.of(ctx).hintColor,
+                                  ),
+                                ),
+                              ),
+                              ElevatedButton(
+                                onPressed: hasil > 0
+                                    ? () {
+                                        final nilaiRapi = double.parse(
+                                          hasilDouble!.toStringAsFixed(2),
+                                        );
+                                        setState(() {
+                                          _jumlah = nilaiRapi;
+                                          _jumlahManualCtrl.text =
+                                              nilaiRapi % 1 == 0
+                                              ? nilaiRapi.toStringAsFixed(0)
+                                              : nilaiRapi.toStringAsFixed(2);
+                                        });
+                                        Navigator.pop(ctx);
+                                      }
+                                    : null,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: kPrimary,
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                                child: const Text(
+                                  'Gunakan',
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    );
+                  },
                   icon: Icon(Icons.calculate_outlined, color: primary),
                   label: Text(
                     'Kalkulator P × L',
@@ -4282,7 +4429,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
               ),
               const SizedBox(height: 16),
             ],
-
             Text(
               'Catatan (Opsional)',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -4314,7 +4460,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
               ),
             ),
             const SizedBox(height: 16),
-
             Text(
               'Jumlah Pakaian (Opsional)',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -4347,8 +4492,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // ── PERUBAHAN 2: Preview estimasi (mengikuti tanggal order) ─
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -4398,7 +4541,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
               ),
             ),
             const SizedBox(height: 16),
-
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -4419,7 +4561,6 @@ class _ItemDetailSheetState extends State<_ItemDetailSheet> {
               ],
             ),
             const SizedBox(height: 16),
-
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(

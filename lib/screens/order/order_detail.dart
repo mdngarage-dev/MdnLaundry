@@ -103,6 +103,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     final sisaFmt = _formatRupiah(_sisaTagihan);
 
     final infoBayar = _sudahLunas ? '✅ Lunas' : '💳 Sisa Tagihan: $sisaFmt';
+    final footer = await WaSettings.getFooter();
 
     final pesan =
         'Halo, *$_namaPelangganStr* 👋\n\n'
@@ -116,7 +117,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         '$trackingUrl\n\n'
         'Silakan diambil di outlet kami. Terima kasih! 🙏\n'
         'Jika antar jemput silahkan konfimrasi saat berada di rumah\n\n'
-        '_Madeena Laundry_';
+        '_${footer}_';
 
     if (mode == 'auto') {
       final token = await WaSettings.getToken();
@@ -477,6 +478,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
               (_diskonCatatan.isNotEmpty ? ' (${_diskonCatatan})' : '') +
               '\n'
         : '';
+    final trackingUrl = 'https://laundry-ku-id.web.app/$_noPelanggan';
+    final footer = await WaSettings.getFooter();
 
     final pesan =
         '🧺 *Informasi Order Laundry*\n'
@@ -496,7 +499,10 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         '$dpBaris'
         '💳 Sisa Tagihan   : $sisaFmt\n'
         '━━━━━━━━━━━━━━━━━\n'
-        'Terima kasih 🙏';
+        '🔍 *Lacak status order Anda:*\n'
+        '$trackingUrl\n\n'
+        'Terima kasih 🙏\n';
+    '_${footer}_';
 
     final encoded = Uri.encodeComponent(pesan);
     final Uri uri = noHp.isNotEmpty

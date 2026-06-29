@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:mdnlaundry_project/components/theme.dart';
+import 'package:mdnlaundry_project/services/subscription_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -7,6 +9,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 class WaSettings {
   static const _keyMode = 'wa_mode';
   static const _keyToken = 'wa_fonnte_token';
+  static const _keyFooter = 'wa_footer';
+
+  static const String defaultFooter =
+      'Powered By : Madeena Laundry x Rdh Project';
 
   static Future<String> getMode() async {
     final prefs = await SharedPreferences.getInstance();
@@ -26,6 +32,22 @@ class WaSettings {
   static Future<void> setToken(String token) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyToken, token);
+  }
+
+  static Future<String> getFooter() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(_keyFooter);
+    return (saved == null || saved.trim().isEmpty) ? defaultFooter : saved;
+  }
+
+  // ← TAMBAHKAN method ini
+  static Future<void> setFooter(String footer) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (footer.trim().isEmpty) {
+      await prefs.remove(_keyFooter); // kosongkan = balik ke default
+    } else {
+      await prefs.setString(_keyFooter, footer.trim());
+    }
   }
 
   // ── Helper untuk dipanggil dari add_order_screen.dart ─────────────
@@ -106,95 +128,6 @@ class _WaAutoSectionState extends State<WaAutoSection> {
         ),
       );
     }
-  }
-
-  void _showPreviewPesan() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (_) => Container(
-        decoration: BoxDecoration(
-          color: Theme.of(context).scaffoldBackgroundColor,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                const Icon(Icons.send, color: waGreen, size: 20),
-                const SizedBox(width: 8),
-                Text(
-                  'Contoh Pesan WA',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Pesan yang dikirim ke pelanggan',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: const Color(0xFFDCF8C6),
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(4),
-                  topRight: Radius.circular(16),
-                  bottomLeft: Radius.circular(16),
-                  bottomRight: Radius.circular(16),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.06),
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: const Text(
-                'Halo, *Ibu Ameena* 👋\n\n'
-                'Terima kasih telah mempercayakan laundry Anda! '
-                'Pesanan telah kami terima.\n\n'
-                '📋 *Detail Order:*\n'
-                '• No. Order       : *MDN260611028*\n'
-                '• Layanan          : Setrika Reguler\n'
-                '• Total               : *Rp 46.000*\n'
-                '• Pembayaran   : ⏳ Bayar saat ambil\n'
-                '• Est. Selesai     : 14-06-2026\n\n'
-                '🔍 *Lacak status order Anda:*\n'
-                'https://laundry-ku-id.web.app/MDN260611028\n\n'
-                'Kami segera memproses laundry Anda. Terima kasih! 🙏\n\n'
-                '_Madeena Laundry_',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.black87,
-                  height: 1.6,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   // ── Widget pilihan mode (radio card) ──────────────────────────────
@@ -599,75 +532,476 @@ class _WaAutoSectionState extends State<WaAutoSection> {
                   : const SizedBox.shrink(),
             ),
 
-            // ── Preview pesan (tampil untuk manual & auto, bukan off) ─
-            if (_mode != 'off') ...[
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 4,
-                ),
-                child: Divider(
-                  height: 1,
-                  color: Theme.of(context).dividerColor.withOpacity(0.3),
-                ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  WA FOOTER SECTION WIDGET — footer pesan WA, gated oleh paket subscription
+// ══════════════════════════════════════════════════════════════════════════════
+class WaFooterSection extends StatefulWidget {
+  final String storeId; // ← TAMBAHAN: wajib, untuk isFeatureEnabled
+  final String outletId; // ← TAMBAHAN: wajib, untuk isFeatureEnabled
+
+  const WaFooterSection({
+    super.key,
+    required this.storeId,
+    required this.outletId,
+  });
+
+  @override
+  State<WaFooterSection> createState() => _WaFooterSectionState();
+}
+
+class _WaFooterSectionState extends State<WaFooterSection> {
+  final _footerCtrl = TextEditingController();
+  bool _loading = true;
+  bool _saving = false;
+  bool _hasAccess = false;
+
+  static const waGreen = Color(0xFF25D366);
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _footerCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    final results = await Future.wait([
+      WaSettings.getFooter(),
+      SubscriptionService.isFeatureEnabled(
+        // ← GANTI dari canAccess()
+        storeId: widget.storeId,
+        outletId: widget.outletId,
+        feature: 'edit_wa_message',
+      ),
+    ]);
+    if (mounted) {
+      setState(() {
+        _footerCtrl.text = results[0] as String;
+        _hasAccess = results[1] as bool;
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _save() async {
+    if (!_hasAccess) return;
+    setState(() => _saving = true);
+    await WaSettings.setFooter(_footerCtrl.text);
+    if (mounted) {
+      setState(() => _saving = false);
+      FocusScope.of(context).unfocus();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.check_circle_outline, color: Colors.white, size: 16),
+              SizedBox(width: 8),
+              Text('Footer pesan WA berhasil disimpan'),
+            ],
+          ),
+          backgroundColor: waGreen,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _resetDefault() async {
+    if (!_hasAccess) return;
+    setState(() => _footerCtrl.text = WaSettings.defaultFooter);
+    await WaSettings.setFooter('');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Footer dikembalikan ke default'),
+          backgroundColor: Colors.blueGrey,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  void _showUpgradeDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
               ),
-              InkWell(
-                onTap: _showPreviewPesan,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                  child: Row(
+              child: const Icon(
+                Icons.workspace_premium_rounded,
+                color: Colors.orange,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text('Fitur Premium', style: TextStyle(fontSize: 16)),
+            ),
+          ],
+        ),
+        content: const Text(
+          'Custom footer pesan WhatsApp hanya tersedia untuk paket dengan fitur "Custom WA Message". '
+          'Upgrade paket outlet Anda untuk mengaktifkan fitur ini.',
+          style: TextStyle(fontSize: 13, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Tutup'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: kPrimary,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Upgrade Sekarang'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    if (_loading) {
+      return Container(
+        height: 72,
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: Theme.of(context).dividerColor.withOpacity(0.5),
+          ),
+        ),
+        child: const Center(
+          child: SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    }
+
+    final accentColor = _hasAccess ? waGreen : Colors.grey;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: accentColor.withOpacity(0.4), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: accentColor.withOpacity(0.08),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Header ───────────────────────────────────────────────
+            Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: accentColor.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    Icons.format_quote_rounded,
+                    color: accentColor,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Theme.of(
-                            context,
-                          ).primaryColor.withOpacity(0.08),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(
-                          Icons.preview_outlined,
-                          color: Theme.of(context).primaryColor,
-                          size: 18,
+                      Text(
+                        'Footer Pesan WhatsApp',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                          color: Theme.of(context).textTheme.bodyLarge?.color,
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Lihat Contoh Pesan',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                                color: Theme.of(
-                                  context,
-                                ).textTheme.bodyLarge?.color,
-                              ),
-                            ),
-                            Text(
-                              'Preview pesan WA ke pelanggan',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Theme.of(
-                                  context,
-                                ).textTheme.bodyMedium?.color,
-                              ),
-                            ),
-                          ],
+                      const SizedBox(height: 2),
+                      Text(
+                        _hasAccess
+                            ? 'Baris penutup di setiap pesan WA'
+                            : 'Perlu upgrade paket untuk mengubah',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: accentColor,
+                          fontWeight: FontWeight.w600,
                         ),
-                      ),
-                      Icon(
-                        Icons.chevron_right,
-                        color: Theme.of(context).hintColor,
                       ),
                     ],
                   ),
                 ),
+                if (!_hasAccess)
+                  GestureDetector(
+                    onTap: _showUpgradeDialog,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: Colors.orange.withOpacity(0.4),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.lock_outline_rounded,
+                            size: 11,
+                            color: Colors.orange.shade700,
+                          ),
+                          const SizedBox(width: 3),
+                          Text(
+                            'Upgrade',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.orange.shade700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Divider(
+              height: 1,
+              color: Theme.of(context).dividerColor.withOpacity(0.3),
+            ),
+            const SizedBox(height: 14),
+
+            // ── Input footer ─────────────────────────────────────────
+            Row(
+              children: [
+                Text(
+                  'Teks Footer',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Theme.of(context).textTheme.bodyMedium?.color,
+                  ),
+                ),
+                if (!_hasAccess) ...[
+                  const SizedBox(width: 6),
+                  Icon(
+                    Icons.lock_outline_rounded,
+                    size: 12,
+                    color: Colors.grey.shade400,
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 6),
+            GestureDetector(
+              onTap: _hasAccess ? null : _showUpgradeDialog,
+              child: AbsorbPointer(
+                absorbing: !_hasAccess,
+                child: TextField(
+                  controller: _footerCtrl,
+                  enabled: _hasAccess,
+                  maxLines: 3,
+                  minLines: 1,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: _hasAccess
+                        ? Theme.of(context).textTheme.bodyLarge?.color
+                        : Colors.grey.shade500,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: WaSettings.defaultFooter,
+                    hintStyle: TextStyle(
+                      color: Colors.grey.shade400,
+                      fontSize: 13,
+                    ),
+                    filled: true,
+                    fillColor: !_hasAccess
+                        ? (isDark
+                              ? Colors.white.withOpacity(0.02)
+                              : Colors.grey.shade100)
+                        : (isDark
+                              ? Colors.white.withOpacity(0.05)
+                              : Colors.grey.shade50),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 13,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: Colors.grey.shade300),
+                    ),
+                    disabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: Colors.grey.shade200),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: waGreen, width: 1.5),
+                    ),
+                  ),
+                ),
               ),
-            ] else
-              const SizedBox(height: 8),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _hasAccess
+                  ? 'Kosongkan lalu simpan untuk kembali ke default.'
+                  : 'Saat ini menggunakan footer default. Upgrade untuk mengubahnya.',
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+            ),
+            const SizedBox(height: 12),
+
+            // ── Preview ──────────────────────────────────────────────
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: _hasAccess
+                    ? const Color(0xFFDCF8C6).withOpacity(isDark ? 0.15 : 1)
+                    : (isDark
+                          ? Colors.white.withOpacity(0.04)
+                          : Colors.grey.shade100),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.visibility_outlined,
+                    size: 14,
+                    color: _hasAccess ? waGreen : Colors.grey.shade500,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _footerCtrl.text.trim().isEmpty
+                          ? WaSettings.defaultFooter
+                          : _footerCtrl.text.trim(),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontStyle: FontStyle.italic,
+                        color: _hasAccess
+                            ? (isDark ? Colors.white70 : Colors.black87)
+                            : Colors.grey.shade500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+
+            // ── Tombol aksi ──────────────────────────────────────────
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: (_saving || !_hasAccess) ? null : _resetDefault,
+                    icon: const Icon(Icons.restore_rounded, size: 16),
+                    label: const Text('Default'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.grey.shade600,
+                      disabledForegroundColor: Colors.grey.shade400,
+                      side: BorderSide(color: Colors.grey.shade300),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  flex: 2,
+                  child: ElevatedButton.icon(
+                    onPressed: _saving
+                        ? null
+                        : (_hasAccess ? _save : _showUpgradeDialog),
+                    icon: _saving
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : Icon(
+                            _hasAccess
+                                ? Icons.save_outlined
+                                : Icons.lock_outline_rounded,
+                            size: 16,
+                          ),
+                    label: Text(
+                      _saving
+                          ? 'Menyimpan...'
+                          : (_hasAccess ? 'Simpan Footer' : 'Terkunci'),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _hasAccess
+                          ? waGreen
+                          : Colors.grey.shade300,
+                      foregroundColor: _hasAccess
+                          ? Colors.white
+                          : Colors.grey.shade600,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
       ),

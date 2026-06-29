@@ -164,8 +164,8 @@ class OutletSettingScreen extends StatelessWidget {
                 _buildGroupedMenuItem(
                   context: context,
                   icon: Icons.print_disabled_outlined,
-                  title: "Printer Setting",
-                  subtitle: "Ubah Footer & Header Printer",
+                  title: "Setruk & Printer Setting",
+                  subtitle: "Ubah Footer & Header Setruk",
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -315,6 +315,8 @@ class OutletSettingScreen extends StatelessWidget {
                       _buildSectionLabel(context, "Notifikasi"),
                       const SizedBox(height: 12),
                       const WaAutoSection(),
+                      const SizedBox(height: 12),
+                      WaFooterSection(storeId: storeId, outletId: outletId),
                       const SizedBox(height: 20),
                     ],
                   );

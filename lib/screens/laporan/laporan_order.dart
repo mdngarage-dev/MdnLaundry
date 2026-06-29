@@ -6,10 +6,12 @@ import 'package:mdnlaundry_project/screens/main_screens.dart';
 class LaporanOrderPage extends StatefulWidget {
   final String storeId;
   final String outletId;
+  final bool isGabungan;
   const LaporanOrderPage({
     super.key,
     required this.storeId,
     required this.outletId,
+    this.isGabungan = false,
   });
 
   @override
@@ -79,17 +81,24 @@ class _LaporanOrderPageState extends State<LaporanOrderPage> {
   Future<void> _fetchData() async {
     setState(() => _isLoading = true);
     try {
+      Query<Map<String, dynamic>> orderQuery = FirebaseFirestore.instance
+          .collection('order')
+          .where('store_id', isEqualTo: widget.storeId);
+      Query<Map<String, dynamic>> pelangganQuery = FirebaseFirestore.instance
+          .collection('pelanggan')
+          .where('store_id', isEqualTo: widget.storeId);
+
+      if (!widget.isGabungan) {
+        orderQuery = orderQuery.where('outlet_id', isEqualTo: widget.outletId);
+        pelangganQuery = pelangganQuery.where(
+          'outlet_id',
+          isEqualTo: widget.outletId,
+        );
+      }
+
       final results = await Future.wait([
-        FirebaseFirestore.instance
-            .collection('order')
-            .where('store_id', isEqualTo: widget.storeId)
-            .where('outlet_id', isEqualTo: widget.outletId)
-            .get(),
-        FirebaseFirestore.instance
-            .collection('pelanggan')
-            .where('store_id', isEqualTo: widget.storeId)
-            .where('outlet_id', isEqualTo: widget.outletId)
-            .get(),
+        orderQuery.get(),
+        pelangganQuery.get(),
       ]);
 
       final orderSnap = results[0];

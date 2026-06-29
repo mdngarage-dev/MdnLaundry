@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mdnlaundry_project/screens/main_screens.dart';
@@ -309,16 +310,35 @@ class OutletSettingScreen extends StatelessWidget {
                 future: canAccess('can_access_wa_setting'),
                 builder: (context, snapshot) {
                   if (!(snapshot.data ?? false)) return const SizedBox.shrink();
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildSectionLabel(context, "Notifikasi"),
-                      const SizedBox(height: 12),
-                      const WaAutoSection(),
-                      const SizedBox(height: 12),
-                      WaFooterSection(storeId: storeId, outletId: outletId),
-                      const SizedBox(height: 20),
-                    ],
+                  return FutureBuilder<DocumentSnapshot>(
+                    future: FirebaseFirestore.instance
+                        .collection('stores')
+                        .doc(storeId)
+                        .collection('outlets')
+                        .doc(outletId)
+                        .get(),
+                    builder: (context, outletSnap) {
+                      final outletData =
+                          outletSnap.data?.data() as Map<String, dynamic>?;
+                      final outletName =
+                          outletData?['nama_outlet']?.toString() ?? 'Outlet';
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildSectionLabel(context, "Notifikasi"),
+                          const SizedBox(height: 12),
+                          const WaAutoSection(),
+                          const SizedBox(height: 12),
+                          WaFooterSection(
+                            storeId: storeId,
+                            outletId: outletId,
+                            outletName: outletName,
+                          ),
+                          const SizedBox(height: 20),
+                        ],
+                      );
+                    },
                   );
                 },
               ),

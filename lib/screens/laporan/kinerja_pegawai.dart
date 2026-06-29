@@ -35,11 +35,13 @@ class _PegawaiKinerja {
 class KinerjaPegawaiPage extends StatefulWidget {
   final String storeId;
   final String outletId;
+  final bool isGabungan;
 
   const KinerjaPegawaiPage({
     super.key,
     required this.storeId,
     required this.outletId,
+    this.isGabungan = false,
   });
 
   @override
@@ -131,11 +133,13 @@ class _KinerjaPegawaiPageState extends State<KinerjaPegawaiPage> {
       }
 
       // ── Query orders
-      final snap = await FirebaseFirestore.instance
+      Query<Map<String, dynamic>> orderQuery = FirebaseFirestore.instance
           .collection('order')
-          .where('store_id', isEqualTo: widget.storeId)
-          .where('outlet_id', isEqualTo: widget.outletId)
-          .get();
+          .where('store_id', isEqualTo: widget.storeId);
+      if (!widget.isGabungan) {
+        orderQuery = orderQuery.where('outlet_id', isEqualTo: widget.outletId);
+      }
+      final snap = await orderQuery.get();
 
       final DateTime start = DateTime(
         _startDate.year,

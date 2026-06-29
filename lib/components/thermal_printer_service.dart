@@ -321,6 +321,14 @@ class ThermalPrinterService {
     bluetooth.printCustom('EST. SELESAI :', 1, 0);
     bluetooth.printCustom(estimasi, 2, 1);
 
+    bluetooth.printCustom(divider, 1, 1);
+    for (final baris in _wrapText(
+      PrinterSettings.footerPoweredFinal,
+      lineWidth,
+    )) {
+      bluetooth.printCustom(baris, 1, 1);
+    }
+
     bluetooth.printNewLine();
     bluetooth.printNewLine();
     bluetooth.printNewLine();
@@ -623,6 +631,14 @@ class ThermalPrinterService {
       bluetooth.printCustom('Terima kasih.', 1, 1);
     }
     bluetooth.printCustom('Dicetak oleh : $admin', 1, 0);
+
+    bluetooth.printCustom(divider, 1, 1);
+    for (final baris in _wrapText(
+      PrinterSettings.footerPoweredFinal,
+      lineWidth,
+    )) {
+      bluetooth.printCustom(baris, 1, 1);
+    }
 
     bluetooth.printNewLine();
     bluetooth.printNewLine();

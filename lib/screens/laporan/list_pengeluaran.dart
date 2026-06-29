@@ -5,10 +5,13 @@ import 'package:mdnlaundry_project/screens/main_screens.dart';
 class ListPengeluaranPage extends StatefulWidget {
   final String storeId;
   final String outletId;
+  final bool isGabungan;
+
   const ListPengeluaranPage({
     super.key,
     required this.storeId,
     required this.outletId,
+    this.isGabungan = false,
   });
 
   @override
@@ -48,11 +51,13 @@ class _ListPengeluaranPageState extends State<ListPengeluaranPage> {
   Future<void> _fetchData() async {
     setState(() => _isLoading = true);
     try {
-      final snap = await FirebaseFirestore.instance
+      Query<Map<String, dynamic>> query = FirebaseFirestore.instance
           .collection('pengeluaran')
-          .where('store_id', isEqualTo: widget.storeId)
-          .where('outlet_id', isEqualTo: widget.outletId) // ← tambah ini
-          .get();
+          .where('store_id', isEqualTo: widget.storeId);
+      if (!widget.isGabungan) {
+        query = query.where('outlet_id', isEqualTo: widget.outletId);
+      }
+      final snap = await query.get();
 
       List<Map<String, dynamic>> list = [];
 

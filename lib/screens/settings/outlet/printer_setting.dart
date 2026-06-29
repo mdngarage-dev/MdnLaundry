@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:mdnlaundry_project/screens/main_screens.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
+import 'package:mdnlaundry_project/services/subscription_service.dart';
 
 // ════════════════════════════════════════════════════════════════════════════
 //  PrinterSettings — in-memory static state
@@ -24,6 +25,11 @@ class PrinterSettings {
   static String customNota = '';
   static int ukuranKertas = 58;
   static List<Map<String, String>> rekeningList = [];
+  static String footerPowered = '';
+  static const String defaultFooterPowered =
+      'Powered By : Madeena Laundry x Rdh Project';
+  static String get footerPoweredFinal =>
+      footerPowered.trim().isEmpty ? defaultFooterPowered : footerPowered;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -58,6 +64,7 @@ class PrinterSettingsService {
           (d['ukuran_label_pelanggan'] as int?) ?? 1;
       PrinterSettings.ukuranKertas = (d['ukuran_kertas'] as int?) ?? 58;
       PrinterSettings.tampilkanQrStruk = d['tampilkan_qr_struk'] ?? true;
+      PrinterSettings.footerPowered = d['footer_powered']?.toString() ?? '';
       final rawRek = d['rekening_list'];
       if (rawRek is List) {
         PrinterSettings.rekeningList = rawRek
@@ -86,6 +93,7 @@ class PrinterSettingsService {
     required bool tampilkanQrStruk,
     required String customNota,
     required List<Map<String, String>> rekeningList,
+    required String footerPowered,
   }) async {
     await _docRef(storeId, outletId).set({
       'pesan_kaki': pesanKaki,
@@ -98,6 +106,7 @@ class PrinterSettingsService {
       'tampilkan_qr_struk': tampilkanQrStruk,
       'custom_nota': customNota,
       'rekening_list': rekeningList,
+      'footer_powered': footerPowered,
       'updated_at': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
@@ -176,12 +185,14 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
   int _ukuranLabelPelanggan = 1;
   int _ukuranKertas = 58;
   final _customNotaController = TextEditingController();
+  final _footerPoweredController = TextEditingController();
 
   List<Map<String, String>> _rekeningList = [];
 
   bool _isLoading = true;
   bool _isSaving = false;
   bool _isSaved = false;
+  bool _hasEditNotaAccess = false;
 
   @override
   void initState() {
@@ -191,6 +202,11 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
 
   Future<void> _loadData() async {
     await PrinterSettingsService.load(widget.storeId, widget.outletId);
+    final hasAccess = await SubscriptionService.isFeatureEnabled(
+      storeId: widget.storeId,
+      outletId: widget.outletId,
+      feature: 'edit_nota',
+    );
     if (!mounted) return;
     setState(() {
       _pesanKakiController.text = PrinterSettings.pesanKaki;
@@ -202,6 +218,9 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
       _customNotaController.text = PrinterSettings.customNota;
       _tampilkanQrStruk = PrinterSettings.tampilkanQrStruk;
       _ukuranKertas = PrinterSettings.ukuranKertas;
+      _footerPoweredController.text =
+          PrinterSettings.footerPowered; // ← TAMBAHKAN
+      _hasEditNotaAccess = hasAccess;
       _rekeningList = List<Map<String, String>>.from(
         PrinterSettings.rekeningList.map((e) => Map<String, String>.from(e)),
       );
@@ -213,6 +232,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
   void dispose() {
     _pesanKakiController.dispose();
     _customNotaController.dispose();
+    _footerPoweredController.dispose();
     super.dispose();
   }
 
@@ -234,6 +254,9 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
         ukuranKertas: _ukuranKertas,
         customNota: _customNotaController.text.trim(),
         rekeningList: _rekeningList,
+        footerPowered: _hasEditNotaAccess
+            ? _footerPoweredController.text.trim()
+            : '',
       );
       PrinterSettings.pesanKaki = _pesanKakiController.text.trim();
       PrinterSettings.tampilkanNoHpOutlet = _tampilkanNoHpOutlet;
@@ -245,6 +268,9 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
       PrinterSettings.ukuranKertas = _ukuranKertas;
       PrinterSettings.customNota = _customNotaController.text.trim();
       PrinterSettings.rekeningList = _rekeningList;
+      PrinterSettings.footerPowered = _hasEditNotaAccess
+          ? _footerPoweredController.text.trim()
+          : '';
 
       if (!mounted) return;
       setState(() {
@@ -1777,6 +1803,112 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                         }),
                       ),
                     ),
+
+                  const SizedBox(height: 20),
+
+                  // ── Footer "Powered By" ───────────────────────────────────
+                  Row(
+                    children: [
+                      Expanded(child: _sectionTitle('Footer Struk')),
+                      if (!_hasEditNotaAccess)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: Colors.orange.withOpacity(0.4),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.lock_outline_rounded,
+                                size: 11,
+                                color: Colors.orange.shade700,
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                'Upgrade',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.orange.shade700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                  _card(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _hasEditNotaAccess
+                              ? 'Teks ini tampil di baris paling bawah struk (Customer & Produksi)'
+                              : 'Perlu upgrade paket untuk mengubah teks ini',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: _hasEditNotaAccess
+                                ? theme.textTheme.bodySmall?.color?.withOpacity(
+                                    0.6,
+                                  )
+                                : Colors.orange.shade700,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        AbsorbPointer(
+                          absorbing: !_hasEditNotaAccess,
+                          child: TextFormField(
+                            controller: _footerPoweredController,
+                            maxLines: 2,
+                            enabled: _hasEditNotaAccess,
+                            onChanged: (_) => _markUnsaved(),
+                            style: theme.textTheme.bodyLarge,
+                            decoration: InputDecoration(
+                              hintText: PrinterSettings.defaultFooterPowered,
+                              hintStyle: theme.textTheme.bodyLarge?.copyWith(
+                                color: theme.textTheme.bodyLarge?.color
+                                    ?.withOpacity(0.35),
+                                fontSize: 13,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide.none,
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide(
+                                  color: kPrimary,
+                                  width: 1.5,
+                                ),
+                              ),
+                              filled: true,
+                              fillColor: _hasEditNotaAccess
+                                  ? theme.scaffoldBackgroundColor
+                                  : theme.scaffoldBackgroundColor.withOpacity(
+                                      0.5,
+                                    ),
+                              contentPadding: const EdgeInsets.all(12),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Kosongkan lalu simpan untuk kembali ke default.',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
 
                   const SizedBox(height: 28),
 

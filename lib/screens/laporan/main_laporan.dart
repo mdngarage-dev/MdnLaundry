@@ -493,6 +493,7 @@ class _LaporanScreenState extends State<LaporanScreen> {
                                     outletId: _selectedView == 'gabungan'
                                         ? ''
                                         : _selectedOutletId,
+                                    isGabungan: _selectedView == 'gabungan',
                                   ),
                                 ),
                               );
@@ -518,6 +519,7 @@ class _LaporanScreenState extends State<LaporanScreen> {
                                 outletId: _selectedView == 'gabungan'
                                     ? ''
                                     : _selectedOutletId,
+                                isGabungan: _selectedView == 'gabungan',
                               ),
                             ),
                           );
@@ -564,6 +566,7 @@ class _LaporanScreenState extends State<LaporanScreen> {
                                 outletId: _selectedView == 'gabungan'
                                     ? ''
                                     : _selectedOutletId,
+                                isGabungan: _selectedView == 'gabungan',
                               ),
                             ),
                           );

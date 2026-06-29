@@ -88,22 +88,32 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
       final hariIni = DateTime(date.year, date.month, date.day);
 
       // Ambil keuangan, order, pengeluaran paralel
+      Query<Map<String, dynamic>> keuanganQuery = FirebaseFirestore.instance
+          .collection('keuangan')
+          .where('store_id', isEqualTo: widget.storeId);
+      Query<Map<String, dynamic>> orderQuery = FirebaseFirestore.instance
+          .collection('order')
+          .where('store_id', isEqualTo: widget.storeId);
+      Query<Map<String, dynamic>> pengeluaranQuery = FirebaseFirestore.instance
+          .collection('pengeluaran')
+          .where('store_id', isEqualTo: widget.storeId);
+
+      if (!widget.isGabungan) {
+        keuanganQuery = keuanganQuery.where(
+          'outlet_id',
+          isEqualTo: widget.outletId,
+        );
+        orderQuery = orderQuery.where('outlet_id', isEqualTo: widget.outletId);
+        pengeluaranQuery = pengeluaranQuery.where(
+          'outlet_id',
+          isEqualTo: widget.outletId,
+        );
+      }
+
       final results = await Future.wait([
-        FirebaseFirestore.instance
-            .collection('keuangan')
-            .where('store_id', isEqualTo: widget.storeId)
-            .where('outlet_id', isEqualTo: widget.outletId)
-            .get(),
-        FirebaseFirestore.instance
-            .collection('order')
-            .where('store_id', isEqualTo: widget.storeId)
-            .where('outlet_id', isEqualTo: widget.outletId)
-            .get(),
-        FirebaseFirestore.instance
-            .collection('pengeluaran')
-            .where('store_id', isEqualTo: widget.storeId)
-            .where('outlet_id', isEqualTo: widget.outletId)
-            .get(),
+        keuanganQuery.get(),
+        orderQuery.get(),
+        pengeluaranQuery.get(),
       ]);
 
       final keuanganSnap = results[0];

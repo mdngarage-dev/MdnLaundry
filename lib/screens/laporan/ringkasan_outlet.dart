@@ -95,30 +95,73 @@ class _RingkasanPageState extends State<RingkasanPage> {
     setState(() => _isLoading = true);
 
     try {
-      // ── Fetch paralel ──────────────────────────────────────────────────
-      final results = await Future.wait([
-        FirebaseFirestore.instance
-            .collection('order')
-            .where('store_id', isEqualTo: widget.storeId)
-            .where('outlet_id', isEqualTo: widget.outletId)
-            .get(),
-        FirebaseFirestore.instance
-            .collection('pengeluaran')
-            .where('store_id', isEqualTo: widget.storeId)
-            .where('outlet_id', isEqualTo: widget.outletId)
-            .get(),
-        FirebaseFirestore.instance
+      // ── Query order & pengeluaran: filter outlet hanya jika BUKAN mode gabungan ──
+      Query<Map<String, dynamic>> orderQuery = FirebaseFirestore.instance
+          .collection('order')
+          .where('store_id', isEqualTo: widget.storeId);
+      if (!widget.isGabungan) {
+        orderQuery = orderQuery.where('outlet_id', isEqualTo: widget.outletId);
+      }
+
+      Query<Map<String, dynamic>> pengeluaranQuery = FirebaseFirestore.instance
+          .collection('pengeluaran')
+          .where('store_id', isEqualTo: widget.storeId);
+      if (!widget.isGabungan) {
+        pengeluaranQuery = pengeluaranQuery.where(
+          'outlet_id',
+          isEqualTo: widget.outletId,
+        );
+      }
+
+      // ── Pelanggan: jika gabungan, loop semua outlet di bawah store ini ──
+      final List<Map<String, dynamic>> pelangganDocs = [];
+
+      if (widget.isGabungan) {
+        // Ambil daftar outlet di bawah store ini dulu
+        final outletsSnap = await FirebaseFirestore.instance
+            .collection('stores')
+            .doc(widget.storeId)
+            .collection('outlets')
+            .get();
+
+        // Query pelanggan tiap outlet secara paralel
+        final pelangganPerOutlet = await Future.wait(
+          outletsSnap.docs.map(
+            (outletDoc) => FirebaseFirestore.instance
+                .collection('stores')
+                .doc(widget.storeId)
+                .collection('outlets')
+                .doc(outletDoc.id)
+                .collection('pelanggan')
+                .get(),
+          ),
+        );
+
+        for (final snap in pelangganPerOutlet) {
+          for (final doc in snap.docs) {
+            pelangganDocs.add(doc.data());
+          }
+        }
+      } else {
+        final snap = await FirebaseFirestore.instance
             .collection('stores')
             .doc(widget.storeId)
             .collection('outlets')
             .doc(widget.outletId)
             .collection('pelanggan')
-            .get(),
+            .get();
+        for (final doc in snap.docs) {
+          pelangganDocs.add(doc.data());
+        }
+      }
+
+      final results = await Future.wait([
+        orderQuery.get(),
+        pengeluaranQuery.get(),
       ]);
 
       final orderSnap = results[0];
       final pengeluaranSnap = results[1];
-      final pelangganSnap = results[2];
 
       final DateTime startDay = DateTime(start.year, start.month, start.day);
       final DateTime endDay = DateTime(end.year, end.month, end.day);
@@ -251,10 +294,9 @@ class _RingkasanPageState extends State<RingkasanPage> {
       int hitungPelangganBaru = 0;
 
       // Cara 1: dari collection pelanggan (paling akurat)
-      bool adaDataPelanggan = pelangganSnap.docs.isNotEmpty;
+      bool adaDataPelanggan = pelangganDocs.isNotEmpty;
       if (adaDataPelanggan) {
-        for (final doc in pelangganSnap.docs) {
-          final data = doc.data();
+        for (final data in pelangganDocs) {
           // Support field created_at (Timestamp) atau waktu_daftar
           final dynamic rawCreated = data['created_at'] ?? data['waktu_daftar'];
           if (rawCreated == null) continue;

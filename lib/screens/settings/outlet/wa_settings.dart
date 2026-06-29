@@ -1,5 +1,7 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:mdnlaundry_project/components/theme.dart';
+import 'package:mdnlaundry_project/screens/subscription/payment_page.dart';
 import 'package:mdnlaundry_project/services/subscription_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -546,11 +548,13 @@ class _WaAutoSectionState extends State<WaAutoSection> {
 class WaFooterSection extends StatefulWidget {
   final String storeId; // ← TAMBAHAN: wajib, untuk isFeatureEnabled
   final String outletId; // ← TAMBAHAN: wajib, untuk isFeatureEnabled
+  final String outletName;
 
   const WaFooterSection({
     super.key,
     required this.storeId,
     required this.outletId,
+    required this.outletName,
   });
 
   @override
@@ -677,12 +681,41 @@ class _WaFooterSectionState extends State<WaFooterSection> {
               backgroundColor: kPrimary,
               foregroundColor: Colors.white,
             ),
-            onPressed: () => Navigator.pop(ctx),
+            onPressed: () {
+              Navigator.pop(ctx); // tutup dialog dulu
+              _goToUpgradePage(); // ← GANTI: navigasi ke halaman pembayaran
+            },
             child: const Text('Upgrade Sekarang'),
           ),
         ],
       ),
     );
+  }
+
+  // ── TAMBAHKAN method baru ──────────────────────────────────────────────
+  Future<void> _goToUpgradePage() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SubscriptionPaymentPage(
+          storeId: widget.storeId,
+          outletId: widget.outletId,
+          outletName: widget.outletName,
+          onPaymentSuccess: () {
+            // dipanggil otomatis saat status subscription jadi 'active'
+            if (Navigator.canPop(context)) {
+              Navigator.pop(context); // balik ke WA Settings
+            }
+          },
+        ),
+      ),
+    );
+    // Setelah balik (baik karena pop manual atau lewat onPaymentSuccess),
+    // reload status akses supaya card langsung terbuka tanpa perlu keluar-masuk halaman.
+    if (mounted) {
+      setState(() => _loading = true);
+      await _load();
+    }
   }
 
   @override

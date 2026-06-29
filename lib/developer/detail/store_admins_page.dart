@@ -1,3 +1,4 @@
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:mdnlaundry_project/components/theme.dart';
@@ -131,7 +132,7 @@ class _StoreAdminsPageState extends State<StoreAdminsPage> {
             ),
             const SizedBox(height: 12),
             Text(
-              'Akun akan dihapus dari Firestore. Data transaksi tidak ikut terhapus.',
+              'Akun akan dihapus permanen (Firestore + login). Data transaksi tidak ikut terhapus.',
               style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
             ),
           ],
@@ -153,23 +154,27 @@ class _StoreAdminsPageState extends State<StoreAdminsPage> {
     if (konfirmasi != true || !mounted) return;
 
     try {
-      await FirebaseFirestore.instance.collection('users').doc(uid).delete();
+      final callable = FirebaseFunctions.instanceFor(
+        region: 'asia-southeast1',
+      ).httpsCallable('deleteAdmin');
+
+      await callable.call({'targetUid': uid});
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Admin $nama berhasil dihapus'),
+            content: Text('Admin $nama berhasil dihapus permanen'),
             backgroundColor: Colors.green,
             behavior: SnackBarBehavior.floating,
           ),
         );
         await _loadAdmins();
       }
-    } catch (e) {
+    } on FirebaseFunctionsException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Gagal hapus admin: $e'),
+            content: Text('Gagal hapus admin: ${e.message}'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
           ),

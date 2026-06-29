@@ -1,9 +1,9 @@
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:mdnlaundry_project/components/theme.dart';
 import 'store_outlets_page.dart';
-import 'delete_store_helper.dart';
 
 class StoreOwnerPage extends StatefulWidget {
   final String storeId;
@@ -160,27 +160,32 @@ class _StoreOwnerPageState extends State<StoreOwnerPage> {
     setState(() => _isDeleting = true);
 
     try {
-      await DeleteStoreHelper.hapusSeluruhStore(widget.storeId);
+      final callable = FirebaseFunctions.instanceFor(
+        region: 'asia-southeast1',
+      ).httpsCallable('deleteStore');
+
+      await callable.call({'storeId': widget.storeId});
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Store dan seluruh data berhasil dihapus'),
+            content: Text(
+              'Store dan seluruh data (termasuk akun) berhasil dihapus',
+            ),
             backgroundColor: Colors.green,
             behavior: SnackBarBehavior.floating,
           ),
         );
-        // Kembali ke StoresTab — pop sampai tidak ada route owner page
         Navigator.of(
           context,
         ).popUntil((route) => route.isFirst || route.settings.name != null);
       }
-    } catch (e) {
+    } on FirebaseFunctionsException catch (e) {
       if (mounted) {
         setState(() => _isDeleting = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Gagal hapus store: $e'),
+            content: Text('Gagal hapus store: ${e.message}'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
           ),

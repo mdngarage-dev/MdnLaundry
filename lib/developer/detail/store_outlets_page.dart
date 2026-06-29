@@ -1,7 +1,7 @@
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:mdnlaundry_project/components/theme.dart';
-import 'delete_store_helper.dart';
 
 class StoreOutletsPage extends StatefulWidget {
   final String storeId;
@@ -184,6 +184,12 @@ class _StoreOutletsPageState extends State<StoreOutletsPage> {
         final subDocs = await outletRef.collection(sub).get();
         for (final doc in subDocs.docs) batch.delete(doc.reference);
       }
+      final permDocs = await db
+          .collection('store_permissions')
+          .doc(widget.storeId)
+          .collection(outletId)
+          .get();
+      for (final doc in permDocs.docs) batch.delete(doc.reference);
       batch.delete(outletRef);
 
       final linkedAdmins = await db
@@ -291,12 +297,14 @@ class _StoreOutletsPageState extends State<StoreOutletsPage> {
     );
 
     try {
-      await DeleteStoreHelper.hapusSeluruhStore(widget.storeId);
+      final callable = FirebaseFunctions.instanceFor(
+        region: 'asia-southeast1',
+      ).httpsCallable('deleteStore');
+
+      await callable.call({'storeId': widget.storeId});
 
       if (mounted) {
-        // Tutup loading dialog
-        Navigator.of(context).pop();
-        // Kembali ke stores tab (pop outlets page + owner page)
+        Navigator.of(context).pop(); // tutup loading
         Navigator.of(context).pop(); // outlets page
         Navigator.of(context).pop(); // owner page
         ScaffoldMessenger.of(context).showSnackBar(
@@ -307,12 +315,12 @@ class _StoreOutletsPageState extends State<StoreOutletsPage> {
           ),
         );
       }
-    } catch (e) {
+    } on FirebaseFunctionsException catch (e) {
       if (mounted) {
         Navigator.of(context).pop(); // tutup loading
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Gagal hapus store: $e'),
+            content: Text('Gagal hapus store: ${e.message}'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
           ),

@@ -321,13 +321,8 @@ exports.resetNotifFlagOnOrderUpdate = onDocumentUpdated(
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { defineSecret } = require("firebase-functions/params");
 
-const GITHUB_PAT = defineSecret("GITHUB_PAT");
-
 exports.deleteAdmin = onCall(
-  {
-    region: "asia-southeast1",
-    secrets: [GITHUB_PAT],
-  },
+  { region: "asia-southeast1" },
   async (request) => {
     if (!request.auth) {
       throw new HttpsError("unauthenticated", "Harus login dulu");
@@ -340,64 +335,181 @@ exports.deleteAdmin = onCall(
       throw new HttpsError("invalid-argument", "targetUid wajib diisi");
     }
 
-    const callerDoc = await admin
-      .firestore()
-      .collection("users")
-      .doc(callerUid)
-      .get();
-
+    const callerDoc = await admin.firestore().collection("users").doc(callerUid).get();
     if (!callerDoc.exists || callerDoc.data()?.can_access_admin !== true) {
       throw new HttpsError("permission-denied", "Tidak punya izin hapus admin");
     }
 
-    // Trigger GitHub Actions pakai https bawaan Node.js
-    await new Promise((resolve, reject) => {
-      const body = JSON.stringify({
-        ref: "main",
-        inputs: {
-          caller_uid: callerUid,
-          target_uid: targetUid,
-        },
-      });
-
-      const options = {
-        hostname: "api.github.com",
-        port: 443,
-        path: "/repos/mdngarage-dev/MdnLaundry/actions/workflows/delete-admin.yml/dispatches",
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${GITHUB_PAT.value()}`,
-          Accept: "application/vnd.github+json",
-          "X-GitHub-Api-Version": "2022-11-28",
-          "Content-Type": "application/json",
-          "Content-Length": Buffer.byteLength(body),
-          "User-Agent": "MdnLaundry-App",
-        },
-      };
-
-      const req = https.request(options, (res) => {
-        let data = "";
-        res.on("data", (chunk) => (data += chunk));
-        res.on("end", () => {
-          if (res.statusCode === 204) {
-            resolve();
-          } else {
-            reject(new Error(`GitHub error ${res.statusCode}: ${data}`));
-          }
-        });
-      });
-
-      req.on("error", reject);
-      req.write(body);
-      req.end();
-    });
+    const targetDoc = await admin.firestore().collection("users").doc(targetUid).get();
+    if (!targetDoc.exists) {
+      throw new HttpsError("not-found", "Akun admin tidak ditemukan");
+    }
+    if (targetDoc.data()?.role !== "Admin") {
+      throw new HttpsError("permission-denied", "Target bukan admin");
+    }
 
     await admin.firestore().collection("users").doc(targetUid).delete();
+    await admin.auth().deleteUser(targetUid);
 
-    console.log(`✅ Admin ${targetUid} dihapus oleh ${callerUid}`);
+    console.log(`✅ Admin ${targetUid} dihapus permanen (Firestore + Auth) oleh ${callerUid}`);
     return { success: true };
   }
 );
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FUNCTION 5: Hapus Seluruh Store (Firestore + Auth Owner & semua Admin)
+// ─────────────────────────────────────────────────────────────────────────────
+exports.deleteStore = onCall(
+  {
+    region: "asia-southeast1",
+    timeoutSeconds: 300, // store besar bisa butuh waktu lebih lama
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Harus login dulu");
+    }
+
+    const callerUid = request.auth.uid;
+    const storeId = request.data.storeId;
+
+    if (!storeId) {
+      throw new HttpsError("invalid-argument", "storeId wajib diisi");
+    }
+
+    const db = admin.firestore();
+
+    // ── 1. Verifikasi caller adalah Owner dari store ini ──────────────────
+    const callerDoc = await db.collection("users").doc(callerUid).get();
+    if (
+      !callerDoc.exists ||
+      callerDoc.data()?.role !== "Owner" ||
+      callerDoc.data()?.store_id !== storeId
+    ) {
+      throw new HttpsError(
+        "permission-denied",
+        "Hanya Owner dari store ini yang bisa menghapus seluruh store"
+      );
+    }
+
+    // ── 2. Kumpulkan semua UID terkait (Owner + semua Admin di store ini) ─
+    const usersSnap = await db
+      .collection("users")
+      .where("store_id", "==", storeId)
+      .get();
+
+    const authUidsToDelete = usersSnap.docs.map((doc) => doc.id);
+
+    console.log(
+      `[deleteStore] Store ${storeId}: ${authUidsToDelete.length} akun Auth akan dihapus (Owner + Admin)`
+    );
+
+    // ── 3. Hapus semua data Firestore terkait store ────────────────────────
+    let batch = db.batch();
+    let opCount = 0;
+
+    const safeDelete = async (ref) => {
+      batch.delete(ref);
+      opCount++;
+      if (opCount >= 450) {
+        await batch.commit();
+        batch = db.batch();
+        opCount = 0;
+      }
+    };
+
+    // 3a. Root collections yang punya field store_id
+    for (const col of ["keuangan", "order", "pengeluaran", "rak"]) {
+      const docs = await db
+        .collection(col)
+        .where("store_id", "==", storeId)
+        .get();
+      for (const doc of docs.docs) await safeDelete(doc.reference);
+    }
+
+    // 3b. Subcollection outlet + sub-subcollection-nya
+    const outlets = await db
+      .collection("stores")
+      .doc(storeId)
+      .collection("outlets")
+      .get();
+
+    for (const outlet of outlets.docs) {
+      for (const sub of [
+        "pelanggan",
+        "settings",
+        "counters",
+        "layanan",
+        "subscription",
+        "payment_history",
+      ]) {
+        const subDocs = await outlet.ref.collection(sub).get();
+        for (const doc of subDocs.docs) await safeDelete(doc.reference);
+      }
+
+      // 3c. store_permissions/{storeId}/{outletId}/{adminUid}
+      // ← ini struktur asli sesuai EditAdminPermissionScreen, BUKAN flat collection
+      const permDocs = await db
+        .collection("store_permissions")
+        .doc(storeId)
+        .collection(outlet.id)
+        .get();
+      for (const doc of permDocs.docs) await safeDelete(doc.reference);
+
+      await safeDelete(outlet.ref);
+    }
+
+    // 3d. Dokumen store_permissions/{storeId} itu sendiri (kalau ada field di dalamnya)
+    await safeDelete(db.collection("store_permissions").doc(storeId));
+
+    // 3e. Semua dokumen users (Owner + Admin)
+    for (const doc of usersSnap.docs) await safeDelete(doc.reference);
+
+    // 3f. Dokumen store
+    await safeDelete(db.collection("stores").doc(storeId));
+
+    if (opCount > 0) await batch.commit();
+
+    console.log(`[deleteStore] Firestore untuk store ${storeId} selesai dihapus`);
+
+    // ── 4. Hapus semua akun Auth (Owner + Admin) ───────────────────────────
+    // admin.auth().deleteUsers() menerima maksimal 1000 uid per call
+    const deleteResults = { successCount: 0, failureCount: 0, errors: [] };
+
+    if (authUidsToDelete.length > 0) {
+      const chunks = [];
+      for (let i = 0; i < authUidsToDelete.length; i += 1000) {
+        chunks.push(authUidsToDelete.slice(i, i + 1000));
+      }
+
+      for (const chunk of chunks) {
+        const result = await admin.auth().deleteUsers(chunk);
+        deleteResults.successCount += result.successCount;
+        deleteResults.failureCount += result.failureCount;
+        if (result.errors.length > 0) {
+          result.errors.forEach((e) => {
+            console.error(
+              `[deleteStore] Gagal hapus Auth uid index ${e.index}: ${e.error.message}`
+            );
+          });
+          deleteResults.errors.push(...result.errors);
+        }
+      }
+    }
+
+    console.log(
+      `[deleteStore] Auth selesai. Sukses: ${deleteResults.successCount}, Gagal: ${deleteResults.failureCount}`
+    );
+
+    return {
+      success: true,
+      firestoreDeleted: true,
+      authDeleted: deleteResults.successCount,
+      authFailed: deleteResults.failureCount,
+    };
+  }
+);
+
 
 const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 

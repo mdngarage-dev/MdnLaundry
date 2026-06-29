@@ -1821,29 +1821,18 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
 
                       // ── Label "Rekening Pembayaran" — menindih pojok kiri atas
                       Positioned(
-                        top: 0,
-                        left: 12,
+                        top: _kHeaderOverlap - 14,
+                        left: 10,
                         child: Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: kPrimary,
-                            borderRadius: BorderRadius.circular(10),
-                            boxShadow: [
-                              BoxShadow(
-                                color: kPrimary.withOpacity(0.3),
-                                blurRadius: 8,
-                                offset: const Offset(0, 3),
-                              ),
-                            ],
+                            horizontal: 8,
+                            vertical: 2,
                           ),
                           child: const Text(
                             'Rekening Pembayaran',
                             style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 13,
+                              color: kPrimary,
+                              fontSize: 15,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -2004,29 +1993,18 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
 
                       // ── Label "Footer Struk" — menindih pojok kiri atas
                       Positioned(
-                        top: 0,
-                        left: 12,
+                        top: _kHeaderOverlap - 14,
+                        left: 10,
                         child: Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: kPrimary,
-                            borderRadius: BorderRadius.circular(10),
-                            boxShadow: [
-                              BoxShadow(
-                                color: kPrimary.withOpacity(0.3),
-                                blurRadius: 8,
-                                offset: const Offset(0, 3),
-                              ),
-                            ],
+                            horizontal: 8,
+                            vertical: 2,
                           ),
                           child: const Text(
-                            'Footer Struk',
+                            'Footer Setruk',
                             style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 13,
+                              color: kPrimary,
+                              fontSize: 15,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -2138,10 +2116,15 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
   // ════════════════════════════════════════════════════════════════════════
   //  _cardWithHeader — Card dengan judul menindih di pojok kiri atas
   // ════════════════════════════════════════════════════════════════════════
-  Widget _cardWithHeader({required String title, required Widget child}) {
+  Widget _cardWithHeader({
+    required String title,
+    required Widget child,
+    Widget? trailing, // <--- Tombol '+ Tambah' atau 'Upgrade' di sisi kanan
+  }) {
     return Stack(
       clipBehavior: Clip.none,
       children: [
+        // 1. Kotak Konten Utama (Putih)
         Container(
           width: double.infinity,
           margin: const EdgeInsets.only(top: _kHeaderOverlap),
@@ -2159,32 +2142,35 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
           ),
           child: child,
         ),
+
+        // 2. Teks Judul di Sisi Kiri (Memotong Garis)
         Positioned(
-          top: 0,
-          left: 12,
+          top:
+              _kHeaderOverlap -
+              14, // <--- Menggunakan hitungan pas dari kode FOOTER SETRUK Anda
+          left: 10,
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: kPrimary,
-              borderRadius: BorderRadius.circular(10),
-              boxShadow: [
-                BoxShadow(
-                  color: kPrimary.withOpacity(0.3),
-                  blurRadius: 8,
-                  offset: const Offset(0, 3),
-                ),
-              ],
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             child: Text(
               title,
               style: const TextStyle(
-                color: Colors.white,
-                fontSize: 13,
+                color: kPrimary, // <--- Warna teks biru utama
+                fontSize: 15,
                 fontWeight: FontWeight.bold,
               ),
             ),
           ),
         ),
+
+        // 3. Tombol Aksi di Sisi Kanan (Jika Ada, seperti + Tambah atau Upgrade)
+        if (trailing != null)
+          Positioned(
+            top:
+                _kHeaderOverlap -
+                20, // <--- Menyeimbangkan tinggi tombol orange/biru agar pas di tengah garis
+            right: 10,
+            child: trailing,
+          ),
       ],
     );
   }

@@ -701,17 +701,15 @@ class _WaFooterSectionState extends State<WaFooterSection> {
           storeId: widget.storeId,
           outletId: widget.outletId,
           outletName: widget.outletName,
+          isUpgradeFlow: true, // ← TAMBAHKAN
           onPaymentSuccess: () {
-            // dipanggil otomatis saat status subscription jadi 'active'
             if (Navigator.canPop(context)) {
-              Navigator.pop(context); // balik ke WA Settings
+              Navigator.pop(context);
             }
           },
         ),
       ),
     );
-    // Setelah balik (baik karena pop manual atau lewat onPaymentSuccess),
-    // reload status akses supaya card langsung terbuka tanpa perlu keluar-masuk halaman.
     if (mounted) {
       setState(() => _loading = true);
       await _load();
@@ -927,7 +925,7 @@ class _WaFooterSectionState extends State<WaFooterSection> {
             const SizedBox(height: 6),
             Text(
               _hasAccess
-                  ? 'Kosongkan lalu simpan untuk kembali ke default.'
+                  ? 'Paket anda sudah PRO silahkan ganti fotter pesan WA nya'
                   : 'Saat ini menggunakan footer default. Upgrade untuk mengubahnya.',
               style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
             ),

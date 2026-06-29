@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:mdnlaundry_project/screens/main_screens.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
+import 'package:mdnlaundry_project/screens/subscription/payment_page.dart';
 import 'package:mdnlaundry_project/services/subscription_service.dart';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -111,7 +112,6 @@ class PrinterSettingsService {
     }, SetOptions(merge: true));
   }
 
-  /// Resize gambar ke 300×300 px lalu upload ke Firebase Storage.
   static Future<String?> uploadQr(
     dynamic imageFile,
     String namaBank,
@@ -176,6 +176,8 @@ class PrinterSettingPage extends StatefulWidget {
 
 class _PrinterSettingPageState extends State<PrinterSettingPage> {
   final _pesanKakiController = TextEditingController();
+  final _customNotaController = TextEditingController();
+  final _footerPoweredController = TextEditingController();
 
   bool _tampilkanNoHpOutlet = true;
   bool _tampilkanAlamatOutlet = true;
@@ -184,8 +186,6 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
   bool _tampilkanQrStruk = true;
   int _ukuranLabelPelanggan = 1;
   int _ukuranKertas = 58;
-  final _customNotaController = TextEditingController();
-  final _footerPoweredController = TextEditingController();
 
   List<Map<String, String>> _rekeningList = [];
 
@@ -193,6 +193,9 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
   bool _isSaving = false;
   bool _isSaved = false;
   bool _hasEditNotaAccess = false;
+
+  // ── Tinggi header section yang menindih card ──────────────────────────────
+  static const double _kHeaderOverlap = 18.0;
 
   @override
   void initState() {
@@ -218,8 +221,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
       _customNotaController.text = PrinterSettings.customNota;
       _tampilkanQrStruk = PrinterSettings.tampilkanQrStruk;
       _ukuranKertas = PrinterSettings.ukuranKertas;
-      _footerPoweredController.text =
-          PrinterSettings.footerPowered; // ← TAMBAHKAN
+      _footerPoweredController.text = PrinterSettings.footerPowered;
       _hasEditNotaAccess = hasAccess;
       _rekeningList = List<Map<String, String>>.from(
         PrinterSettings.rekeningList.map((e) => Map<String, String>.from(e)),
@@ -238,6 +240,9 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
 
   void _markUnsaved() => setState(() => _isSaved = false);
 
+  // ════════════════════════════════════════════════════════════════════════
+  //  Simpan
+  // ════════════════════════════════════════════════════════════════════════
   Future<void> _simpan() async {
     setState(() => _isSaving = true);
     try {
@@ -306,40 +311,31 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
     }
   }
 
+  // ════════════════════════════════════════════════════════════════════════
+  //  QR Scanner
+  // ════════════════════════════════════════════════════════════════════════
   Future<String?> _scanQrFromImage(dynamic imageFile) async {
     try {
-      final InputImage inputImage;
-      if (kIsWeb) {
-        return null;
-      } else {
-        inputImage = InputImage.fromFilePath((imageFile as File).path);
-      }
-
+      if (kIsWeb) return null;
+      final inputImage = InputImage.fromFilePath((imageFile as File).path);
       final barcodeScanner = BarcodeScanner(formats: [BarcodeFormat.qrCode]);
       final barcodes = await barcodeScanner.processImage(inputImage);
       await barcodeScanner.close();
-
-      if (barcodes.isNotEmpty) {
-        return barcodes.first.rawValue;
-      }
-      return null;
+      return barcodes.isNotEmpty ? barcodes.first.rawValue : null;
     } catch (e) {
       return null;
     }
   }
 
-  // ── Validasi: minimal no_rekening ATAU qr_string/qr_file harus diisi ──────
   bool _isRekeningValid({
     required String noRek,
     required String qrString,
     required dynamic qrFile,
-  }) {
-    return noRek.trim().isNotEmpty ||
-        qrString.trim().isNotEmpty ||
-        qrFile != null;
-  }
+  }) => noRek.trim().isNotEmpty || qrString.trim().isNotEmpty || qrFile != null;
 
-  // ── Dialog TAMBAH rekening (dengan QR section) ────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════
+  //  Dialog TAMBAH rekening
+  // ════════════════════════════════════════════════════════════════════════
   Future<void> _showTambahRekeningDialog() async {
     final namaBank = TextEditingController();
     final noRek = TextEditingController();
@@ -361,12 +357,9 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
               imageQuality: 100,
             );
             if (picked == null) return;
-
             setS(() => isScanningQr = true);
-
             final file = kIsWeb ? picked : File(picked.path);
             final scanned = await _scanQrFromImage(file);
-
             if (scanned != null) {
               setS(() {
                 qrString = scanned;
@@ -460,8 +453,6 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                     Icons.person_outline_rounded,
                   ),
                   const SizedBox(height: 20),
-
-                  // ── Divider QR ───────────────────────────────────────────
                   Row(
                     children: [
                       Expanded(child: Divider(color: Colors.grey.shade300)),
@@ -480,8 +471,6 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                     ],
                   ),
                   const SizedBox(height: 6),
-
-                  // ── Info validasi ────────────────────────────────────────
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(
@@ -503,8 +492,6 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                     ),
                   ),
                   const SizedBox(height: 14),
-
-                  // ── QR Preview ───────────────────────────────────────────
                   Center(child: qrPreview()),
                   const SizedBox(height: 12),
                   Text(
@@ -513,8 +500,6 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 12),
-
-                  // ── Tombol Upload & Hapus ────────────────────────────────
                   Row(
                     children: [
                       Expanded(
@@ -567,8 +552,6 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                     ],
                   ),
                   const SizedBox(height: 14),
-
-                  // ── QR String ────────────────────────────────────────────
                   if (isScanningQr)
                     const Center(child: CircularProgressIndicator())
                   else ...[
@@ -652,7 +635,6 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                       ),
                     ],
                   ],
-
                   if (isUploadingQr) ...[
                     const SizedBox(height: 14),
                     const LinearProgressIndicator(),
@@ -677,7 +659,6 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                 onPressed: isUploadingQr
                     ? null
                     : () async {
-                        // ── Validasi: minimal salah satu harus diisi ─────
                         final valid = _isRekeningValid(
                           noRek: noRek.text,
                           qrString: qrString,
@@ -710,9 +691,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                           );
                           return;
                         }
-
                         String finalQrUrl = '';
-
                         if (qrFile != null) {
                           setS(() => isUploadingQr = true);
                           final uploaded =
@@ -727,7 +706,6 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                           if (uploaded != null) finalQrUrl = uploaded;
                           setS(() => isUploadingQr = false);
                         }
-
                         setState(() {
                           _rekeningList.add({
                             'nama_bank': namaBank.text.trim(),
@@ -756,7 +734,9 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
     );
   }
 
-  // ── Dialog EDIT rekening (dengan QR upload) ───────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════
+  //  Dialog EDIT rekening
+  // ════════════════════════════════════════════════════════════════════════
   Future<void> _showEditRekeningDialog(int editIndex) async {
     final namaBank = TextEditingController(
       text: _rekeningList[editIndex]['nama_bank'],
@@ -785,12 +765,9 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
               imageQuality: 100,
             );
             if (picked == null) return;
-
             setS(() => isScanningQr = true);
-
             final file = kIsWeb ? picked : File(picked.path);
             final scanned = await _scanQrFromImage(file);
-
             if (scanned != null) {
               setS(() {
                 qrString = scanned;
@@ -897,8 +874,6 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                     Icons.person_outline_rounded,
                   ),
                   const SizedBox(height: 20),
-
-                  // ── Divider QR ───────────────────────────────────────────
                   Row(
                     children: [
                       Expanded(child: Divider(color: Colors.grey.shade300)),
@@ -917,8 +892,6 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                     ],
                   ),
                   const SizedBox(height: 14),
-
-                  // ── QR Preview ───────────────────────────────────────────
                   Center(child: qrPreview()),
                   const SizedBox(height: 12),
                   Text(
@@ -927,8 +900,6 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 12),
-
-                  // ── Tombol Upload & Hapus ────────────────────────────────
                   Row(
                     children: [
                       Expanded(
@@ -984,7 +955,6 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                     ],
                   ),
                   const SizedBox(height: 14),
-
                   if (isScanningQr)
                     const Center(child: CircularProgressIndicator())
                   else ...[
@@ -1068,7 +1038,6 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                       ),
                     ],
                   ],
-
                   if (isUploadingQr) ...[
                     const SizedBox(height: 14),
                     const LinearProgressIndicator(),
@@ -1093,13 +1062,11 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                 onPressed: isUploadingQr
                     ? null
                     : () async {
-                        // ── Validasi: minimal salah satu harus diisi ─────
                         final valid = _isRekeningValid(
                           noRek: noRek.text,
                           qrString: qrString,
                           qrFile: qrFile,
                         );
-                        // Edit: qrUrl yang sudah ada juga dianggap valid
                         if (!valid && qrUrl.isEmpty) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
@@ -1127,9 +1094,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                           );
                           return;
                         }
-
                         String finalQrUrl = qrUrl;
-
                         if (qrFile != null) {
                           setS(() => isUploadingQr = true);
                           final uploaded =
@@ -1144,16 +1109,14 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                           if (uploaded != null) finalQrUrl = uploaded;
                           setS(() => isUploadingQr = false);
                         }
-
-                        final entry = {
-                          'nama_bank': namaBank.text.trim(),
-                          'no_rekening': noRek.text.trim(),
-                          'atas_nama': atasNama.text.trim(),
-                          'qr_url': finalQrUrl,
-                          'qr_string': qrString,
-                        };
                         setState(() {
-                          _rekeningList[editIndex] = entry;
+                          _rekeningList[editIndex] = {
+                            'nama_bank': namaBank.text.trim(),
+                            'no_rekening': noRek.text.trim(),
+                            'atas_nama': atasNama.text.trim(),
+                            'qr_url': finalQrUrl,
+                            'qr_string': qrString,
+                          };
                           _isSaved = false;
                         });
                         if (ctx.mounted) Navigator.pop(ctx);
@@ -1174,60 +1137,95 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
     );
   }
 
-  Widget _emptyQrBox() => Container(
-    width: 110,
-    height: 110,
-    decoration: BoxDecoration(
-      color: kPrimary.withOpacity(0.06),
-      borderRadius: BorderRadius.circular(10),
-      border: Border.all(
-        color: kPrimary.withOpacity(0.2),
-        style: BorderStyle.solid,
-      ),
-    ),
-    child: Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(
-          Icons.qr_code_2_rounded,
-          color: kPrimary.withOpacity(0.4),
-          size: 34,
+  // ════════════════════════════════════════════════════════════════════════
+  //  Upgrade dialog & page
+  // ════════════════════════════════════════════════════════════════════════
+  void _showUpgradeDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.workspace_premium_rounded,
+                color: Colors.orange,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text('Fitur Premium', style: TextStyle(fontSize: 16)),
+            ),
+          ],
         ),
-        const SizedBox(height: 6),
-        Text(
-          'Belum ada QR',
-          style: TextStyle(fontSize: 11, color: kPrimary.withOpacity(0.5)),
+        content: const Text(
+          'Custom footer struk hanya tersedia untuk paket dengan fitur "Edit Nota". '
+          'Upgrade paket outlet Anda untuk mengaktifkan fitur ini.',
+          style: TextStyle(fontSize: 13, height: 1.4),
         ),
-      ],
-    ),
-  );
-
-  Widget _dialogField(
-    TextEditingController ctrl,
-    String hint,
-    IconData icon, {
-    TextInputType type = TextInputType.text,
-  }) {
-    return TextField(
-      controller: ctrl,
-      keyboardType: type,
-      decoration: InputDecoration(
-        hintText: hint,
-        prefixIcon: Icon(icon, size: 18, color: kPrimary.withOpacity(0.6)),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide(color: kPrimary, width: 1.5),
-        ),
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 12,
-          vertical: 12,
-        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Tutup'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: kPrimary,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _goToUpgradePage();
+            },
+            child: const Text('Upgrade Sekarang'),
+          ),
+        ],
       ),
     );
   }
 
-  // ── Build ─────────────────────────────────────────────────────────────────
+  Future<void> _goToUpgradePage() async {
+    String outletName = 'Outlet';
+    try {
+      final outletSnap = await FirebaseFirestore.instance
+          .collection('stores')
+          .doc(widget.storeId)
+          .collection('outlets')
+          .doc(widget.outletId)
+          .get();
+      outletName = outletSnap.data()?['nama_outlet']?.toString() ?? 'Outlet';
+    } catch (_) {}
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SubscriptionPaymentPage(
+          storeId: widget.storeId,
+          outletId: widget.outletId,
+          outletName: outletName,
+          isUpgradeFlow: true,
+          onPaymentSuccess: () {
+            if (Navigator.canPop(context)) Navigator.pop(context);
+          },
+        ),
+      ),
+    );
+    if (mounted) {
+      setState(() => _isLoading = true);
+      await _loadData();
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  BUILD
+  // ════════════════════════════════════════════════════════════════════════
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1241,15 +1239,16 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ── Ukuran Kertas ─────────────────────────────────────────
+                  // ══ Ukuran Kertas ══════════════════════════════════════════
                   _sectionTitle('Ukuran Kertas Printer'),
                   const SizedBox(height: 10),
                   _paperSizeSelector(),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 24),
 
-                  // ── Pesan Kaki Struk ──────────────────────────────────────
-                  _sectionTitle('Pesan Kaki Struk'),
-                  _card(
+                  // ══ Pesan Kaki Struk ═══════════════════════════════════════
+                  // Header menindih card
+                  _cardWithHeader(
+                    title: 'Pesan Kaki Struk',
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1293,11 +1292,11 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 24),
 
-                  // ── Pengaturan Struk ──────────────────────────────────────
-                  _sectionTitle('Pengaturan Struk'),
-                  _card(
+                  // ══ Pengaturan Struk ═══════════════════════════════════════
+                  _cardWithHeader(
+                    title: 'Pengaturan Struk',
                     child: Column(
                       children: [
                         FutureBuilder<bool>(
@@ -1377,6 +1376,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                           }),
                         ),
                         _divider(),
+                        // Custom Nota
                         Row(
                           children: [
                             Container(
@@ -1455,8 +1455,8 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                             contentPadding: const EdgeInsets.all(12),
                           ),
                         ),
-                        _divider(),
-                        if (!_namaPelangganBesar)
+                        if (!_namaPelangganBesar) ...[
+                          _divider(),
                           Row(
                             children: [
                               Container(
@@ -1533,386 +1533,556 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                               ),
                             ],
                           ),
+                        ],
                       ],
                     ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 24),
 
-                  // ── Rekening Pembayaran ───────────────────────────────────
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
+                  // ══ Rekening Pembayaran ════════════════════════════════════
+                  // Stack: judul kiri menindih, tombol kanan menindih
+                  Stack(
+                    clipBehavior: Clip.none,
                     children: [
-                      Expanded(child: _sectionTitle('Rekening Pembayaran')),
-                      FutureBuilder<bool>(
-                        future: canAccess('can_kelola_rekening'),
-                        builder: (context, snap) {
-                          if (!(snap.data ?? false))
-                            return const SizedBox.shrink();
-                          return GestureDetector(
-                            onTap: _showTambahRekeningDialog,
+                      // Card konten — padding atas extra supaya tidak tertutup header
+                      Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.only(top: _kHeaderOverlap),
+                        padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).cardColor,
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.04),
+                              blurRadius: 10,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        child: _rekeningList.isEmpty
+                            ? Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 16,
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      Icon(
+                                        Icons.account_balance_outlined,
+                                        size: 36,
+                                        color: Colors.grey.shade400,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        'Belum ada rekening',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(
+                                              color: Colors.grey.shade500,
+                                            ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              )
+                            : Column(
+                                children: List.generate(_rekeningList.length, (
+                                  i,
+                                ) {
+                                  final rek = _rekeningList[i];
+                                  final hasQr =
+                                      (rek['qr_url'] ?? '').isNotEmpty;
+                                  final hasQrString =
+                                      (rek['qr_string'] ?? '').isNotEmpty;
+                                  return Column(
+                                    children: [
+                                      if (i > 0) _divider(),
+                                      Row(
+                                        children: [
+                                          GestureDetector(
+                                            onTap: hasQr
+                                                ? () => _showQrPreview(
+                                                    rek['qr_url']!,
+                                                  )
+                                                : null,
+                                            child: Container(
+                                              width: 48,
+                                              height: 48,
+                                              decoration: BoxDecoration(
+                                                color: kPrimary.withOpacity(
+                                                  0.08,
+                                                ),
+                                                borderRadius:
+                                                    BorderRadius.circular(10),
+                                              ),
+                                              clipBehavior: Clip.antiAlias,
+                                              child: hasQr
+                                                  ? Image.network(
+                                                      rek['qr_url']!,
+                                                      fit: BoxFit.cover,
+                                                      errorBuilder:
+                                                          (_, __, ___) => Icon(
+                                                            Icons
+                                                                .qr_code_2_rounded,
+                                                            color: kPrimary,
+                                                            size: 24,
+                                                          ),
+                                                    )
+                                                  : Icon(
+                                                      Icons
+                                                          .account_balance_outlined,
+                                                      color: kPrimary,
+                                                      size: 22,
+                                                    ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Row(
+                                                  children: [
+                                                    Text(
+                                                      rek['nama_bank'] ?? '-',
+                                                      style: Theme.of(context)
+                                                          .textTheme
+                                                          .bodyLarge
+                                                          ?.copyWith(
+                                                            fontWeight:
+                                                                FontWeight.bold,
+                                                            fontSize: 13,
+                                                          ),
+                                                    ),
+                                                    if (hasQr) ...[
+                                                      const SizedBox(width: 6),
+                                                      Container(
+                                                        padding:
+                                                            const EdgeInsets.symmetric(
+                                                              horizontal: 6,
+                                                              vertical: 2,
+                                                            ),
+                                                        decoration: BoxDecoration(
+                                                          color: Colors.green
+                                                              .withOpacity(0.1),
+                                                          borderRadius:
+                                                              BorderRadius.circular(
+                                                                6,
+                                                              ),
+                                                        ),
+                                                        child: const Text(
+                                                          'QR ✓',
+                                                          style: TextStyle(
+                                                            fontSize: 10,
+                                                            color: Colors.green,
+                                                            fontWeight:
+                                                                FontWeight.w600,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                    if (hasQrString) ...[
+                                                      const SizedBox(width: 6),
+                                                      Container(
+                                                        padding:
+                                                            const EdgeInsets.symmetric(
+                                                              horizontal: 6,
+                                                              vertical: 2,
+                                                            ),
+                                                        decoration: BoxDecoration(
+                                                          color: Colors.blue
+                                                              .withOpacity(0.1),
+                                                          borderRadius:
+                                                              BorderRadius.circular(
+                                                                6,
+                                                              ),
+                                                        ),
+                                                        child: const Text(
+                                                          'String ✓',
+                                                          style: TextStyle(
+                                                            fontSize: 10,
+                                                            color: Colors.blue,
+                                                            fontWeight:
+                                                                FontWeight.w600,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ],
+                                                ),
+                                                if ((rek['no_rekening'] ?? '')
+                                                    .isNotEmpty)
+                                                  Text(
+                                                    rek['no_rekening'] ?? '-',
+                                                    style: Theme.of(context)
+                                                        .textTheme
+                                                        .bodySmall
+                                                        ?.copyWith(
+                                                          fontSize: 12,
+                                                        ),
+                                                  ),
+                                                if ((rek['atas_nama'] ?? '')
+                                                    .isNotEmpty)
+                                                  Text(
+                                                    'a.n ${rek['atas_nama']}',
+                                                    style: Theme.of(context)
+                                                        .textTheme
+                                                        .bodySmall
+                                                        ?.copyWith(
+                                                          fontSize: 11,
+                                                          color:
+                                                              Theme.of(context)
+                                                                  .textTheme
+                                                                  .bodySmall
+                                                                  ?.color
+                                                                  ?.withOpacity(
+                                                                    0.6,
+                                                                  ),
+                                                        ),
+                                                  ),
+                                              ],
+                                            ),
+                                          ),
+                                          FutureBuilder<bool>(
+                                            future: canAccess(
+                                              'can_kelola_rekening',
+                                            ),
+                                            builder: (context, snap) {
+                                              if (!(snap.data ?? false))
+                                                return const SizedBox.shrink();
+                                              return Tooltip(
+                                                message: 'Edit & Upload QR',
+                                                child: IconButton(
+                                                  onPressed: () =>
+                                                      _showEditRekeningDialog(
+                                                        i,
+                                                      ),
+                                                  icon: Icon(
+                                                    Icons
+                                                        .qr_code_scanner_rounded,
+                                                    size: 20,
+                                                    color: kPrimary,
+                                                  ),
+                                                  splashRadius: 20,
+                                                ),
+                                              );
+                                            },
+                                          ),
+                                          FutureBuilder<bool>(
+                                            future: canAccess(
+                                              'can_kelola_rekening',
+                                            ),
+                                            builder: (context, snap) {
+                                              if (!(snap.data ?? false))
+                                                return const SizedBox.shrink();
+                                              return IconButton(
+                                                onPressed: () =>
+                                                    _showEditRekeningDialog(i),
+                                                icon: Icon(
+                                                  Icons.edit_outlined,
+                                                  size: 18,
+                                                  color: Colors.grey.shade600,
+                                                ),
+                                                splashRadius: 20,
+                                              );
+                                            },
+                                          ),
+                                          FutureBuilder<bool>(
+                                            future: canAccess(
+                                              'can_kelola_rekening',
+                                            ),
+                                            builder: (context, snap) {
+                                              if (!(snap.data ?? false))
+                                                return const SizedBox.shrink();
+                                              return IconButton(
+                                                onPressed: () => setState(() {
+                                                  _rekeningList.removeAt(i);
+                                                  _isSaved = false;
+                                                }),
+                                                icon: Icon(
+                                                  Icons.delete_outline,
+                                                  size: 18,
+                                                  color: Colors.red.shade400,
+                                                ),
+                                                splashRadius: 20,
+                                              );
+                                            },
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  );
+                                }),
+                              ),
+                      ),
+
+                      // ── Label "Rekening Pembayaran" — menindih pojok kiri atas
+                      Positioned(
+                        top: 0,
+                        left: 12,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: kPrimary,
+                            borderRadius: BorderRadius.circular(10),
+                            boxShadow: [
+                              BoxShadow(
+                                color: kPrimary.withOpacity(0.3),
+                                blurRadius: 8,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: const Text(
+                            'Rekening Pembayaran',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      // ── Tombol "+ Tambah" — menindih pojok kanan atas
+                      Positioned(
+                        top: 0,
+                        right: 0,
+                        child: FutureBuilder<bool>(
+                          future: canAccess('can_kelola_rekening'),
+                          builder: (context, snap) {
+                            if (!(snap.data ?? false))
+                              return const SizedBox.shrink();
+                            return GestureDetector(
+                              onTap: _showTambahRekeningDialog,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: kPrimary.withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: kPrimary.withOpacity(0.4),
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: kPrimary.withOpacity(0.15),
+                                      blurRadius: 6,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.add_rounded,
+                                      size: 16,
+                                      color: kPrimary,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'Tambah',
+                                      style: TextStyle(
+                                        color: kPrimary,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+
+                  // ══ Footer Struk ═══════════════════════════════════════════
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      // Card konten
+                      Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.only(top: _kHeaderOverlap),
+                        padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).cardColor,
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.04),
+                              blurRadius: 10,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _hasEditNotaAccess
+                                  ? 'Teks ini tampil di baris paling bawah struk (Customer & Produksi)'
+                                  : 'Perlu upgrade paket untuk mengubah teks ini',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: _hasEditNotaAccess
+                                        ? Theme.of(context)
+                                              .textTheme
+                                              .bodySmall
+                                              ?.color
+                                              ?.withOpacity(0.6)
+                                        : Colors.orange.shade700,
+                                  ),
+                            ),
+                            const SizedBox(height: 10),
+                            GestureDetector(
+                              onTap: _hasEditNotaAccess
+                                  ? null
+                                  : _showUpgradeDialog,
+                              child: AbsorbPointer(
+                                absorbing: !_hasEditNotaAccess,
+                                child: TextFormField(
+                                  controller: _footerPoweredController,
+                                  maxLines: 2,
+                                  enabled: _hasEditNotaAccess,
+                                  onChanged: (_) => _markUnsaved(),
+                                  style: Theme.of(context).textTheme.bodyLarge,
+                                  decoration: InputDecoration(
+                                    hintText:
+                                        PrinterSettings.defaultFooterPowered,
+                                    hintStyle: Theme.of(context)
+                                        .textTheme
+                                        .bodyLarge
+                                        ?.copyWith(
+                                          color: Theme.of(context)
+                                              .textTheme
+                                              .bodyLarge
+                                              ?.color
+                                              ?.withOpacity(0.35),
+                                          fontSize: 13,
+                                        ),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                      borderSide: BorderSide.none,
+                                    ),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                      borderSide: BorderSide(
+                                        color: kPrimary,
+                                        width: 1.5,
+                                      ),
+                                    ),
+                                    filled: true,
+                                    fillColor: _hasEditNotaAccess
+                                        ? Theme.of(
+                                            context,
+                                          ).scaffoldBackgroundColor
+                                        : Theme.of(context)
+                                              .scaffoldBackgroundColor
+                                              .withOpacity(0.5),
+                                    contentPadding: const EdgeInsets.all(12),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                          ],
+                        ),
+                      ),
+
+                      // ── Label "Footer Struk" — menindih pojok kiri atas
+                      Positioned(
+                        top: 0,
+                        left: 12,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: kPrimary,
+                            borderRadius: BorderRadius.circular(10),
+                            boxShadow: [
+                              BoxShadow(
+                                color: kPrimary.withOpacity(0.3),
+                                blurRadius: 8,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: const Text(
+                            'Footer Struk',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      // ── Tombol "Upgrade" — menindih pojok kanan atas
+                      if (!_hasEditNotaAccess)
+                        Positioned(
+                          top: 0,
+                          right: 0,
+                          child: GestureDetector(
+                            onTap: _showUpgradeDialog,
                             child: Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 12,
                                 vertical: 6,
                               ),
                               decoration: BoxDecoration(
-                                color: kPrimary.withOpacity(0.1),
+                                color: Colors.orange.shade600,
                                 borderRadius: BorderRadius.circular(10),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.orange.withOpacity(0.3),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 3),
+                                  ),
+                                ],
                               ),
                               child: Row(
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(
-                                    Icons.add_rounded,
-                                    size: 16,
-                                    color: kPrimary,
+                                  const Icon(
+                                    Icons.lock_outline_rounded,
+                                    size: 13,
+                                    color: Colors.white,
                                   ),
                                   const SizedBox(width: 4),
-                                  Text(
-                                    'Tambah',
+                                  const Text(
+                                    'Upgrade',
                                     style: TextStyle(
-                                      color: kPrimary,
                                       fontSize: 13,
                                       fontWeight: FontWeight.w600,
+                                      color: Colors.white,
                                     ),
                                   ),
                                 ],
                               ),
                             ),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  if (_rekeningList.isEmpty)
-                    _card(
-                      child: Center(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          child: Column(
-                            children: [
-                              Icon(
-                                Icons.account_balance_outlined,
-                                size: 36,
-                                color: Colors.grey.shade400,
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                'Belum ada rekening',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: Colors.grey.shade500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    )
-                  else
-                    _card(
-                      child: Column(
-                        children: List.generate(_rekeningList.length, (i) {
-                          final rek = _rekeningList[i];
-                          final hasQr = (rek['qr_url'] ?? '').isNotEmpty;
-                          final hasQrString =
-                              (rek['qr_string'] ?? '').isNotEmpty;
-                          return Column(
-                            children: [
-                              if (i > 0) _divider(),
-                              Row(
-                                children: [
-                                  GestureDetector(
-                                    onTap: hasQr
-                                        ? () => _showQrPreview(rek['qr_url']!)
-                                        : null,
-                                    child: Container(
-                                      width: 48,
-                                      height: 48,
-                                      decoration: BoxDecoration(
-                                        color: kPrimary.withOpacity(0.08),
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      clipBehavior: Clip.antiAlias,
-                                      child: hasQr
-                                          ? Image.network(
-                                              rek['qr_url']!,
-                                              fit: BoxFit.cover,
-                                              errorBuilder: (_, __, ___) =>
-                                                  Icon(
-                                                    Icons.qr_code_2_rounded,
-                                                    color: kPrimary,
-                                                    size: 24,
-                                                  ),
-                                            )
-                                          : Icon(
-                                              Icons.account_balance_outlined,
-                                              color: kPrimary,
-                                              size: 22,
-                                            ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Text(
-                                              rek['nama_bank'] ?? '-',
-                                              style: theme.textTheme.bodyLarge
-                                                  ?.copyWith(
-                                                    fontWeight: FontWeight.bold,
-                                                    fontSize: 13,
-                                                  ),
-                                            ),
-                                            if (hasQr) ...[
-                                              const SizedBox(width: 6),
-                                              Container(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 6,
-                                                      vertical: 2,
-                                                    ),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.green
-                                                      .withOpacity(0.1),
-                                                  borderRadius:
-                                                      BorderRadius.circular(6),
-                                                ),
-                                                child: const Text(
-                                                  'QR ✓',
-                                                  style: TextStyle(
-                                                    fontSize: 10,
-                                                    color: Colors.green,
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                            if (hasQrString) ...[
-                                              const SizedBox(width: 6),
-                                              Container(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 6,
-                                                      vertical: 2,
-                                                    ),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.blue
-                                                      .withOpacity(0.1),
-                                                  borderRadius:
-                                                      BorderRadius.circular(6),
-                                                ),
-                                                child: const Text(
-                                                  'String ✓',
-                                                  style: TextStyle(
-                                                    fontSize: 10,
-                                                    color: Colors.blue,
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ],
-                                        ),
-                                        if ((rek['no_rekening'] ?? '')
-                                            .isNotEmpty)
-                                          Text(
-                                            rek['no_rekening'] ?? '-',
-                                            style: theme.textTheme.bodySmall
-                                                ?.copyWith(fontSize: 12),
-                                          ),
-                                        if ((rek['atas_nama'] ?? '').isNotEmpty)
-                                          Text(
-                                            'a.n ${rek['atas_nama']}',
-                                            style: theme.textTheme.bodySmall
-                                                ?.copyWith(
-                                                  fontSize: 11,
-                                                  color: theme
-                                                      .textTheme
-                                                      .bodySmall
-                                                      ?.color
-                                                      ?.withOpacity(0.6),
-                                                ),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                  FutureBuilder<bool>(
-                                    future: canAccess('can_kelola_rekening'),
-                                    builder: (context, snap) {
-                                      if (!(snap.data ?? false))
-                                        return const SizedBox.shrink();
-                                      return Tooltip(
-                                        message: 'Edit & Upload QR',
-                                        child: IconButton(
-                                          onPressed: () =>
-                                              _showEditRekeningDialog(i),
-                                          icon: Icon(
-                                            Icons.qr_code_scanner_rounded,
-                                            size: 20,
-                                            color: kPrimary,
-                                          ),
-                                          splashRadius: 20,
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                  FutureBuilder<bool>(
-                                    future: canAccess('can_kelola_rekening'),
-                                    builder: (context, snap) {
-                                      if (!(snap.data ?? false))
-                                        return const SizedBox.shrink();
-                                      return IconButton(
-                                        onPressed: () =>
-                                            _showEditRekeningDialog(i),
-                                        icon: Icon(
-                                          Icons.edit_outlined,
-                                          size: 18,
-                                          color: Colors.grey.shade600,
-                                        ),
-                                        splashRadius: 20,
-                                      );
-                                    },
-                                  ),
-                                  FutureBuilder<bool>(
-                                    future: canAccess('can_kelola_rekening'),
-                                    builder: (context, snap) {
-                                      if (!(snap.data ?? false))
-                                        return const SizedBox.shrink();
-                                      return IconButton(
-                                        onPressed: () => setState(() {
-                                          _rekeningList.removeAt(i);
-                                          _isSaved = false;
-                                        }),
-                                        icon: Icon(
-                                          Icons.delete_outline,
-                                          size: 18,
-                                          color: Colors.red.shade400,
-                                        ),
-                                        splashRadius: 20,
-                                      );
-                                    },
-                                  ),
-                                ],
-                              ),
-                            ],
-                          );
-                        }),
-                      ),
-                    ),
-
-                  const SizedBox(height: 20),
-
-                  // ── Footer "Powered By" ───────────────────────────────────
-                  Row(
-                    children: [
-                      Expanded(child: _sectionTitle('Footer Struk')),
-                      if (!_hasEditNotaAccess)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.orange.withOpacity(0.12),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: Colors.orange.withOpacity(0.4),
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.lock_outline_rounded,
-                                size: 11,
-                                color: Colors.orange.shade700,
-                              ),
-                              const SizedBox(width: 3),
-                              Text(
-                                'Upgrade',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.orange.shade700,
-                                ),
-                              ),
-                            ],
                           ),
                         ),
                     ],
                   ),
-                  _card(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _hasEditNotaAccess
-                              ? 'Teks ini tampil di baris paling bawah struk (Customer & Produksi)'
-                              : 'Perlu upgrade paket untuk mengubah teks ini',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: _hasEditNotaAccess
-                                ? theme.textTheme.bodySmall?.color?.withOpacity(
-                                    0.6,
-                                  )
-                                : Colors.orange.shade700,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        AbsorbPointer(
-                          absorbing: !_hasEditNotaAccess,
-                          child: TextFormField(
-                            controller: _footerPoweredController,
-                            maxLines: 2,
-                            enabled: _hasEditNotaAccess,
-                            onChanged: (_) => _markUnsaved(),
-                            style: theme.textTheme.bodyLarge,
-                            decoration: InputDecoration(
-                              hintText: PrinterSettings.defaultFooterPowered,
-                              hintStyle: theme.textTheme.bodyLarge?.copyWith(
-                                color: theme.textTheme.bodyLarge?.color
-                                    ?.withOpacity(0.35),
-                                fontSize: 13,
-                              ),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(10),
-                                borderSide: BorderSide.none,
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(10),
-                                borderSide: BorderSide(
-                                  color: kPrimary,
-                                  width: 1.5,
-                                ),
-                              ),
-                              filled: true,
-                              fillColor: _hasEditNotaAccess
-                                  ? theme.scaffoldBackgroundColor
-                                  : theme.scaffoldBackgroundColor.withOpacity(
-                                      0.5,
-                                    ),
-                              contentPadding: const EdgeInsets.all(12),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Kosongkan lalu simpan untuk kembali ke default.',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.grey.shade500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
                   const SizedBox(height: 28),
 
-                  // ── Tombol Simpan ─────────────────────────────────────────
+                  // ══ Tombol Simpan ══════════════════════════════════════════
                   SizedBox(
                     width: double.infinity,
                     height: 55,
@@ -1965,7 +2135,63 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
     );
   }
 
-  // ── Paper Size Selector ───────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════
+  //  _cardWithHeader — Card dengan judul menindih di pojok kiri atas
+  // ════════════════════════════════════════════════════════════════════════
+  Widget _cardWithHeader({required String title, required Widget child}) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(top: _kHeaderOverlap),
+          padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: child,
+        ),
+        Positioned(
+          top: 0,
+          left: 12,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: kPrimary,
+              borderRadius: BorderRadius.circular(10),
+              boxShadow: [
+                BoxShadow(
+                  color: kPrimary.withOpacity(0.3),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Text(
+              title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Paper Size
+  // ════════════════════════════════════════════════════════════════════════
   Widget _paperSizeSelector() {
     return Row(
       children: [
@@ -2076,6 +2302,9 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
     );
   }
 
+  // ════════════════════════════════════════════════════════════════════════
+  //  QR Preview dialog
+  // ════════════════════════════════════════════════════════════════════════
   void _showQrPreview(String url) {
     showDialog(
       context: context,
@@ -2113,7 +2342,65 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
     );
   }
 
-  // ── Helper widgets ────────────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════
+  //  Helper widgets
+  // ════════════════════════════════════════════════════════════════════════
+  Widget _emptyQrBox() => Container(
+    width: 110,
+    height: 110,
+    decoration: BoxDecoration(
+      color: kPrimary.withOpacity(0.06),
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(
+        color: kPrimary.withOpacity(0.2),
+        style: BorderStyle.solid,
+      ),
+    ),
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(
+          Icons.qr_code_2_rounded,
+          color: kPrimary.withOpacity(0.4),
+          size: 34,
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Belum ada QR',
+          style: TextStyle(fontSize: 11, color: kPrimary.withOpacity(0.5)),
+        ),
+      ],
+    ),
+  );
+
+  Widget _dialogField(
+    TextEditingController ctrl,
+    String hint,
+    IconData icon, {
+    TextInputType type = TextInputType.text,
+  }) {
+    return TextField(
+      controller: ctrl,
+      keyboardType: type,
+      decoration: InputDecoration(
+        hintText: hint,
+        prefixIcon: Icon(icon, size: 18, color: kPrimary.withOpacity(0.6)),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: kPrimary, width: 1.5),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 12,
+        ),
+      ),
+    );
+  }
+
+  Widget _divider() =>
+      Divider(height: 20, thickness: 0.5, color: Colors.grey.withOpacity(0.2));
+
   Widget _sectionTitle(String title) => Padding(
     padding: const EdgeInsets.only(left: 4, bottom: 8),
     child: Text(
@@ -2125,26 +2412,6 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
       ),
     ),
   );
-
-  Widget _card({required Widget child}) => Container(
-    width: double.infinity,
-    padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(
-      color: Theme.of(context).cardColor,
-      borderRadius: BorderRadius.circular(16),
-      boxShadow: [
-        BoxShadow(
-          color: Colors.black.withOpacity(0.04),
-          blurRadius: 10,
-          offset: const Offset(0, 3),
-        ),
-      ],
-    ),
-    child: child,
-  );
-
-  Widget _divider() =>
-      Divider(height: 20, thickness: 0.5, color: Colors.grey.withOpacity(0.2));
 
   Widget _toggleRow({
     required IconData icon,
@@ -2233,12 +2500,11 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
   }
 }
 
+// ════════════════════════════════════════════════════════════════════════════
 class UpperCaseTextFormatter extends TextInputFormatter {
   @override
   TextEditingValue formatEditUpdate(
     TextEditingValue oldValue,
     TextEditingValue newValue,
-  ) {
-    return newValue.copyWith(text: newValue.text.toUpperCase());
-  }
+  ) => newValue.copyWith(text: newValue.text.toUpperCase());
 }

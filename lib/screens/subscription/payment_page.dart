@@ -11,6 +11,7 @@ class SubscriptionPaymentPage extends StatefulWidget {
   final String outletId;
   final String outletName;
   final VoidCallback onPaymentSuccess;
+  final bool isUpgradeFlow;
 
   const SubscriptionPaymentPage({
     super.key,
@@ -18,6 +19,7 @@ class SubscriptionPaymentPage extends StatefulWidget {
     required this.outletId,
     required this.outletName,
     required this.onPaymentSuccess,
+    this.isUpgradeFlow = false,
   });
 
   @override
@@ -31,6 +33,9 @@ class _SubscriptionPaymentPageState extends State<SubscriptionPaymentPage> {
   Map<String, dynamic>? _currentTransaction;
   StreamSubscription? _paymentStatusSub;
   StreamSubscription? _subscriptionSub;
+  DateTime? _initialUpdatedAt;
+  String? _initialPlan;
+  bool _baselineCaptured = false;
 
   @override
   void initState() {
@@ -66,14 +71,34 @@ class _SubscriptionPaymentPageState extends State<SubscriptionPaymentPage> {
           storeId: widget.storeId,
           outletId: widget.outletId,
         ).listen((snap) {
-          if (snap.exists && mounted) {
-            final data = snap.data() as Map<String, dynamic>;
-            final status = data['status'] ?? 'unknown';
+          if (!snap.exists || !mounted) return;
+          final data = snap.data() as Map<String, dynamic>;
+          final status = (data['status'] ?? 'unknown').toString();
+          final plan = (data['plan'] ?? '').toString();
+          final updatedAtRaw = data['updated_at'];
+          final updatedAt = updatedAtRaw is Timestamp
+              ? updatedAtRaw.toDate()
+              : null;
 
-            if (status == 'active') {
-              // Pembayaran berhasil → unlock app
-              widget.onPaymentSuccess();
-            }
+          // ── Snapshot PERTAMA = baseline, jangan langsung trigger sukses ──
+          if (!_baselineCaptured) {
+            _baselineCaptured = true;
+            _initialPlan = plan;
+            _initialUpdatedAt = updatedAt;
+            return; // ← jangan lakukan apa-apa di snapshot awal
+          }
+
+          // ── Snapshot BERIKUTNYA: cek apakah ini benar2 pembayaran baru ──
+          final bool statusActive = status == 'active';
+          final bool planBerubah = plan != _initialPlan;
+          final bool waktuLebihBaru =
+              updatedAt != null &&
+              _initialUpdatedAt != null &&
+              updatedAt.isAfter(_initialUpdatedAt!);
+
+          if (statusActive && (planBerubah || waktuLebihBaru)) {
+            // Ini transisi nyata akibat pembayaran baru → baru boleh auto-close
+            widget.onPaymentSuccess();
           }
         });
   }
@@ -205,8 +230,13 @@ class _SubscriptionPaymentPageState extends State<SubscriptionPaymentPage> {
         title: const Text('Perpanjang Subscription'),
         centerTitle: true,
         elevation: 2,
-        automaticallyImplyLeading:
-            false, // Tidak ada back button → outlet locked
+        automaticallyImplyLeading: widget.isUpgradeFlow,
+        leading: widget.isUpgradeFlow
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                onPressed: () => Navigator.pop(context),
+              )
+            : null,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -218,8 +248,10 @@ class _SubscriptionPaymentPageState extends State<SubscriptionPaymentPage> {
             const SizedBox(height: 20),
 
             // ── Subscription Expired Banner ──────────────────────────────
-            _buildExpiredBanner(),
-            const SizedBox(height: 20),
+            if (!widget.isUpgradeFlow) ...[
+              _buildExpiredBanner(),
+              const SizedBox(height: 20),
+            ],
 
             // ── Pilih Paket ──────────────────────────────────────────────
             Text(

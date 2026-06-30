@@ -166,6 +166,9 @@ class _AnalisisPelangganPageState extends State<AnalisisPelangganPage> {
 
         // no_hp dari order untuk join ke pelanggan
         final String noHp = (data['no_hp'] ?? '').toString().trim();
+        final String namaPelanggan = (data['nama_pelanggan'] ?? '')
+            .toString()
+            .trim();
 
         final dynamic rawHarga =
             data['harga_total'] ?? data['harga_satuan'] ?? 0;
@@ -174,6 +177,7 @@ class _AnalisisPelangganPageState extends State<AnalisisPelangganPage> {
         rawOrders.add({
           'nomor_pelanggan': nomorPelanggan,
           'no_hp': noHp,
+          'nama_pelanggan': namaPelanggan,
           'harga_total': harga,
           'status': (data['status'] ?? '').toString().toLowerCase(),
           'layanan_nama': (data['layanan_nama'] ?? 'Lainnya').toString().trim(),
@@ -217,16 +221,19 @@ class _AnalisisPelangganPageState extends State<AnalisisPelangganPage> {
 
       final String nomor = t['nomor_pelanggan'] as String;
       final String noHp = (t['no_hp'] as String?) ?? '';
+      final String namaDariOrder = (t['nama_pelanggan'] as String?) ?? '';
       final String status = t['status'] as String;
       final String layanan = t['layanan_nama'] as String;
       final double harga = t['harga_total'] as double;
 
-      // ── JOIN: cari nama dari pelanggan via no_hp ──────────────
-      String nama = _noHpToNama[noHp] ?? '';
-      if (nama.isEmpty && noHp.startsWith('0') && noHp.length > 1) {
-        nama = _noHpToNama[noHp.substring(1)] ?? '';
+      // ── Prioritas nama: 1) nama_pelanggan di order, 2) join no_hp→pelanggan, 3) nomor ──
+      String nama = namaDariOrder;
+      if (nama.isEmpty) {
+        nama = _noHpToNama[noHp] ?? '';
+        if (nama.isEmpty && noHp.startsWith('0') && noHp.length > 1) {
+          nama = _noHpToNama[noHp.substring(1)] ?? '';
+        }
       }
-      // Fallback ke nomor_pelanggan jika nama tidak ditemukan
       if (nama.isEmpty) nama = nomor;
 
       // ── Filter search ─────────────────────────────────────────
@@ -1094,9 +1101,10 @@ class _AnalisisPelangganPageState extends State<AnalisisPelangganPage> {
                 ),
                 const Spacer(),
                 if (c.layananCount.isNotEmpty)
-                  Flexible(
+                  Expanded(
                     child: Text(
                       _topLayanan(c.layananCount),
+                      textAlign: TextAlign.right,
                       style: bodySmall?.copyWith(
                         fontSize: 11,
                         fontStyle: FontStyle.italic,

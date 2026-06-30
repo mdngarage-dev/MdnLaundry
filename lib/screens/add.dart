@@ -122,6 +122,7 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
 
     final trackingUrl = 'https://laundry-ku-id.web.app/$nomorOrder';
     final footer = await WaSettings.getFooter();
+    final footerLine = footer.trim().isEmpty ? '' : '_${footer}_\n';
 
     String infoBayar;
     switch (statusBayar) {
@@ -148,17 +149,17 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
 
     final pesan =
         'Halo, *$namaPelanggan* 👋\n\n'
-        'Terima kasih telah mempercayakan laundry Anda! Pesanan telah kami terima.\n\n'
-        '📋 *Detail Order:*\n'
-        '• No. Order    : *$nomorOrder*\n'
-        '• Layanan      : $layananNama\n'
-        '• Total           : *$total*\n'
-        '• Pembayaran: $infoBayar\n'
-        '• Est. Selesai  : $estimasi\n\n'
-        '🔍 *Lacak status order Anda:*\n'
-        '$trackingUrl\n\n'
-        'Kami segera memproses laundry Anda. Terima kasih! 🙏\n\n'
-        '_${footer}_';
+            'Terima kasih telah mempercayakan laundry Anda! Pesanan telah kami terima.\n\n'
+            '📋 *Detail Order:*\n'
+            '• No. Order    : *$nomorOrder*\n'
+            '• Layanan      : $layananNama\n'
+            '• Total           : *$total*\n'
+            '• Pembayaran: $infoBayar\n'
+            '• Est. Selesai  : $estimasi\n\n'
+            '🔍 *Lacak status order Anda:*\n'
+            '$trackingUrl\n\n'
+            'Kami segera memproses laundry Anda. Terima kasih! 🙏\n\n' +
+        footerLine;
 
     if (mode == 'auto') {
       final token = await WaSettings.getToken();

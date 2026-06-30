@@ -83,6 +83,11 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         behavior: SnackBarBehavior.floating,
       ),
     );
+
+    // Kirim notif WA "siap ambil" ← BARU
+    if (newStatus.toLowerCase() == 'siap ambil') {
+      await _kirimNotifikasiSiapAmbil(rakNama);
+    }
   }
 
   // ── Kirim notifikasi WA: cucian siap diambil ──────────────────────────────
@@ -103,21 +108,23 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     final sisaFmt = _formatRupiah(_sisaTagihan);
 
     final infoBayar = _sudahLunas ? '✅ Lunas' : '💳 Sisa Tagihan: $sisaFmt';
+
     final footer = await WaSettings.getFooter();
+    final footerLine = footer.trim().isEmpty ? '' : '_${footer}_\n';
 
     final pesan =
         'Halo, *$_namaPelangganStr* 👋\n\n'
-        '🎉 Laundry Anda sudah *selesai* dan siap diambil!\n\n'
-        '📋 *Detail Order:*\n'
-        '• No. Order    : *$_noPelanggan*\n'
-        '• Layanan      : ${_data['layanan_nama'] ?? '-'}\n'
-        '• Total           : *$totalFmt*\n'
-        '• Pembayaran: $infoBayar\n'
-        '🔍 *Lacak status order Anda:*\n'
-        '$trackingUrl\n\n'
-        'Silakan diambil di outlet kami. Terima kasih! 🙏\n'
-        'Jika antar jemput silahkan konfimrasi saat berada di rumah\n\n'
-        '_${footer}_';
+            '🎉 Laundry Anda sudah *selesai* dan siap diambil!\n\n'
+            '📋 *Detail Order:*\n'
+            '• No. Order    : *$_noPelanggan*\n'
+            '• Layanan      : ${_data['layanan_nama'] ?? '-'}\n'
+            '• Total           : *$totalFmt*\n'
+            '• Pembayaran: $infoBayar\n'
+            '🔍 *Lacak status order Anda:*\n'
+            '$trackingUrl\n\n'
+            'Silakan diambil di outlet kami. Terima kasih! 🙏\n'
+            'Jika antar jemput silahkan konfimrasi saat berada di rumah\n\n' +
+        footerLine;
 
     if (mode == 'auto') {
       final token = await WaSettings.getToken();
@@ -480,29 +487,30 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         : '';
     final trackingUrl = 'https://laundry-ku-id.web.app/$_noPelanggan';
     final footer = await WaSettings.getFooter();
+    final footerLine = footer.trim().isEmpty ? '' : '_${footer}_\n';
 
     final pesan =
         '🧺 *Informasi Order Laundry*\n'
-        '━━━━━━━━━━━━━━━━━\n'
-        '🪪 No Order       : $_noPelanggan\n'
-        '👤 Nama           : $namaFmt\n'
-        '📅 Estimasi       : $_estimasi\n'
-        '📌 Status         : $_status\n'
-        '━━━━━━━━━━━━━━━━━\n'
-        '*Detail Layanan:*\n'
-        '${detailBuffer.toString().trim()}\n'
-        '${biayaBuffer.toString()}'
-        '━━━━━━━━━━━━━━━━━\n'
-        '${_diskonNominal > 0 ? '💰 Subtotal       : ${_formatRupiah(_subtotalSebelumDiskon)}\n' : ''}'
-        '$diskonBaris'
-        '💰 Total          : $totalFmt\n'
-        '$dpBaris'
-        '💳 Sisa Tagihan   : $sisaFmt\n'
-        '━━━━━━━━━━━━━━━━━\n'
-        '🔍 *Lacak status order Anda:*\n'
-        '$trackingUrl\n\n'
-        'Terima kasih 🙏\n';
-    '_${footer}_';
+            '━━━━━━━━━━━━━━━━━\n'
+            '🪪 No Order       : $_noPelanggan\n'
+            '👤 Nama           : $namaFmt\n'
+            '📅 Estimasi       : $_estimasi\n'
+            '📌 Status         : $_status\n'
+            '━━━━━━━━━━━━━━━━━\n'
+            '*Detail Layanan:*\n'
+            '${detailBuffer.toString().trim()}\n'
+            '${biayaBuffer.toString()}'
+            '━━━━━━━━━━━━━━━━━\n'
+            '${_diskonNominal > 0 ? '💰 Subtotal       : ${_formatRupiah(_subtotalSebelumDiskon)}\n' : ''}'
+            '$diskonBaris'
+            '💰 Total          : $totalFmt\n'
+            '$dpBaris'
+            '💳 Sisa Tagihan   : $sisaFmt\n'
+            '━━━━━━━━━━━━━━━━━\n'
+            '🔍 *Lacak status order Anda:*\n'
+            '$trackingUrl\n\n'
+            'Terima kasih 🙏\n' +
+        footerLine;
 
     final encoded = Uri.encodeComponent(pesan);
     final Uri uri = noHp.isNotEmpty
@@ -1673,19 +1681,28 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
           .collection('order')
           .doc(widget.docId);
 
-      // Hapus subcollection items
+      // 1. Hapus subcollection items
       final itemsSnap = await orderRef.collection('items').get();
       for (final doc in itemsSnap.docs) {
         await doc.reference.delete();
       }
 
-      // FIX: Hapus subcollection biaya_tambahan juga ← TAMBAHAN
+      // 2. Hapus subcollection biaya_tambahan
       final biayaSnap = await orderRef.collection('biaya_tambahan').get();
       for (final doc in biayaSnap.docs) {
         await doc.reference.delete();
       }
 
-      // Hapus dokumen order utama
+      // 3. Hapus dokumen keuangan yang terkait ← BARU
+      final keuanganSnap = await FirebaseFirestore.instance
+          .collection('keuangan')
+          .where('nomor_pelanggan', isEqualTo: _noPelanggan)
+          .get();
+      for (final doc in keuanganSnap.docs) {
+        await doc.reference.delete();
+      }
+
+      // 4. Hapus dokumen order utama
       await orderRef.delete();
 
       if (!mounted) return;

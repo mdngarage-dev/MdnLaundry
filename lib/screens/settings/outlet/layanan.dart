@@ -1,6 +1,19 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:io';
+import 'package:excel/excel.dart' as xls;
+import 'package:mdnlaundry_project/screens/main_screens.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:universal_html/html.dart' as html;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONSTANTS
+// ─────────────────────────────────────────────────────────────────────────────
+final defaultBgColor = xls.ExcelColor.fromHexString('#FFFFFF'); // #FFFFFF
+final defaultFontColor = xls.ExcelColor.fromHexString('#111827'); // #111827
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MODEL
@@ -60,6 +73,7 @@ class LayananScreen extends StatefulWidget {
 class _LayananScreenState extends State<LayananScreen> {
   final _firestore = FirebaseFirestore.instance;
   String _filterTipe = 'semua';
+  bool _isExporting = false;
 
   // ── helper warna & label tipe ─────────────────────────────────────────────
   Color _tipeColor(String tipe, BuildContext context) {
@@ -121,6 +135,241 @@ class _LayananScreenState extends State<LayananScreen> {
     if (widget.autoOpenForm) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _openForm());
     }
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // EXPORT EXCEL
+  // ════════════════════════════════════════════════════════════
+  Future<void> _exportToExcel(BuildContext context) async {
+    setState(() => _isExporting = true);
+    try {
+      final snap = await _firestore
+          .collection('stores')
+          .doc(widget.storeId)
+          .collection('outlets')
+          .doc(widget.outletId)
+          .collection('layanan')
+          .orderBy('nama')
+          .get();
+
+      final allLayanan = snap.docs
+          .map((d) => Layanan.fromFirestore(d))
+          .toList();
+
+      final workbook = xls.Excel.createExcel();
+      final defaultSheetName = workbook.getDefaultSheet();
+
+      _writeLayananSheet(workbook, 'Daftar Layanan', allLayanan);
+
+      if (workbook.sheets.containsKey(defaultSheetName) &&
+          workbook.sheets.length > 1) {
+        workbook.delete(defaultSheetName!);
+      }
+
+      final bytes = workbook.encode();
+      if (bytes == null) throw Exception('Gagal encode file excel');
+
+      final tanggalStr = DateFormat('ddMMyy_HHmm').format(DateTime.now());
+      final fileName = 'Daftar_Layanan_$tanggalStr.xlsx';
+
+      if (kIsWeb) {
+        final blob = html.Blob([
+          bytes,
+        ], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        final url = html.Url.createObjectUrlFromBlob(blob);
+        html.AnchorElement(href: url)
+          ..setAttribute('download', fileName)
+          ..click();
+        html.Url.revokeObjectUrl(url);
+      } else {
+        final dir = await getTemporaryDirectory();
+        final file = File('${dir.path}/$fileName');
+        await file.writeAsBytes(bytes);
+
+        if (!mounted) return;
+        await Share.shareXFiles([XFile(file.path)], text: 'Daftar Layanan');
+      }
+    } catch (e, stack) {
+      debugPrint('ERROR export excel layanan: $e\n$stack');
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Gagal membuat laporan: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
+  void _writeLayananSheet(
+    xls.Excel workbook,
+    String sheetName,
+    List<Layanan> data,
+  ) {
+    final sheet = workbook[sheetName];
+
+    final headerFill = xls.ExcelColor.fromHexString('#0D9488');
+    final subFill = xls.ExcelColor.fromHexString('#CCFBF1');
+    final tableHeaderFill = xls.ExcelColor.fromHexString('#115E59');
+    final altRowFill = xls.ExcelColor.fromHexString('#F3F4F6');
+    final white = xls.ExcelColor.fromHexString('#FFFFFF');
+    final darkText = xls.ExcelColor.fromHexString('#111827');
+
+    const totalCols = 5;
+
+    sheet.merge(
+      xls.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 0),
+      xls.CellIndex.indexByColumnRow(columnIndex: totalCols - 1, rowIndex: 0),
+    );
+    _setCellLayanan(
+      sheet,
+      0,
+      0,
+      'DAFTAR LAYANAN',
+      bold: true,
+      fontSize: 16,
+      bgColor: headerFill,
+      fontColor: white,
+      align: xls.HorizontalAlign.Center,
+    );
+
+    sheet.merge(
+      xls.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 1),
+      xls.CellIndex.indexByColumnRow(columnIndex: totalCols - 1, rowIndex: 1),
+    );
+    _setCellLayanan(
+      sheet,
+      0,
+      1,
+      'Dicetak: ${DateFormat('d MMM yyyy, HH:mm', 'id').format(DateTime.now())}',
+      bold: false,
+      fontSize: 11,
+      bgColor: subFill,
+      fontColor: darkText,
+      align: xls.HorizontalAlign.Center,
+    );
+
+    // ── Ringkasan ──
+    final countKiloan = data.where((l) => l.tipe == 'kiloan').length;
+    final countSatuan = data.where((l) => l.tipe == 'satuan').length;
+    final countMeter = data.where((l) => l.tipe == 'meter').length;
+
+    int row = 3;
+    _setCellLayanan(
+      sheet,
+      0,
+      row,
+      'RINGKASAN',
+      bold: true,
+      fontSize: 12,
+      fontColor: darkText,
+    );
+    row++;
+    final summaryRows = <List<String>>[
+      ['Total Layanan', data.length.toString()],
+      ['Kiloan', countKiloan.toString()],
+      ['Satuan', countSatuan.toString()],
+      ['Meter', countMeter.toString()],
+    ];
+    for (final r in summaryRows) {
+      _setCellLayanan(sheet, 0, row, r[0], fontColor: darkText);
+      _setCellLayanan(sheet, 1, row, r[1], bold: true, fontColor: darkText);
+      row++;
+    }
+    row++;
+
+    // ── Header tabel ──
+    final headers = [
+      'No',
+      'Nama Layanan',
+      'Tipe',
+      'Harga',
+      'Durasi Pengerjaan',
+    ];
+    for (int c = 0; c < headers.length; c++) {
+      _setCellLayanan(
+        sheet,
+        c,
+        row,
+        headers[c],
+        bold: true,
+        fontColor: white,
+        bgColor: tableHeaderFill,
+        align: xls.HorizontalAlign.Center,
+      );
+    }
+    row++;
+
+    // ── Data rows (diurutkan per tipe biar rapi) ──
+    final sorted = [...data]
+      ..sort((a, b) {
+        final order = {'kiloan': 0, 'satuan': 1, 'meter': 2};
+        final cmp = (order[a.tipe] ?? 9).compareTo(order[b.tipe] ?? 9);
+        return cmp != 0 ? cmp : a.nama.compareTo(b.nama);
+      });
+
+    int no = 1;
+    for (final l in sorted) {
+      final rowFill = (no % 2 == 0) ? altRowFill : white;
+      final values = [
+        no.toString(),
+        l.nama,
+        _tipeLabel(l.tipe),
+        _formatHargaFull(l.harga),
+        _formatDurasi(l.durasiJam),
+      ];
+      for (int c = 0; c < values.length; c++) {
+        _setCellLayanan(
+          sheet,
+          c,
+          row,
+          values[c],
+          fontColor: darkText,
+          bgColor: rowFill,
+        );
+      }
+      row++;
+      no++;
+    }
+
+    final widths = [5.0, 28.0, 14.0, 16.0, 18.0];
+    for (int c = 0; c < widths.length; c++) {
+      sheet.setColumnWidth(c, widths[c]);
+    }
+  }
+
+  String _formatHargaFull(double h) => NumberFormat.currency(
+    locale: 'id_ID',
+    symbol: 'Rp ',
+    decimalDigits: 0,
+  ).format(h);
+
+  void _setCellLayanan(
+    xls.Sheet sheet,
+    int col,
+    int row,
+    String value, {
+    bool bold = false,
+    int fontSize = 10,
+    xls.ExcelColor? bgColor,
+    xls.ExcelColor? fontColor,
+    xls.HorizontalAlign align = xls.HorizontalAlign.Left,
+  }) {
+    final effectiveBgColor = bgColor ?? xls.ExcelColor.fromHexString('#FFFFFF');
+    final effectiveFontColor =
+        fontColor ?? xls.ExcelColor.fromHexString('#111827');
+    final cell = sheet.cell(
+      xls.CellIndex.indexByColumnRow(columnIndex: col, rowIndex: row),
+    );
+    cell.value = xls.TextCellValue(value);
+    cell.cellStyle = xls.CellStyle(
+      bold: bold,
+      fontSize: fontSize,
+      backgroundColorHex: effectiveBgColor,
+      fontColorHex: effectiveFontColor,
+      horizontalAlign: align,
+      verticalAlign: xls.VerticalAlign.Center,
+    );
   }
 
   // ── hapus layanan ─────────────────────────────────────────────────────────
@@ -321,6 +570,22 @@ class _LayananScreenState extends State<LayananScreen> {
             bottomRight: Radius.circular(20),
           ),
         ),
+        actions: [
+          IconButton(
+            icon: _isExporting
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.download_rounded, color: Colors.white),
+            tooltip: 'Download Daftar Layanan Excel',
+            onPressed: _isExporting ? null : () => _exportToExcel(context),
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _openForm(),

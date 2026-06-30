@@ -12,13 +12,14 @@ class WaSettings {
   static const _keyMode = 'wa_mode';
   static const _keyToken = 'wa_fonnte_token';
   static const _keyFooter = 'wa_footer';
+  static const _keyFooterEnabled = 'wa_footer_enabled'; // ← BARU
 
   static const String defaultFooter =
       'Powered By : Madeena Laundry x Rdh Project';
 
   static Future<String> getMode() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_keyMode) ?? 'manual'; // default: manual
+    return prefs.getString(_keyMode) ?? 'manual';
   }
 
   static Future<void> setMode(String mode) async {
@@ -36,23 +37,36 @@ class WaSettings {
     await prefs.setString(_keyToken, token);
   }
 
+  // ── Footer enabled/disabled ← BARU ──────────────────────────────
+  static Future<bool> isFooterEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_keyFooterEnabled) ?? true; // default: aktif
+  }
+
+  static Future<void> setFooterEnabled(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyFooterEnabled, enabled);
+  }
+
+  // ── getFooter() sekarang cek toggle dulu ← DIUBAH ──────────────
   static Future<String> getFooter() async {
+    final enabled = await isFooterEnabled();
+    if (!enabled) return ''; // OFF = total tidak ada footer
+
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getString(_keyFooter);
     return (saved == null || saved.trim().isEmpty) ? defaultFooter : saved;
   }
 
-  // ← TAMBAHKAN method ini
   static Future<void> setFooter(String footer) async {
     final prefs = await SharedPreferences.getInstance();
     if (footer.trim().isEmpty) {
-      await prefs.remove(_keyFooter); // kosongkan = balik ke default
+      await prefs.remove(_keyFooter);
     } else {
       await prefs.setString(_keyFooter, footer.trim());
     }
   }
 
-  // ── Helper untuk dipanggil dari add_order_screen.dart ─────────────
   static Future<bool> isOff() async => (await getMode()) == 'off';
   static Future<bool> isManual() async => (await getMode()) == 'manual';
   static Future<bool> isAuto() async => (await getMode()) == 'auto';
@@ -106,6 +120,17 @@ class _WaAutoSectionState extends State<WaAutoSection> {
     setState(() => _mode = mode);
   }
 
+  // ── Toggle utama: nyalakan/matikan notifikasi WA ← BARU ────────────
+  Future<void> _toggleActive(bool value) async {
+    if (value) {
+      // ON → default ke 'manual'
+      await _setMode('manual');
+    } else {
+      // OFF
+      await _setMode('off');
+    }
+  }
+
   Future<void> _saveToken() async {
     if (_tokenCtrl.text.trim().isEmpty) return;
     setState(() => _saving = true);
@@ -132,33 +157,40 @@ class _WaAutoSectionState extends State<WaAutoSection> {
     }
   }
 
-  // ── Widget pilihan mode (radio card) ──────────────────────────────
+  // ── Widget pilihan mode (radio card) — kini bisa dikunci ────────────
   Widget _modeOption({
     required String value,
     required String title,
     required String subtitle,
     required IconData icon,
     required Color color,
+    required bool enabled, // ← BARU
   }) {
     final isSelected = _mode == value;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return GestureDetector(
-      onTap: () => _setMode(value),
+      onTap: enabled ? () => _setMode(value) : null,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         decoration: BoxDecoration(
-          color: isSelected
-              ? color.withOpacity(0.08)
-              : (isDark ? Colors.white.withOpacity(0.03) : Colors.grey.shade50),
+          color: !enabled
+              ? (isDark ? Colors.white.withOpacity(0.02) : Colors.grey.shade100)
+              : (isSelected
+                    ? color.withOpacity(0.08)
+                    : (isDark
+                          ? Colors.white.withOpacity(0.03)
+                          : Colors.grey.shade50)),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: isSelected
-                ? color
-                : Theme.of(context).dividerColor.withOpacity(0.4),
-            width: isSelected ? 1.5 : 1,
+            color: !enabled
+                ? Theme.of(context).dividerColor.withOpacity(0.2)
+                : (isSelected
+                      ? color
+                      : Theme.of(context).dividerColor.withOpacity(0.4)),
+            width: (enabled && isSelected) ? 1.5 : 1,
           ),
         ),
         child: Row(
@@ -167,10 +199,16 @@ class _WaAutoSectionState extends State<WaAutoSection> {
               width: 38,
               height: 38,
               decoration: BoxDecoration(
-                color: color.withOpacity(0.12),
+                color: enabled
+                    ? color.withOpacity(0.12)
+                    : Colors.grey.withOpacity(0.12),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: Icon(icon, color: color, size: 18),
+              child: Icon(
+                icon,
+                color: enabled ? color : Colors.grey.shade400,
+                size: 18,
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -182,9 +220,11 @@ class _WaAutoSectionState extends State<WaAutoSection> {
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
-                      color: isSelected
-                          ? color
-                          : Theme.of(context).textTheme.bodyLarge?.color,
+                      color: !enabled
+                          ? Colors.grey.shade400
+                          : (isSelected
+                                ? color
+                                : Theme.of(context).textTheme.bodyLarge?.color),
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -192,7 +232,9 @@ class _WaAutoSectionState extends State<WaAutoSection> {
                     subtitle,
                     style: TextStyle(
                       fontSize: 11,
-                      color: Theme.of(context).textTheme.bodyMedium?.color,
+                      color: !enabled
+                          ? Colors.grey.shade400
+                          : Theme.of(context).textTheme.bodyMedium?.color,
                     ),
                   ),
                 ],
@@ -205,12 +247,14 @@ class _WaAutoSectionState extends State<WaAutoSection> {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: isSelected ? color : Colors.grey.shade400,
+                  color: !enabled
+                      ? Colors.grey.shade300
+                      : (isSelected ? color : Colors.grey.shade400),
                   width: 2,
                 ),
-                color: isSelected ? color : Colors.transparent,
+                color: (enabled && isSelected) ? color : Colors.transparent,
               ),
-              child: isSelected
+              child: (enabled && isSelected)
                   ? const Icon(Icons.check, size: 14, color: Colors.white)
                   : null,
             ),
@@ -243,6 +287,8 @@ class _WaAutoSectionState extends State<WaAutoSection> {
         ),
       );
     }
+
+    final isActive = _mode != 'off'; // ← BARU: status toggle utama
 
     // Warna & label header sesuai mode aktif
     Color headerColor;
@@ -279,7 +325,7 @@ class _WaAutoSectionState extends State<WaAutoSection> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Header ───────────────────────────────────────────────
+            // ── Header dengan toggle utama ← DIUBAH ─────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
               child: Row(
@@ -318,6 +364,11 @@ class _WaAutoSectionState extends State<WaAutoSection> {
                       ],
                     ),
                   ),
+                  Switch.adaptive(
+                    value: isActive,
+                    onChanged: _toggleActive,
+                    activeColor: waGreen,
+                  ),
                 ],
               ),
             ),
@@ -327,24 +378,18 @@ class _WaAutoSectionState extends State<WaAutoSection> {
               color: Theme.of(context).dividerColor.withOpacity(0.3),
             ),
 
-            // ── 3 Pilihan mode ──────────────────────────────────────
+            // ── 2 Pilihan mode (Manual / Otomatis) ← DIUBAH ─────────
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
               child: Column(
                 children: [
-                  _modeOption(
-                    value: 'off',
-                    title: 'Nonaktif',
-                    subtitle: 'Tidak ada notifikasi WA sama sekali',
-                    icon: Icons.notifications_off_outlined,
-                    color: Colors.grey,
-                  ),
                   _modeOption(
                     value: 'manual',
                     title: 'Manual',
                     subtitle: 'Buka WhatsApp, admin tekan kirim sendiri',
                     icon: Icons.touch_app_outlined,
                     color: Colors.blue,
+                    enabled: isActive, // ← BARU
                   ),
                   _modeOption(
                     value: 'auto',
@@ -352,6 +397,7 @@ class _WaAutoSectionState extends State<WaAutoSection> {
                     subtitle: 'Terkirim langsung tanpa buka WhatsApp',
                     icon: Icons.flash_on_rounded,
                     color: waGreen,
+                    enabled: isActive, // ← BARU
                   ),
                 ],
               ),
@@ -566,6 +612,7 @@ class _WaFooterSectionState extends State<WaFooterSection> {
   bool _loading = true;
   bool _saving = false;
   bool _hasAccess = false;
+  bool _footerEnabled = true; // ← BARU
 
   static const waGreen = Color(0xFF25D366);
 
@@ -585,18 +632,49 @@ class _WaFooterSectionState extends State<WaFooterSection> {
     final results = await Future.wait([
       WaSettings.getFooter(),
       SubscriptionService.isFeatureEnabled(
-        // ← GANTI dari canAccess()
         storeId: widget.storeId,
         outletId: widget.outletId,
         feature: 'edit_wa_message',
       ),
+      WaSettings.isFooterEnabled(), // ← BARU
     ]);
     if (mounted) {
       setState(() {
-        _footerCtrl.text = results[0] as String;
         _hasAccess = results[1] as bool;
+        _footerEnabled = results[2] as bool; // ← BARU
+        // Tampilkan teks tersimpan di field, terlepas dari status toggle,
+        // supaya saat di-ON-kan lagi isinya tidak hilang
+        _footerCtrl.text = (results[0] as String).isEmpty
+            ? WaSettings.defaultFooter
+            : results[0] as String;
         _loading = false;
       });
+    }
+  }
+
+  // ── Toggle on/off footer ← BARU ─────────────────────────────────
+  Future<void> _toggleFooterEnabled(bool value) async {
+    if (!_hasAccess) {
+      _showUpgradeDialog();
+      return;
+    }
+    setState(() => _footerEnabled = value);
+    await WaSettings.setFooterEnabled(value);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            value
+                ? 'Footer pesan WA diaktifkan'
+                : 'Footer pesan WA dinonaktifkan',
+          ),
+          backgroundColor: value ? waGreen : Colors.grey.shade600,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+      );
     }
   }
 
@@ -682,8 +760,8 @@ class _WaFooterSectionState extends State<WaFooterSection> {
               foregroundColor: Colors.white,
             ),
             onPressed: () {
-              Navigator.pop(ctx); // tutup dialog dulu
-              _goToUpgradePage(); // ← GANTI: navigasi ke halaman pembayaran
+              Navigator.pop(ctx);
+              _goToUpgradePage();
             },
             child: const Text('Upgrade Sekarang'),
           ),
@@ -692,7 +770,6 @@ class _WaFooterSectionState extends State<WaFooterSection> {
     );
   }
 
-  // ── TAMBAHKAN method baru ──────────────────────────────────────────────
   Future<void> _goToUpgradePage() async {
     await Navigator.push(
       context,
@@ -701,7 +778,7 @@ class _WaFooterSectionState extends State<WaFooterSection> {
           storeId: widget.storeId,
           outletId: widget.outletId,
           outletName: widget.outletName,
-          isUpgradeFlow: true, // ← TAMBAHKAN
+          isUpgradeFlow: true,
           onPaymentSuccess: () {
             if (Navigator.canPop(context)) {
               Navigator.pop(context);
@@ -741,6 +818,8 @@ class _WaFooterSectionState extends State<WaFooterSection> {
     }
 
     final accentColor = _hasAccess ? waGreen : Colors.grey;
+    // Field & tombol disabled juga kalau footer di-OFF, walaupun PRO
+    final fieldActive = _hasAccess && _footerEnabled;
 
     return Container(
       decoration: BoxDecoration(
@@ -791,19 +870,32 @@ class _WaFooterSectionState extends State<WaFooterSection> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        _hasAccess
-                            ? 'Baris penutup di setiap pesan WA'
-                            : 'Perlu upgrade paket untuk mengubah',
+                        !_hasAccess
+                            ? 'Perlu upgrade paket untuk mengubah'
+                            : (_footerEnabled
+                                  ? 'Baris penutup di setiap pesan WA'
+                                  : 'Footer dinonaktifkan'),
                         style: TextStyle(
                           fontSize: 12,
-                          color: accentColor,
+                          color: !_hasAccess
+                              ? accentColor
+                              : (_footerEnabled
+                                    ? accentColor
+                                    : Colors.grey.shade500),
                           fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],
                   ),
                 ),
-                if (!_hasAccess)
+                // ── Toggle switch ← BARU ────────────────────────────
+                if (_hasAccess)
+                  Switch(
+                    value: _footerEnabled,
+                    onChanged: _toggleFooterEnabled,
+                    activeColor: waGreen,
+                  )
+                else
                   GestureDetector(
                     onTap: _showUpgradeDialog,
                     child: Container(
@@ -859,7 +951,7 @@ class _WaFooterSectionState extends State<WaFooterSection> {
                     color: Theme.of(context).textTheme.bodyMedium?.color,
                   ),
                 ),
-                if (!_hasAccess) ...[
+                if (!fieldActive) ...[
                   const SizedBox(width: 6),
                   Icon(
                     Icons.lock_outline_rounded,
@@ -871,17 +963,19 @@ class _WaFooterSectionState extends State<WaFooterSection> {
             ),
             const SizedBox(height: 6),
             GestureDetector(
-              onTap: _hasAccess ? null : _showUpgradeDialog,
+              onTap: fieldActive
+                  ? null
+                  : (!_hasAccess ? _showUpgradeDialog : null),
               child: AbsorbPointer(
-                absorbing: !_hasAccess,
+                absorbing: !fieldActive,
                 child: TextField(
                   controller: _footerCtrl,
-                  enabled: _hasAccess,
+                  enabled: fieldActive,
                   maxLines: 3,
                   minLines: 1,
                   style: TextStyle(
                     fontSize: 13,
-                    color: _hasAccess
+                    color: fieldActive
                         ? Theme.of(context).textTheme.bodyLarge?.color
                         : Colors.grey.shade500,
                   ),
@@ -892,7 +986,7 @@ class _WaFooterSectionState extends State<WaFooterSection> {
                       fontSize: 13,
                     ),
                     filled: true,
-                    fillColor: !_hasAccess
+                    fillColor: !fieldActive
                         ? (isDark
                               ? Colors.white.withOpacity(0.02)
                               : Colors.grey.shade100)
@@ -924,9 +1018,11 @@ class _WaFooterSectionState extends State<WaFooterSection> {
             ),
             const SizedBox(height: 6),
             Text(
-              _hasAccess
-                  ? 'Paket anda sudah PRO silahkan ganti fotter pesan WA nya'
-                  : 'Saat ini menggunakan footer default. Upgrade untuk mengubahnya.',
+              !_hasAccess
+                  ? 'Saat ini menggunakan footer default. Upgrade untuk mengubahnya.'
+                  : (_footerEnabled
+                        ? 'Paket anda sudah PRO silahkan ganti footer pesan WA nya'
+                        : 'Footer tidak akan ditampilkan di pesan WA.'),
               style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
             ),
             const SizedBox(height: 12),
@@ -936,7 +1032,7 @@ class _WaFooterSectionState extends State<WaFooterSection> {
               width: double.infinity,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: _hasAccess
+                color: fieldActive
                     ? const Color(0xFFDCF8C6).withOpacity(isDark ? 0.15 : 1)
                     : (isDark
                           ? Colors.white.withOpacity(0.04)
@@ -949,18 +1045,20 @@ class _WaFooterSectionState extends State<WaFooterSection> {
                   Icon(
                     Icons.visibility_outlined,
                     size: 14,
-                    color: _hasAccess ? waGreen : Colors.grey.shade500,
+                    color: fieldActive ? waGreen : Colors.grey.shade500,
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      _footerCtrl.text.trim().isEmpty
-                          ? WaSettings.defaultFooter
-                          : _footerCtrl.text.trim(),
+                      !_footerEnabled
+                          ? '(Tidak ada footer — dinonaktifkan)'
+                          : (_footerCtrl.text.trim().isEmpty
+                                ? WaSettings.defaultFooter
+                                : _footerCtrl.text.trim()),
                       style: TextStyle(
                         fontSize: 12,
                         fontStyle: FontStyle.italic,
-                        color: _hasAccess
+                        color: fieldActive
                             ? (isDark ? Colors.white70 : Colors.black87)
                             : Colors.grey.shade500,
                       ),
@@ -976,7 +1074,7 @@ class _WaFooterSectionState extends State<WaFooterSection> {
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: (_saving || !_hasAccess) ? null : _resetDefault,
+                    onPressed: (_saving || !fieldActive) ? null : _resetDefault,
                     icon: const Icon(Icons.restore_rounded, size: 16),
                     label: const Text('Default'),
                     style: OutlinedButton.styleFrom(
@@ -996,7 +1094,9 @@ class _WaFooterSectionState extends State<WaFooterSection> {
                   child: ElevatedButton.icon(
                     onPressed: _saving
                         ? null
-                        : (_hasAccess ? _save : _showUpgradeDialog),
+                        : (fieldActive
+                              ? _save
+                              : (!_hasAccess ? _showUpgradeDialog : null)),
                     icon: _saving
                         ? const SizedBox(
                             width: 14,
@@ -1007,7 +1107,7 @@ class _WaFooterSectionState extends State<WaFooterSection> {
                             ),
                           )
                         : Icon(
-                            _hasAccess
+                            fieldActive
                                 ? Icons.save_outlined
                                 : Icons.lock_outline_rounded,
                             size: 16,
@@ -1015,13 +1115,13 @@ class _WaFooterSectionState extends State<WaFooterSection> {
                     label: Text(
                       _saving
                           ? 'Menyimpan...'
-                          : (_hasAccess ? 'Simpan Footer' : 'Terkunci'),
+                          : (fieldActive ? 'Simpan Footer' : 'Terkunci'),
                     ),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: _hasAccess
+                      backgroundColor: fieldActive
                           ? waGreen
                           : Colors.grey.shade300,
-                      foregroundColor: _hasAccess
+                      foregroundColor: fieldActive
                           ? Colors.white
                           : Colors.grey.shade600,
                       padding: const EdgeInsets.symmetric(vertical: 12),

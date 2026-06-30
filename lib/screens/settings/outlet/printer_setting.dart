@@ -27,10 +27,15 @@ class PrinterSettings {
   static int ukuranKertas = 58;
   static List<Map<String, String>> rekeningList = [];
   static String footerPowered = '';
+  static bool footerPoweredEnabled = true; // ← BARU
   static const String defaultFooterPowered =
       'Powered By : Madeena Laundry x Rdh Project';
-  static String get footerPoweredFinal =>
-      footerPowered.trim().isEmpty ? defaultFooterPowered : footerPowered;
+
+  // ── DIUBAH: hormati toggle. Kalau OFF, total tidak ada footer ──────
+  static String get footerPoweredFinal {
+    if (!footerPoweredEnabled) return '';
+    return footerPowered.trim().isEmpty ? defaultFooterPowered : footerPowered;
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -66,6 +71,8 @@ class PrinterSettingsService {
       PrinterSettings.ukuranKertas = (d['ukuran_kertas'] as int?) ?? 58;
       PrinterSettings.tampilkanQrStruk = d['tampilkan_qr_struk'] ?? true;
       PrinterSettings.footerPowered = d['footer_powered']?.toString() ?? '';
+      PrinterSettings.footerPoweredEnabled =
+          d['footer_powered_enabled'] ?? true; // ← BARU
       final rawRek = d['rekening_list'];
       if (rawRek is List) {
         PrinterSettings.rekeningList = rawRek
@@ -95,6 +102,7 @@ class PrinterSettingsService {
     required String customNota,
     required List<Map<String, String>> rekeningList,
     required String footerPowered,
+    required bool footerPoweredEnabled, // ← BARU
   }) async {
     await _docRef(storeId, outletId).set({
       'pesan_kaki': pesanKaki,
@@ -108,6 +116,7 @@ class PrinterSettingsService {
       'custom_nota': customNota,
       'rekening_list': rekeningList,
       'footer_powered': footerPowered,
+      'footer_powered_enabled': footerPoweredEnabled, // ← BARU
       'updated_at': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
@@ -184,6 +193,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
   bool _namaPelangganBesar = false;
   bool _sembunyikanNoHpPelanggan = false;
   bool _tampilkanQrStruk = true;
+  bool _footerPoweredEnabled = true;
   int _ukuranLabelPelanggan = 1;
   int _ukuranKertas = 58;
 
@@ -222,6 +232,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
       _tampilkanQrStruk = PrinterSettings.tampilkanQrStruk;
       _ukuranKertas = PrinterSettings.ukuranKertas;
       _footerPoweredController.text = PrinterSettings.footerPowered;
+      _footerPoweredEnabled = PrinterSettings.footerPoweredEnabled; // ← BARU
       _hasEditNotaAccess = hasAccess;
       _rekeningList = List<Map<String, String>>.from(
         PrinterSettings.rekeningList.map((e) => Map<String, String>.from(e)),
@@ -239,6 +250,17 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
   }
 
   void _markUnsaved() => setState(() => _isSaved = false);
+
+  Future<void> _toggleFooterPoweredEnabled(bool value) async {
+    if (!_hasEditNotaAccess) {
+      _showUpgradeDialog();
+      return;
+    }
+    setState(() {
+      _footerPoweredEnabled = value;
+      _isSaved = false;
+    });
+  }
 
   // ════════════════════════════════════════════════════════════════════════
   //  Simpan
@@ -262,6 +284,9 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
         footerPowered: _hasEditNotaAccess
             ? _footerPoweredController.text.trim()
             : '',
+        footerPoweredEnabled: _hasEditNotaAccess
+            ? _footerPoweredEnabled
+            : true, // ← BARU, basic selalu dianggap default/on
       );
       PrinterSettings.pesanKaki = _pesanKakiController.text.trim();
       PrinterSettings.tampilkanNoHpOutlet = _tampilkanNoHpOutlet;
@@ -276,6 +301,9 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
       PrinterSettings.footerPowered = _hasEditNotaAccess
           ? _footerPoweredController.text.trim()
           : '';
+      PrinterSettings.footerPoweredEnabled = _hasEditNotaAccess
+          ? _footerPoweredEnabled
+          : true; // ← BARU
 
       if (!mounted) return;
       setState(() {
@@ -1921,36 +1949,50 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              _hasEditNotaAccess
-                                  ? 'Teks ini tampil di baris paling bawah struk (Customer & Produksi)'
-                                  : 'Perlu upgrade paket untuk mengubah teks ini',
+                              !_hasEditNotaAccess
+                                  ? 'Perlu upgrade paket untuk mengubah teks ini'
+                                  : (_footerPoweredEnabled
+                                        ? 'Teks ini tampil di baris paling bawah struk (Customer & Produksi)'
+                                        : 'Footer dinonaktifkan, tidak akan dicetak'),
                               style: Theme.of(context).textTheme.bodySmall
                                   ?.copyWith(
-                                    color: _hasEditNotaAccess
-                                        ? Theme.of(context)
-                                              .textTheme
-                                              .bodySmall
-                                              ?.color
-                                              ?.withOpacity(0.6)
-                                        : Colors.orange.shade700,
+                                    color: !_hasEditNotaAccess
+                                        ? Colors.orange.shade700
+                                        : (_footerPoweredEnabled
+                                              ? Theme.of(context)
+                                                    .textTheme
+                                                    .bodySmall
+                                                    ?.color
+                                                    ?.withOpacity(0.6)
+                                              : Colors.grey.shade500),
                                   ),
                             ),
                             const SizedBox(height: 10),
+
+                            // ── Field footer, dikunci kalau OFF atau basic ──────
                             GestureDetector(
-                              onTap: _hasEditNotaAccess
+                              onTap:
+                                  (_hasEditNotaAccess && _footerPoweredEnabled)
                                   ? null
-                                  : _showUpgradeDialog,
+                                  : (!_hasEditNotaAccess
+                                        ? _showUpgradeDialog
+                                        : null),
                               child: AbsorbPointer(
-                                absorbing: !_hasEditNotaAccess,
+                                absorbing:
+                                    !(_hasEditNotaAccess &&
+                                        _footerPoweredEnabled),
                                 child: TextFormField(
                                   controller: _footerPoweredController,
                                   maxLines: 2,
-                                  enabled: _hasEditNotaAccess,
+                                  enabled:
+                                      _hasEditNotaAccess &&
+                                      _footerPoweredEnabled,
                                   onChanged: (_) => _markUnsaved(),
                                   style: Theme.of(context).textTheme.bodyLarge,
                                   decoration: InputDecoration(
-                                    hintText:
-                                        PrinterSettings.defaultFooterPowered,
+                                    hintText: !_footerPoweredEnabled
+                                        ? '(Footer dinonaktifkan)'
+                                        : PrinterSettings.defaultFooterPowered,
                                     hintStyle: Theme.of(context)
                                         .textTheme
                                         .bodyLarge
@@ -1974,7 +2016,9 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                                       ),
                                     ),
                                     filled: true,
-                                    fillColor: _hasEditNotaAccess
+                                    fillColor:
+                                        (_hasEditNotaAccess &&
+                                            _footerPoweredEnabled)
                                         ? Theme.of(
                                             context,
                                           ).scaffoldBackgroundColor
@@ -1991,7 +2035,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                         ),
                       ),
 
-                      // ── Label "Footer Struk" — menindih pojok kiri atas
+                      // ── Label "Footer Setruk" — menindih pojok kiri atas, sama seperti Rekening
                       Positioned(
                         top: _kHeaderOverlap - 14,
                         left: 10,
@@ -2011,51 +2055,98 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                         ),
                       ),
 
-                      // ── Tombol "Upgrade" — menindih pojok kanan atas
-                      if (!_hasEditNotaAccess)
-                        Positioned(
-                          top: 0,
-                          right: 0,
-                          child: GestureDetector(
-                            onTap: _showUpgradeDialog,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 6,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.orange.shade600,
-                                borderRadius: BorderRadius.circular(10),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.orange.withOpacity(0.3),
-                                    blurRadius: 8,
-                                    offset: const Offset(0, 3),
+                      // ── Badge kanan — menindih pojok kanan atas, sejajar dengan label kiri
+                      Positioned(
+                        top: 0,
+                        right: 10,
+                        child: !_hasEditNotaAccess
+                            ? GestureDetector(
+                                onTap: _showUpgradeDialog,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 6,
                                   ),
-                                ],
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(
-                                    Icons.lock_outline_rounded,
-                                    size: 13,
-                                    color: Colors.white,
+                                  decoration: BoxDecoration(
+                                    color: Colors.orange.shade600,
+                                    borderRadius: BorderRadius.circular(10),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.orange.withOpacity(0.3),
+                                        blurRadius: 8,
+                                        offset: const Offset(0, 3),
+                                      ),
+                                    ],
                                   ),
-                                  const SizedBox(width: 4),
-                                  const Text(
-                                    'Upgrade',
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.white,
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(
+                                        Icons.lock_outline_rounded,
+                                        size: 13,
+                                        color: Colors.white,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      const Text(
+                                        'Upgrade',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              )
+                            : GestureDetector(
+                                onTap: () => _toggleFooterPoweredEnabled(
+                                  !_footerPoweredEnabled,
+                                ),
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 180),
+                                  width: 52,
+                                  height: 28,
+                                  padding: const EdgeInsets.all(3),
+                                  decoration: BoxDecoration(
+                                    color: _footerPoweredEnabled
+                                        ? kPrimary
+                                        : Colors.grey.shade300,
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: _footerPoweredEnabled
+                                          ? kPrimary
+                                          : Colors.grey.shade400,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color:
+                                            (_footerPoweredEnabled
+                                                    ? kPrimary
+                                                    : Colors.grey)
+                                                .withOpacity(0.2),
+                                        blurRadius: 6,
+                                        offset: const Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  child: AnimatedAlign(
+                                    duration: const Duration(milliseconds: 180),
+                                    alignment: _footerPoweredEnabled
+                                        ? Alignment.centerRight
+                                        : Alignment.centerLeft,
+                                    child: Container(
+                                      width: 20,
+                                      height: 20,
+                                      decoration: const BoxDecoration(
+                                        color: Colors.white,
+                                        shape: BoxShape.circle,
+                                      ),
                                     ),
                                   ),
-                                ],
+                                ),
                               ),
-                            ),
-                          ),
-                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 28),

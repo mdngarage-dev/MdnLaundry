@@ -8,6 +8,7 @@ import 'package:mdnlaundry_project/screens/scanner_screen.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'main_screens.dart';
+import 'package:mdnlaundry_project/screens/settings/outlet/admin_activation.dart';
 
 class HomeScreen extends StatefulWidget {
   final String storeId;
@@ -36,6 +37,7 @@ class _HomeScreenState extends State<HomeScreen>
   String _searchQuery = '';
   String _currentOutletId = '';
   String _currentOutletName = '';
+  bool _pendingAdminCheckDone = false;
 
   late AnimationController _heartController;
   late Animation<double> _heartAnim;
@@ -52,6 +54,13 @@ class _HomeScreenState extends State<HomeScreen>
     _heartAnim = Tween<double>(begin: 1.0, end: 1.35).animate(
       CurvedAnimation(parent: _heartController, curve: Curves.easeInOut),
     );
+
+    // ── Cek admin pending khusus untuk Owner ──
+    if (widget.isOwner) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _checkPendingAdmin();
+      });
+    }
   }
 
   @override
@@ -1752,6 +1761,129 @@ class _HomeScreenState extends State<HomeScreen>
           ],
         );
       },
+    );
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // CEK ADMIN MENUNGGU AKTIVASI (khusus Owner)
+  // ════════════════════════════════════════════════════════════
+  Future<void> _checkPendingAdmin() async {
+    if (_pendingAdminCheckDone) return;
+    _pendingAdminCheckDone = true;
+
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('users')
+          .where('store_id', isEqualTo: widget.storeId)
+          .where('role', isEqualTo: 'Admin')
+          .get();
+
+      final pendingAdmins = snap.docs.where((doc) {
+        final data = doc.data();
+        return (data['is_activated'] ?? false) == false;
+      }).toList();
+
+      if (pendingAdmins.isNotEmpty && mounted) {
+        _showPendingAdminDialog(pendingAdmins.length);
+      }
+    } catch (e) {
+      debugPrint('ERROR cek pending admin: $e');
+    }
+  }
+
+  void _showPendingAdminDialog(int count) {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.person_add_alt_1_rounded,
+                  color: Colors.orange,
+                  size: 30,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Ada Admin Menunggu Aktivasi',
+                textAlign: TextAlign.center,
+                style: Theme.of(ctx).textTheme.bodyLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                count == 1
+                    ? '1 admin baru mendaftar dan menunggu persetujuan kamu.'
+                    : '$count admin baru mendaftar dan menunggu persetujuan kamu.',
+                textAlign: TextAlign.center,
+                style: Theme.of(
+                  ctx,
+                ).textTheme.bodySmall?.copyWith(fontSize: 13),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: Colors.grey.shade300),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: const Text('Nanti'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                AdminActivationScreen(storeId: widget.storeId),
+                          ),
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: kPrimary,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        elevation: 0,
+                      ),
+                      child: const Text(
+                        'Lihat Sekarang',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 

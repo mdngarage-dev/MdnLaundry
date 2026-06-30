@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:mdnlaundry_project/screens/main_screens.dart';
+import 'dart:io';
+import 'package:excel/excel.dart' as xls;
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:universal_html/html.dart' as html;
 
 class ListPengeluaranPage extends StatefulWidget {
   final String storeId;
@@ -30,6 +36,7 @@ class _ListPengeluaranPageState extends State<ListPengeluaranPage> {
 
   // ── Data ──
   bool _isLoading = true;
+  bool _isExporting = false;
   List<Map<String, dynamic>> _allData = [];
   List<Map<String, dynamic>> _filtered = [];
   String _searchQuery = "";
@@ -87,6 +94,7 @@ class _ListPengeluaranPageState extends State<ListPengeluaranPage> {
           'kategori': data['kategori'] ?? "Lain-Lain",
           'tanggal': tgl,
           'store_id': widget.storeId,
+          'outlet_id': (data['outlet_id'] ?? '').toString().trim(),
         });
       }
 
@@ -556,6 +564,292 @@ class _ListPengeluaranPageState extends State<ListPengeluaranPage> {
     );
   }
 
+  // ════════════════════════════════════════════════════════════
+  // EXPORT EXCEL
+  // ════════════════════════════════════════════════════════════
+  Future<void> _exportToExcel() async {
+    setState(() => _isExporting = true);
+    try {
+      // Pakai data yang sudah difilter periode (ikut search juga, sesuai tampilan)
+      final dataExport = List<Map<String, dynamic>>.from(_filtered);
+
+      final workbook = xls.Excel.createExcel();
+      final defaultSheetName = workbook.getDefaultSheet();
+
+      if (widget.isGabungan) {
+        final Map<String, List<Map<String, dynamic>>> perOutlet = {};
+        for (final o in dataExport) {
+          final outletId = (o['outlet_id'] as String).isEmpty
+              ? 'Tanpa Outlet'
+              : o['outlet_id'] as String;
+          perOutlet.putIfAbsent(outletId, () => []).add(o);
+        }
+
+        _writePengeluaranSheet(
+          workbook,
+          'Gabungan',
+          dataExport,
+          'LAPORAN PENGELUARAN GABUNGAN SEMUA OUTLET',
+        );
+
+        int idx = 1;
+        for (final entry in perOutlet.entries) {
+          String sheetLabel = entry.key.length > 25
+              ? entry.key.substring(0, 25)
+              : entry.key;
+          sheetLabel = 'Outlet ${idx++} - $sheetLabel'
+              .replaceAll(RegExp(r'[\\/?*\[\]:]'), '')
+              .trim();
+          if (sheetLabel.length > 31) {
+            sheetLabel = sheetLabel.substring(0, 31);
+          }
+          _writePengeluaranSheet(
+            workbook,
+            sheetLabel,
+            entry.value,
+            'LAPORAN PENGELUARAN OUTLET: ${entry.key}',
+          );
+        }
+      } else {
+        _writePengeluaranSheet(
+          workbook,
+          'Pengeluaran',
+          dataExport,
+          'LAPORAN PENGELUARAN',
+        );
+      }
+
+      if (workbook.sheets.containsKey(defaultSheetName) &&
+          workbook.sheets.length > 1) {
+        workbook.delete(defaultSheetName!);
+      }
+
+      final bytes = workbook.encode();
+      if (bytes == null) throw Exception('Gagal encode file excel');
+
+      final periodeStr =
+          '${DateFormat('ddMMyy').format(_startDate)}-${DateFormat('ddMMyy').format(_endDate)}';
+      final fileName =
+          'Laporan_Pengeluaran_${widget.isGabungan ? "Gabungan" : "Outlet"}_$periodeStr.xlsx';
+
+      if (kIsWeb) {
+        final blob = html.Blob([
+          bytes,
+        ], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        final url = html.Url.createObjectUrlFromBlob(blob);
+        html.AnchorElement(href: url)
+          ..setAttribute('download', fileName)
+          ..click();
+        html.Url.revokeObjectUrl(url);
+      } else {
+        final dir = await getTemporaryDirectory();
+        final file = File('${dir.path}/$fileName');
+        await file.writeAsBytes(bytes);
+
+        if (!mounted) return;
+        await Share.shareXFiles([
+          XFile(file.path),
+        ], text: 'Laporan Pengeluaran ${_formatPeriodeLabel()}');
+      }
+    } catch (e, stack) {
+      debugPrint('ERROR export excel pengeluaran: $e\n$stack');
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Gagal membuat laporan: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
+  void _writePengeluaranSheet(
+    xls.Excel workbook,
+    String sheetName,
+    List<Map<String, dynamic>> data,
+    String title,
+  ) {
+    final sheet = workbook[sheetName];
+
+    final headerFill = xls.ExcelColor.fromHexString('#DC2626');
+    final subFill = xls.ExcelColor.fromHexString('#FEE2E2');
+    final tableHeaderFill = xls.ExcelColor.fromHexString('#991B1B');
+    final altRowFill = xls.ExcelColor.fromHexString('#F3F4F6');
+    final white = xls.ExcelColor.fromHexString('#FFFFFF');
+    final darkText = xls.ExcelColor.fromHexString('#111827');
+
+    const totalCols = 4;
+
+    sheet.merge(
+      xls.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 0),
+      xls.CellIndex.indexByColumnRow(columnIndex: totalCols - 1, rowIndex: 0),
+    );
+    _setCellPengeluaran(
+      sheet,
+      0,
+      0,
+      title,
+      bold: true,
+      fontSize: 16,
+      bgColor: headerFill,
+      fontColor: white,
+      align: xls.HorizontalAlign.Center,
+    );
+
+    sheet.merge(
+      xls.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 1),
+      xls.CellIndex.indexByColumnRow(columnIndex: totalCols - 1, rowIndex: 1),
+    );
+    _setCellPengeluaran(
+      sheet,
+      0,
+      1,
+      'Periode: ${DateFormat('d MMM yyyy', 'id').format(_startDate)} - ${DateFormat('d MMM yyyy', 'id').format(_endDate)}',
+      bold: false,
+      fontSize: 11,
+      bgColor: subFill,
+      fontColor: darkText,
+      align: xls.HorizontalAlign.Center,
+    );
+
+    // ── Ringkasan ──
+    double total = 0;
+    final Map<String, double> totalPerKategori = {};
+    for (final d in data) {
+      final nominal = d['nominal'] as double;
+      final kat = (d['kategori'] as String?) ?? 'Lain-Lain';
+      total += nominal;
+      totalPerKategori[kat] = (totalPerKategori[kat] ?? 0) + nominal;
+    }
+
+    int row = 3;
+    _setCellPengeluaran(
+      sheet,
+      0,
+      row,
+      'RINGKASAN',
+      bold: true,
+      fontSize: 12,
+      fontColor: darkText,
+    );
+    row++;
+    _setCellPengeluaran(sheet, 0, row, 'Total Transaksi', fontColor: darkText);
+    _setCellPengeluaran(
+      sheet,
+      1,
+      row,
+      data.length.toString(),
+      bold: true,
+      fontColor: darkText,
+    );
+    row++;
+    _setCellPengeluaran(
+      sheet,
+      0,
+      row,
+      'Total Pengeluaran',
+      fontColor: darkText,
+    );
+    _setCellPengeluaran(
+      sheet,
+      1,
+      row,
+      _formatRp(total),
+      bold: true,
+      fontColor: darkText,
+    );
+    row++;
+    for (final entry in totalPerKategori.entries) {
+      _setCellPengeluaran(
+        sheet,
+        0,
+        row,
+        '  - ${entry.key}',
+        fontColor: darkText,
+      );
+      _setCellPengeluaran(
+        sheet,
+        1,
+        row,
+        _formatRp(entry.value),
+        fontColor: darkText,
+      );
+      row++;
+    }
+    row++;
+
+    // ── Header tabel ──
+    final headers = ['No', 'Tanggal', 'Keterangan', 'Kategori', 'Nominal'];
+    for (int c = 0; c < headers.length; c++) {
+      _setCellPengeluaran(
+        sheet,
+        c,
+        row,
+        headers[c],
+        bold: true,
+        fontColor: white,
+        bgColor: tableHeaderFill,
+        align: xls.HorizontalAlign.Center,
+      );
+    }
+    row++;
+
+    // ── Data rows ──
+    int no = 1;
+    for (final d in data) {
+      final rowFill = (no % 2 == 0) ? altRowFill : white;
+      final values = [
+        no.toString(),
+        _formatTanggal(d['tanggal'] as DateTime),
+        d['keterangan'] as String,
+        (d['kategori'] as String?) ?? 'Lain-Lain',
+        _formatRp(d['nominal'] as double),
+      ];
+      for (int c = 0; c < values.length; c++) {
+        _setCellPengeluaran(
+          sheet,
+          c,
+          row,
+          values[c],
+          fontColor: darkText,
+          bgColor: rowFill,
+        );
+      }
+      row++;
+      no++;
+    }
+
+    final widths = [5.0, 16.0, 30.0, 16.0, 18.0];
+    for (int c = 0; c < widths.length; c++) {
+      sheet.setColumnWidth(c, widths[c]);
+    }
+  }
+
+  void _setCellPengeluaran(
+    xls.Sheet sheet,
+    int col,
+    int row,
+    String value, {
+    bool bold = false,
+    int fontSize = 10,
+    xls.ExcelColor? bgColor,
+    xls.ExcelColor? fontColor,
+    xls.HorizontalAlign align = xls.HorizontalAlign.Left,
+  }) {
+    final cell = sheet.cell(
+      xls.CellIndex.indexByColumnRow(columnIndex: col, rowIndex: row),
+    );
+    cell.value = xls.TextCellValue(value);
+    cell.cellStyle = xls.CellStyle(
+      bold: bold,
+      fontSize: fontSize,
+      backgroundColorHex: bgColor ?? xls.ExcelColor.fromHexString('#FFFFFF'),
+      fontColorHex: fontColor ?? xls.ExcelColor.fromHexString('#111827'),
+      horizontalAlign: align,
+      verticalAlign: xls.VerticalAlign.Center,
+    );
+  }
+
   // ── Format ──
   String _formatRp(double val) => NumberFormat.currency(
     locale: 'id_ID',
@@ -983,12 +1277,18 @@ class _ListPengeluaranPageState extends State<ListPengeluaranPage> {
           centerTitle: true,
           actions: [
             IconButton(
-              icon: const Icon(Icons.download_rounded, color: Colors.white),
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Fitur export segera hadir")),
-                );
-              },
+              icon: _isExporting
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.download_rounded, color: Colors.white),
+              onPressed: _isExporting ? null : _exportToExcel,
+              tooltip: 'Download Laporan Excel',
             ),
           ],
           leading: Navigator.canPop(context)

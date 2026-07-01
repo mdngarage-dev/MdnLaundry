@@ -1332,56 +1332,68 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                           builder: (context, snapshot) {
                             if (!(snapshot.data ?? false))
                               return const SizedBox.shrink();
-                            return _toggleRow(
-                              icon: Icons.phone_outlined,
-                              title: 'Tampilkan No HP Outlet',
-                              subtitle: 'Nomor HP outlet muncul di struk',
-                              value: _tampilkanNoHpOutlet,
-                              onChanged: (v) => setState(() {
-                                _tampilkanNoHpOutlet = v;
-                                _isSaved = false;
-                              }),
+                            return Column(
+                              children: [
+                                _toggleRow(
+                                  icon: Icons.phone_outlined,
+                                  title: 'Tampilkan No HP Outlet',
+                                  subtitle: 'Nomor HP outlet muncul di struk',
+                                  value: _tampilkanNoHpOutlet,
+                                  onChanged: (v) => setState(() {
+                                    _tampilkanNoHpOutlet = v;
+                                    _isSaved = false;
+                                  }),
+                                ),
+                                _divider(),
+                              ],
                             );
                           },
                         ),
-                        _divider(),
                         FutureBuilder<bool>(
                           future: canAccess('can_access_togle_alamat'),
                           builder: (context, snapshot) {
                             if (!(snapshot.data ?? false))
                               return const SizedBox.shrink();
-                            return _toggleRow(
-                              icon: Icons.location_on_outlined,
-                              title: 'Tampilkan Alamat Outlet',
-                              subtitle: 'Alamat outlet muncul di struk',
-                              value: _tampilkanAlamatOutlet,
-                              onChanged: (v) => setState(() {
-                                _tampilkanAlamatOutlet = v;
-                                _isSaved = false;
-                              }),
+                            return Column(
+                              children: [
+                                _toggleRow(
+                                  icon: Icons.location_on_outlined,
+                                  title: 'Tampilkan Alamat Outlet',
+                                  subtitle: 'Alamat outlet muncul di struk',
+                                  value: _tampilkanAlamatOutlet,
+                                  onChanged: (v) => setState(() {
+                                    _tampilkanAlamatOutlet = v;
+                                    _isSaved = false;
+                                  }),
+                                ),
+                                _divider(),
+                              ],
                             );
                           },
                         ),
-                        _divider(),
                         FutureBuilder<bool>(
                           future: canAccess('can_access_nota'),
                           builder: (context, snapshot) {
                             if (!(snapshot.data ?? false))
                               return const SizedBox.shrink();
-                            return _toggleRow(
-                              icon: Icons.text_fields_rounded,
-                              title: 'Nama Pelanggan Besar',
-                              subtitle:
-                                  'Nama besar & label "Pelanggan:" disembunyikan',
-                              value: _namaPelangganBesar,
-                              onChanged: (v) => setState(() {
-                                _namaPelangganBesar = v;
-                                _isSaved = false;
-                              }),
+                            return Column(
+                              children: [
+                                _toggleRow(
+                                  icon: Icons.text_fields_rounded,
+                                  title: 'Nama Pelanggan Besar',
+                                  subtitle:
+                                      'Nama besar & label "Pelanggan:" disembunyikan',
+                                  value: _namaPelangganBesar,
+                                  onChanged: (v) => setState(() {
+                                    _namaPelangganBesar = v;
+                                    _isSaved = false;
+                                  }),
+                                ),
+                                _divider(),
+                              ],
                             );
                           },
                         ),
-                        _divider(),
                         _toggleRow(
                           icon: Icons.visibility_off_outlined,
                           title: 'Sembunyikan No HP Pelanggan',
@@ -1405,84 +1417,107 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                         ),
                         _divider(),
                         // Custom Nota
-                        Row(
-                          children: [
-                            Container(
-                              width: 36,
-                              height: 36,
-                              decoration: BoxDecoration(
-                                color: kPrimary.withOpacity(0.08),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Icon(
-                                Icons.edit_note_rounded,
-                                color: kPrimary,
-                                size: 18,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Custom Nomor Order/Nota',
-                                    style: theme.textTheme.bodyLarge?.copyWith(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 13,
+                        FutureBuilder<bool>(
+                          future: canAccess('can_access_nota'),
+                          builder: (context, snapshot) {
+                            if (!(snapshot.data ?? false))
+                              return const SizedBox.shrink();
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      width: 36,
+                                      height: 36,
+                                      decoration: BoxDecoration(
+                                        color: kPrimary.withOpacity(0.08),
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Icon(
+                                        Icons.edit_note_rounded,
+                                        color: kPrimary,
+                                        size: 18,
+                                      ),
                                     ),
-                                  ),
-                                  Text(
-                                    'Sesuaikan kode awal nomor struk',
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      fontSize: 11,
-                                      color: theme.textTheme.bodySmall?.color
-                                          ?.withOpacity(0.6),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Custom Nomor Order/Nota',
+                                            style: theme.textTheme.bodyLarge
+                                                ?.copyWith(
+                                                  fontWeight: FontWeight.w600,
+                                                  fontSize: 13,
+                                                ),
+                                          ),
+                                          Text(
+                                            'Sesuaikan kode awal nomor struk',
+                                            style: theme.textTheme.bodySmall
+                                                ?.copyWith(
+                                                  fontSize: 11,
+                                                  color: theme
+                                                      .textTheme
+                                                      .bodySmall
+                                                      ?.color
+                                                      ?.withOpacity(0.6),
+                                                ),
+                                          ),
+                                        ],
+                                      ),
                                     ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                TextFormField(
+                                  controller: _customNotaController,
+                                  maxLines: 1,
+                                  maxLength: 3,
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.allow(
+                                      RegExp(r'[a-zA-Z0-9]'),
+                                    ),
+                                    UpperCaseTextFormatter(),
+                                  ],
+                                  onChanged: (_) => _markUnsaved(),
+                                  style: theme.textTheme.bodyLarge?.copyWith(
+                                    fontSize: 13,
                                   ),
-                                ],
-                              ),
-                            ),
-                          ],
+                                  decoration: InputDecoration(
+                                    hintText: 'Contoh: MDN',
+                                    hintStyle: theme.textTheme.bodyLarge
+                                        ?.copyWith(
+                                          color: theme
+                                              .textTheme
+                                              .bodyLarge
+                                              ?.color
+                                              ?.withOpacity(0.35),
+                                          fontSize: 13,
+                                        ),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                      borderSide: BorderSide.none,
+                                    ),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                      borderSide: BorderSide(
+                                        color: kPrimary,
+                                        width: 1.5,
+                                      ),
+                                    ),
+                                    filled: true,
+                                    fillColor: theme.scaffoldBackgroundColor,
+                                    contentPadding: const EdgeInsets.all(12),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
                         ),
-                        const SizedBox(height: 10),
-                        TextFormField(
-                          controller: _customNotaController,
-                          maxLines: 1,
-                          maxLength: 3,
-                          inputFormatters: [
-                            FilteringTextInputFormatter.allow(
-                              RegExp(r'[a-zA-Z0-9]'),
-                            ),
-                            UpperCaseTextFormatter(),
-                          ],
-                          onChanged: (_) => _markUnsaved(),
-                          style: theme.textTheme.bodyLarge?.copyWith(
-                            fontSize: 13,
-                          ),
-                          decoration: InputDecoration(
-                            hintText: 'Contoh: MDN',
-                            hintStyle: theme.textTheme.bodyLarge?.copyWith(
-                              color: theme.textTheme.bodyLarge?.color
-                                  ?.withOpacity(0.35),
-                              fontSize: 13,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: BorderSide.none,
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: BorderSide(
-                                color: kPrimary,
-                                width: 1.5,
-                              ),
-                            ),
-                            filled: true,
-                            fillColor: theme.scaffoldBackgroundColor,
-                            contentPadding: const EdgeInsets.all(12),
-                          ),
-                        ),
+
                         if (!_namaPelangganBesar) ...[
                           _divider(),
                           Row(

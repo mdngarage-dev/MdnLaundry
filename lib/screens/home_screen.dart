@@ -1105,52 +1105,57 @@ class _HomeScreenState extends State<HomeScreen>
             final data = doc.data() as Map<String, dynamic>;
             final status = (data['status']?.toString() ?? '').toLowerCase();
 
-            // ── Hitung deadline lengkap (tanggal + jam) dari
-            //    waktu_order + durasi_jam, karena estimasi_selesai
-            //    hanya menyimpan tanggal tanpa jam.
-            DateTime? deadlineDateTime;
-            final waktuOrder = data['waktu_order'];
-            final durasiJam = data['durasi_jam'];
-
-            if (waktuOrder != null && durasiJam != null) {
-              try {
-                final dtOrder = waktuOrder is Timestamp
-                    ? waktuOrder.toDate()
-                    : DateTime.tryParse(waktuOrder.toString());
-                final jam = durasiJam is num
-                    ? durasiJam.toInt()
-                    : int.tryParse(durasiJam.toString()) ?? 0;
-                if (dtOrder != null) {
-                  deadlineDateTime = dtOrder.add(Duration(hours: jam));
-                }
-              } catch (_) {}
-            }
-
             switch (status) {
               case 'antrian':
                 antrian++;
-                _hitungDeadlineTerlambat(
-                  deadlineDateTime,
-                  now,
-                  () => deadline++,
-                  () => terlambat++,
-                );
                 break;
               case 'proses':
                 proses++;
-                _hitungDeadlineTerlambat(
-                  deadlineDateTime,
-                  now,
-                  () => deadline++,
-                  () => terlambat++,
-                );
                 break;
               case 'siap ambil':
-                siapAmbil++;
-                break;
               case 'siap antar':
                 siapAmbil++;
                 break;
+            }
+
+            const selesaiStatus = {'selesai', 'siap ambil', 'siap antar'};
+            if (!selesaiStatus.contains(status)) {
+              final estimasi = data['estimasi_selesai'];
+              DateTime? dlDate;
+              if (estimasi is Timestamp) {
+                dlDate = estimasi.toDate();
+              } else if (estimasi is String && estimasi.isNotEmpty) {
+                try {
+                  final parts = estimasi.split('-');
+                  if (parts.length == 3) {
+                    dlDate = parts[0].length == 4
+                        ? DateTime(
+                            int.parse(parts[0]),
+                            int.parse(parts[1]),
+                            int.parse(parts[2]),
+                          )
+                        : DateTime(
+                            int.parse(parts[2]),
+                            int.parse(parts[1]),
+                            int.parse(parts[0]),
+                          );
+                  }
+                } catch (_) {}
+              }
+              if (dlDate != null) {
+                final now = DateTime.now();
+                final today = DateTime(now.year, now.month, now.day);
+                final diff = DateTime(
+                  dlDate.year,
+                  dlDate.month,
+                  dlDate.day,
+                ).difference(today).inDays;
+                if (diff < 0) {
+                  terlambat++;
+                } else if (diff <= 1) {
+                  deadline++;
+                }
+              }
             }
           }
         }

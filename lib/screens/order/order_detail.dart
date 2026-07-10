@@ -1770,6 +1770,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => _LayananPickerSheet(
+        storeId: widget.storeId,
+        outletId: widget.outletId,
         onSelected: (layanan) {
           Navigator.pop(ctx);
           Future.delayed(const Duration(milliseconds: 200), () {
@@ -3088,6 +3090,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => _EditItemListSheet(
+        storeId: widget.storeId,
+        outletId: widget.outletId,
         items: List<Map<String, dynamic>>.from(_items),
         onSave: (updatedItems) async {
           Navigator.pop(ctx);
@@ -3490,10 +3494,17 @@ class _PilihRakDialogState extends State<_PilihRakDialog> {
 //  BOTTOM SHEET: Edit Item Pesanan (dengan Ganti Layanan)
 // ════════════════════════════════════════════════════════════════════════════
 class _EditItemListSheet extends StatefulWidget {
+  final String storeId;
+  final String outletId;
   final List<Map<String, dynamic>> items;
   final void Function(List<Map<String, dynamic>>) onSave;
 
-  const _EditItemListSheet({required this.items, required this.onSave});
+  const _EditItemListSheet({
+    required this.storeId,
+    required this.outletId,
+    required this.items,
+    required this.onSave,
+  });
 
   @override
   State<_EditItemListSheet> createState() => _EditItemListSheetState();
@@ -3572,6 +3583,8 @@ class _EditItemListSheetState extends State<_EditItemListSheet> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => _LayananPickerSheet(
+        storeId: widget.storeId,
+        outletId: widget.outletId,
         onSelected: (layanan) {
           Navigator.pop(ctx);
           _hargaControllers[idx].dispose();
@@ -4006,9 +4019,15 @@ class _EditItemListSheetState extends State<_EditItemListSheet> {
 // ════════════════════════════════════════════════════════════════════════════
 
 class _LayananPickerSheet extends StatefulWidget {
+  final String storeId;
+  final String outletId;
   final void Function(Layanan) onSelected;
 
-  const _LayananPickerSheet({required this.onSelected});
+  const _LayananPickerSheet({
+    required this.storeId,
+    required this.outletId,
+    required this.onSelected,
+  });
 
   @override
   State<_LayananPickerSheet> createState() => _LayananPickerSheetState();
@@ -4032,6 +4051,10 @@ class _LayananPickerSheetState extends State<_LayananPickerSheet> {
     setState(() => _isLoading = true);
     try {
       final snap = await FirebaseFirestore.instance
+          .collection('stores')
+          .doc(widget.storeId)
+          .collection('outlets')
+          .doc(widget.outletId)
           .collection('layanan')
           .orderBy('nama')
           .get();
@@ -4056,12 +4079,18 @@ class _LayananPickerSheetState extends State<_LayananPickerSheet> {
       builder: (ctx) => LayananFormSheet(
         existing: null,
         onSave: (nama, tipe, harga, durasiJam) async {
-          await FirebaseFirestore.instance.collection('layanan').add({
-            'nama': nama,
-            'tipe': tipe,
-            'harga': harga,
-            'durasi_jam': durasiJam,
-          });
+          await FirebaseFirestore.instance
+              .collection('stores')
+              .doc(widget.storeId)
+              .collection('outlets')
+              .doc(widget.outletId)
+              .collection('layanan')
+              .add({
+                'nama': nama,
+                'tipe': tipe,
+                'harga': harga,
+                'durasi_jam': durasiJam,
+              });
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -4077,7 +4106,6 @@ class _LayananPickerSheetState extends State<_LayananPickerSheet> {
         },
       ),
     );
-    // Refresh list setelah form ditutup
     await _loadLayanan();
   }
 

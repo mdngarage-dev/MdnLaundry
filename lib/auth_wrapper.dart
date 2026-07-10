@@ -85,28 +85,36 @@ class _AuthWrapperState extends State<AuthWrapper> {
     }
 
     try {
-      // 1. Ganti GoogleSignIn() menjadi GoogleSignIn.standard()
-      final googleSignIn = GoogleSignIn.standard();
+      final GoogleSignIn googleSignIn = GoogleSignIn.instance;
 
-      final googleUser = await googleSignIn.signInSilently().timeout(
-        const Duration(seconds: 10),
-      );
+      GoogleSignInAccount? googleUser;
+      try {
+        googleUser = await googleSignIn
+            .attemptLightweightAuthentication()
+            ?.timeout(const Duration(seconds: 10));
+      } catch (e) {
+        debugPrint('[AUTH] Lightweight Google auth gagal: $e');
+        googleUser = null;
+      }
 
       if (googleUser != null) {
-        final googleAuth = await googleUser.authentication;
+        final GoogleSignInAuthentication googleAuth = googleUser.authentication;
+        final String? idToken = googleAuth.idToken;
 
-        // 2. Pastikan properti token diakses dari objek yang tepat
+        // accessToken sekarang harus diminta terpisah lewat authorizationClient
+        final authorization = await googleUser.authorizationClient
+            .authorizationForScopes(['email']);
+
         final credential = GoogleAuthProvider.credential(
-          accessToken: googleAuth.accessToken,
-          idToken: googleAuth.idToken,
+          accessToken: authorization?.accessToken,
+          idToken: idToken,
         );
 
         await FirebaseAuth.instance.signInWithCredential(credential);
         return const HomeWrapper();
       }
     } catch (e) {
-      // Jangan lupa handle error-nya di sini jika diperlukan
-      print('Error saat sign in silently: $e');
+      debugPrint('[AUTH] Error saat sign in silently: $e');
     }
 
     return const GetStartedScreen();

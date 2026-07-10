@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:mdnlaundry_project/developer/developer_dashboard.dart';
 import 'package:mdnlaundry_project/screens/main_screens.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -68,6 +69,10 @@ void main() async {
     debugPrint('[FIREBASE] Error: $e');
   }
 
+  await GoogleSignIn.instance.initialize(
+    serverClientId:
+        '212303177176-tp68m9346djupd0i4tg7jtgdqc2i5k56.apps.googleusercontent.com', // dari Firebase Console
+  );
   await NotifLaundryService().inisialisasiNotifikasi();
 
   runApp(

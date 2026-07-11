@@ -3537,9 +3537,10 @@ class _EditItemListSheetState extends State<_EditItemListSheet> {
     }).toList();
     _hargaControllers = _editedItems.map((item) {
       final harga = item['harga_satuan'];
-      return TextEditingController(
-        text: harga != null ? harga.toString() : '0',
-      );
+      final hargaInt = harga is num
+          ? harga.round()
+          : int.tryParse(harga?.toString() ?? '0') ?? 0;
+      return TextEditingController(text: hargaInt.toString());
     }).toList();
     _catatanControllers = _editedItems.map((item) {
       return TextEditingController(text: item['catatan']?.toString() ?? '');
@@ -3568,7 +3569,9 @@ class _EditItemListSheetState extends State<_EditItemListSheet> {
   int _hitungSubtotal(int idx) {
     try {
       final berat = double.parse(_beratControllers[idx].text);
-      final harga = int.parse(_hargaControllers[idx].text);
+      final harga = double.parse(
+        _hargaControllers[idx].text,
+      ); // ← double, bukan int
       return (berat * harga).toInt();
     } catch (_) {
       return 0;
@@ -3611,7 +3614,9 @@ class _EditItemListSheetState extends State<_EditItemListSheet> {
           double.tryParse(_beratControllers[i].text) ??
           _editedItems[i]['berat_kg'];
       _editedItems[i]['harga_satuan'] =
-          int.tryParse(_hargaControllers[i].text) ??
+          int.tryParse(
+            _hargaControllers[i].text,
+          ) ?? // sekarang aman, teksnya sudah bulat
           _editedItems[i]['harga_satuan'];
       _editedItems[i]['catatan'] = _catatanControllers[i].text.trim();
     }

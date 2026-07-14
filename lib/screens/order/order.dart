@@ -37,6 +37,16 @@ class _OrderScreenState extends State<OrderScreen> {
 
   late final Stream<QuerySnapshot> _orderStream;
 
+  String _searchQuery = '';
+  bool _isSearching = false;
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -63,6 +73,19 @@ class _OrderScreenState extends State<OrderScreen> {
 
   // ── Filter logic ──────────────────────────────────────────────────────────
   bool _passesClientFilter(Map<String, dynamic> data) {
+    if (_searchQuery.isNotEmpty) {
+      final query = _searchQuery.toLowerCase();
+      final nama = data['nama_pelanggan']?.toString().toLowerCase() ?? '';
+      final noHp = data['no_hp']?.toString().toLowerCase() ?? '';
+      final noPelanggan =
+          data['nomor_pelanggan']?.toString().toLowerCase() ?? '';
+      final cocok =
+          nama.contains(query) ||
+          noHp.contains(query) ||
+          noPelanggan.contains(query);
+      if (!cocok) return false;
+    }
+
     if (_filterStatus != null) {
       final status = data['status']?.toString().toLowerCase() ?? '';
       if (status != _filterStatus!.toLowerCase()) return false;
@@ -1211,6 +1234,8 @@ class _OrderScreenState extends State<OrderScreen> {
   }
 
   PreferredSizeWidget _buildAppBar(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return PreferredSize(
       preferredSize: const Size.fromHeight(kToolbarHeight),
       child: ClipRRect(
@@ -1219,18 +1244,86 @@ class _OrderScreenState extends State<OrderScreen> {
           bottomRight: Radius.circular(20),
         ),
         child: AppBar(
-          title: Text(
-            'Daftar Order',
-            style:
-                Theme.of(context).appBarTheme.titleTextStyle?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ) ??
-                const TextStyle(fontWeight: FontWeight.bold),
-          ),
+          titleSpacing: _isSearching ? 0 : null,
+          title: _isSearching
+              ? Container(
+                  height: 40,
+                  margin: const EdgeInsets.only(right: 4),
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white10 : Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: isDark
+                        ? null
+                        : [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.08),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                  ),
+                  child: TextField(
+                    controller: _searchController,
+                    autofocus: true,
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black87,
+                      fontSize: 14,
+                    ),
+                    cursorColor: isDark ? Colors.white : kPrimary,
+                    decoration: InputDecoration(
+                      isDense: true,
+                      hintText: 'Cari nama / no. HP...',
+                      hintStyle: TextStyle(
+                        color: isDark ? Colors.white54 : Colors.grey.shade500,
+                        fontSize: 14,
+                      ),
+                      prefixIcon: Icon(
+                        Icons.search_rounded,
+                        color: isDark ? Colors.white54 : Colors.grey.shade500,
+                        size: 20,
+                      ),
+                      prefixIconConstraints: const BoxConstraints(
+                        minWidth: 40,
+                        minHeight: 40,
+                      ),
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                    onChanged: (val) =>
+                        setState(() => _searchQuery = val.trim()),
+                  ),
+                )
+              : Text(
+                  'Daftar Order',
+                  style:
+                      Theme.of(context).appBarTheme.titleTextStyle?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ) ??
+                      const TextStyle(fontWeight: FontWeight.bold),
+                ),
           backgroundColor:
               Theme.of(context).appBarTheme.backgroundColor ?? kPrimary,
           elevation: 2,
-          centerTitle: true,
+          centerTitle: !_isSearching,
+          actions: [
+            IconButton(
+              icon: Icon(
+                _isSearching ? Icons.close_rounded : Icons.search_rounded,
+              ),
+              tooltip: _isSearching ? 'Tutup pencarian' : 'Cari order',
+              onPressed: () {
+                setState(() {
+                  if (_isSearching) {
+                    _isSearching = false;
+                    _searchQuery = '';
+                    _searchController.clear();
+                  } else {
+                    _isSearching = true;
+                  }
+                });
+              },
+            ),
+          ],
         ),
       ),
     );

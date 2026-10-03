@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:mdnlaundry_project/developer/developer_dashboard.dart';
-import 'package:mdnlaundry_project/screens/main_screens.dart';
+import 'package:mdnlaundry_project/features/developer/developer_dashboard.dart';
+import 'package:mdnlaundry_project/core/app_exports.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
-import 'package:mdnlaundry_project/components/notif_laundry.dart';
+import 'package:mdnlaundry_project/services/notif_laundry_service.dart';
 import 'package:overlay_support/overlay_support.dart';
-import 'package:mdnlaundry_project/auth_wrapper.dart'; // ← import AuthWrapper
+import 'package:mdnlaundry_project/features/auth/auth_wrapper.dart';
+import 'package:mdnlaundry_project/core/config/firebase_config.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -18,17 +19,7 @@ void main() async {
   // ── Firebase init ────────────────────────────────────────────────────────
   try {
     if (kIsWeb) {
-      await Firebase.initializeApp(
-        options: const FirebaseOptions(
-          apiKey: "AIzaSyAUs_7vHagR7rc24kkGtxoKpTLbSd9-X4w",
-          authDomain: "laundry-ku-id.firebaseapp.com",
-          projectId: "laundry-ku-id",
-          storageBucket: "laundry-ku-id.firebasestorage.app",
-          messagingSenderId: "518877666392",
-          appId: "1:518877666392:web:d4885be99c724e5783fe2d",
-          measurementId: "G-0W7K571RTN",
-        ),
-      );
+      await Firebase.initializeApp(options: FirebaseConfig.web);
     } else {
       if (Firebase.apps.isEmpty) {
         await Firebase.initializeApp();

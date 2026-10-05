@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
 import 'package:mdnlaundry_project/features/subscription/payment_page.dart';
 import 'package:mdnlaundry_project/services/subscription_service.dart';
+import 'package:mdnlaundry_project/features/printer/printer_dialog.dart';
 
 // ════════════════════════════════════════════════════════════════════════════
 //  PrinterSettingPage
@@ -30,6 +31,7 @@ class PrinterSettingPage extends StatefulWidget {
 
 class _PrinterSettingPageState extends State<PrinterSettingPage> {
   final _pesanKakiController = TextEditingController();
+  final _pesanPromoController = TextEditingController();
   final _customNotaController = TextEditingController();
   final _footerPoweredController = TextEditingController();
 
@@ -38,6 +40,11 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
   bool _namaPelangganBesar = false;
   bool _sembunyikanNoHpPelanggan = false;
   bool _tampilkanQrStruk = true;
+  bool _strukGambar = true;
+  bool _tampilkanQrWa = true;
+  double _strukFontScale = PrinterSettings.defaultStrukFontScale;
+  double _strukStripRows = PrinterSettings.defaultStrukStripRows.toDouble();
+  double _strukJedaMs = PrinterSettings.defaultStrukJedaMs.toDouble();
   bool _footerPoweredEnabled = true;
   int _ukuranLabelPelanggan = 1;
   int _ukuranKertas = 58;
@@ -75,6 +82,12 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
       _ukuranLabelPelanggan = PrinterSettings.ukuranLabelPelanggan;
       _customNotaController.text = PrinterSettings.customNota;
       _tampilkanQrStruk = PrinterSettings.tampilkanQrStruk;
+      _strukGambar = PrinterSettings.strukGambar;
+      _tampilkanQrWa = PrinterSettings.tampilkanQrWa;
+      _strukFontScale = PrinterSettings.strukFontScale;
+      _strukStripRows = PrinterSettings.strukStripRows.toDouble();
+      _strukJedaMs = PrinterSettings.strukJedaMs.toDouble();
+      _pesanPromoController.text = PrinterSettings.pesanPromo;
       _ukuranKertas = PrinterSettings.ukuranKertas;
       _footerPoweredController.text = PrinterSettings.footerPowered;
       _footerPoweredEnabled = PrinterSettings.footerPoweredEnabled; //
@@ -89,6 +102,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
   @override
   void dispose() {
     _pesanKakiController.dispose();
+    _pesanPromoController.dispose();
     _customNotaController.dispose();
     _footerPoweredController.dispose();
     super.dispose();
@@ -123,6 +137,12 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
         sembunyikanNoHpPelanggan: _sembunyikanNoHpPelanggan,
         ukuranLabelPelanggan: _ukuranLabelPelanggan,
         tampilkanQrStruk: _tampilkanQrStruk,
+        strukGambar: _strukGambar,
+        strukFontScale: _strukFontScale,
+        strukStripRows: _strukStripRows.round(),
+        strukJedaMs: _strukJedaMs.round(),
+        tampilkanQrWa: _tampilkanQrWa,
+        pesanPromo: _pesanPromoController.text.trim(),
         ukuranKertas: _ukuranKertas,
         customNota: _customNotaController.text.trim(),
         rekeningList: _rekeningList,
@@ -140,6 +160,12 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
       PrinterSettings.sembunyikanNoHpPelanggan = _sembunyikanNoHpPelanggan;
       PrinterSettings.ukuranLabelPelanggan = _ukuranLabelPelanggan;
       PrinterSettings.tampilkanQrStruk = _tampilkanQrStruk;
+      PrinterSettings.strukGambar = _strukGambar;
+      PrinterSettings.strukFontScale = _strukFontScale;
+      PrinterSettings.strukStripRows = _strukStripRows.round();
+      PrinterSettings.strukJedaMs = _strukJedaMs.round();
+      PrinterSettings.tampilkanQrWa = _tampilkanQrWa;
+      PrinterSettings.pesanPromo = _pesanPromoController.text.trim();
       PrinterSettings.ukuranKertas = _ukuranKertas;
       PrinterSettings.customNota = _customNotaController.text.trim();
       PrinterSettings.rekeningList = _rekeningList;
@@ -1126,7 +1152,7 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Teks ini tampil di bagian bawah struk',
+                          'Teks penutup di bagian bawah struk. Kosong = "Terima kasih. Sampai jumpa kembali."',
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: theme.textTheme.bodySmall?.color
                                 ?.withOpacity(0.6),
@@ -1166,6 +1192,15 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                     ),
                   ),
                   const SizedBox(height: 24),
+
+                  // ══ Tampilan Struk Gambar ══════════════════════════════════
+                  if (_strukGambar) ...[
+                    _cardWithHeader(
+                      title: 'Tampilan Struk Gambar',
+                      child: _buildStrukGambarSettings(theme),
+                    ),
+                    const SizedBox(height: 24),
+                  ],
 
                   // ══ Pengaturan Struk ═══════════════════════════════════════
                   _cardWithHeader(
@@ -1257,6 +1292,19 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
                           value: _tampilkanQrStruk,
                           onChanged: (v) => setState(() {
                             _tampilkanQrStruk = v;
+                            _isSaved = false;
+                          }),
+                        ),
+                        _divider(),
+                        _toggleRow(
+                          icon: Icons.image_outlined,
+                          title: 'Struk Tampilan Gambar',
+                          subtitle:
+                              'Desain modern (logo, kotak total, QR lacak & WhatsApp). '
+                              'Matikan untuk kembali ke struk teks yang lebih cepat',
+                          value: _strukGambar,
+                          onChanged: (v) => setState(() {
+                            _strukGambar = v;
                             _isSaved = false;
                           }),
                         ),
@@ -2352,6 +2400,307 @@ class _PrinterSettingPageState extends State<PrinterSettingPage> {
           vertical: 12,
         ),
       ),
+    );
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  Pengaturan tampilan struk gambar
+  // ════════════════════════════════════════════════════════════════════════
+  Widget _buildStrukGambarSettings(ThemeData theme) {
+    final int pct = (_strukFontScale * 100).round();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sliderRow(
+          icon: Icons.format_size_rounded,
+          title: 'Ukuran Font Struk',
+          subtitle: 'Naikkan bila tulisan terlalu kecil / sulit dibaca',
+          valueLabel: '$pct%',
+          value: _strukFontScale,
+          min: 0.8,
+          max: 2.0,
+          divisions: 24,
+          onChanged: (v) => setState(() {
+            _strukFontScale = double.parse(v.toStringAsFixed(2));
+            _isSaved = false;
+          }),
+        ),
+        // Pratinjau ukuran relatif
+        Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(top: 4, bottom: 4),
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: theme.scaffoldBackgroundColor,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(
+            'Contoh: Cuci Lipat Regular  28,4 kg',
+            style: TextStyle(
+              fontSize: 13.5 * _strukFontScale,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        _divider(),
+        _toggleRow(
+          icon: Icons.chat_outlined,
+          title: 'QR WhatsApp Outlet',
+          subtitle: 'QR untuk chat ke nomor HP outlet',
+          value: _tampilkanQrWa,
+          onChanged: (v) => setState(() {
+            _tampilkanQrWa = v;
+            _isSaved = false;
+          }),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'QR Lacak Order mengikuti saklar "Tampilkan QR di Struk Customer" '
+          'di bagian Pengaturan Struk.',
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontSize: 11,
+            color: theme.textTheme.bodySmall?.color?.withOpacity(0.6),
+          ),
+        ),
+        _divider(),
+        Text(
+          'Pesan Promo (di atas QR)',
+          style: theme.textTheme.bodyLarge?.copyWith(
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+          ),
+        ),
+        const SizedBox(height: 6),
+        TextFormField(
+          controller: _pesanPromoController,
+          maxLines: 2,
+          onChanged: (_) => _markUnsaved(),
+          style: theme.textTheme.bodyLarge,
+          decoration: InputDecoration(
+            hintText: 'Contoh: Nikmati Layanan Antar Jemput Gratis Min. 5kg',
+            hintStyle: theme.textTheme.bodyLarge?.copyWith(
+              color: theme.textTheme.bodyLarge?.color?.withOpacity(0.35),
+              fontSize: 13,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide.none,
+            ),
+            filled: true,
+            fillColor: theme.scaffoldBackgroundColor,
+            contentPadding: const EdgeInsets.all(12),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Kosongkan bila tidak ingin menampilkan promo.',
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontSize: 11,
+            color: theme.textTheme.bodySmall?.color?.withOpacity(0.6),
+          ),
+        ),
+        _divider(),
+        Text(
+          'Kecepatan Cetak',
+          style: theme.textTheme.bodyLarge?.copyWith(
+            fontWeight: FontWeight.bold,
+            fontSize: 13,
+            color: kPrimary,
+          ),
+        ),
+        const SizedBox(height: 8),
+        _sliderRow(
+          icon: Icons.timer_outlined,
+          title: 'Jeda antar potongan',
+          subtitle: 'Kecil = lebih cepat. Naikkan bila hasil cetak acak/berantakan',
+          valueLabel: '${_strukJedaMs.round()} ms',
+          value: _strukJedaMs,
+          min: 0,
+          max: 2000,
+          divisions: 40,
+          onChanged: (v) => setState(() {
+            _strukJedaMs = v;
+            _isSaved = false;
+          }),
+        ),
+        const SizedBox(height: 6),
+        _sliderRow(
+          icon: Icons.view_agenda_outlined,
+          title: 'Tinggi potongan gambar',
+          subtitle: 'Besar = lebih sedikit jeda, tapi printer murah bisa macet',
+          valueLabel: '${_strukStripRows.round()} baris',
+          value: _strukStripRows,
+          min: 64,
+          max: 320,
+          divisions: 16,
+          onChanged: (v) => setState(() {
+            _strukStripRows = v;
+            _isSaved = false;
+          }),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _resetStrukGambar,
+                icon: const Icon(Icons.restart_alt_rounded, size: 18),
+                label: const Text('Bawaan'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: kPrimary,
+                  side: BorderSide(color: kPrimary.withOpacity(0.4)),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              flex: 2,
+              child: ElevatedButton.icon(
+                onPressed: _isSaving ? null : _cetakContoh,
+                icon: const Icon(Icons.print_rounded, size: 18),
+                label: const Text('Simpan & Cetak Contoh'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: kPrimary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  void _resetStrukGambar() {
+    setState(() {
+      _strukFontScale = PrinterSettings.defaultStrukFontScale;
+      _strukStripRows = PrinterSettings.defaultStrukStripRows.toDouble();
+      _strukJedaMs = PrinterSettings.defaultStrukJedaMs.toDouble();
+      _isSaved = false;
+    });
+  }
+
+  /// Simpan pengaturan lalu cetak struk contoh, supaya setelan font/jeda bisa
+  /// langsung dicoba tanpa membuat order baru.
+  Future<void> _cetakContoh() async {
+    await _simpan();
+    if (!mounted || !_isSaved) return;
+    final now = DateTime.now();
+    final sample = <String, dynamic>{
+      'nama_laundry': OutletSettings.namaLaundry,
+      'alamat': PrinterSettings.tampilkanAlamatOutlet
+          ? OutletSettings.alamat
+          : '',
+      'no_hp_laundry': PrinterSettings.tampilkanNoHpOutlet
+          ? OutletSettings.noHpLaundry
+          : '',
+      'no_order': 'LS-0000000-00',
+      'pelanggan': 'CONTOH PELANGGAN',
+      'no_hp': '081234567890',
+      'waktu': DateFormat('dd/MM/yy HH.mm').format(now),
+      'estimasi': DateFormat(
+        'dd MMM yyyy, HH.mm',
+      ).format(now.add(const Duration(days: 3))),
+      'items': [
+        {
+          'layanan_nama': 'Cuci Lipat Regular',
+          'layanan_tipe': 'kiloan',
+          'berat_kg': 28.4,
+          'harga_satuan': 10000,
+          'durasi_jam': 72,
+          'catatan': '',
+        },
+      ],
+      'biaya_tambahan': <Map<String, dynamic>>[],
+      'subtotal_sebelum_diskon': 284000,
+      'diskon_nominal': 0,
+      'diskon_catatan': '',
+      'grand_total': 284000,
+      'dp_amount': 0,
+      'sisa_tagihan': 284000,
+      'sudah_lunas': false,
+      'admin': 'Admin',
+      'rekening_list': PrinterSettings.rekeningList,
+      'pesan_kaki': PrinterSettings.pesanKaki,
+    };
+    PrinterDialog.show(context, sample);
+  }
+
+  Widget _sliderRow({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required String valueLabel,
+    required double value,
+    required double min,
+    required double max,
+    required int divisions,
+    required ValueChanged<double> onChanged,
+  }) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: kPrimary.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: kPrimary, size: 18),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontSize: 11,
+                      color: theme.textTheme.bodySmall?.color?.withOpacity(0.6),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Text(
+              valueLabel,
+              style: TextStyle(
+                color: kPrimary,
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+              ),
+            ),
+          ],
+        ),
+        Slider(
+          value: value.clamp(min, max).toDouble(),
+          min: min,
+          max: max,
+          divisions: divisions,
+          activeColor: kPrimary,
+          onChanged: onChanged,
+        ),
+      ],
     );
   }
 

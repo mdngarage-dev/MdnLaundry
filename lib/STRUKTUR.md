@@ -18,7 +18,8 @@ lib/
 │   ├── printer_settings_service.dart, wa_settings_service.dart
 │   ├── notif_storage.dart, notif_laundry_service.dart
 │   ├── payment_service.dart, subscription_service.dart
-│   └── thermal_printer_service.dart
+│   ├── thermal_printer_service.dart   # jalur cetak (teks + gambar, ada fallback)
+│   └── receipt_image_builder.dart     # menggambar struk customer jadi bitmap
 └── features/
     ├── auth/          getstarted, signin, signup, email_verification, auth_wrapper
     ├── home/          home_wrapper, home_screen, notifikasi

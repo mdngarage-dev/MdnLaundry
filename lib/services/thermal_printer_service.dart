@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:mdnlaundry_project/core/app_exports.dart';
 import 'package:qr/qr.dart';
 import 'package:image/image.dart' as imgLib;
+import 'package:mdnlaundry_project/services/receipt_image_builder.dart';
 
 class ThermalPrinterService {
   BlueThermalPrinter bluetooth = BlueThermalPrinter.instance;
@@ -398,6 +399,32 @@ class ThermalPrinterService {
     final int ukuranLabelPelanggan = PrinterSettings.ukuranLabelPelanggan;
     final bool tampilQr = PrinterSettings.tampilkanQrStruk;
 
+    // ── Mode gambar (desain modern). Bila render gambar gagal SEBELUM ada
+    //    yang terkirim ke printer, otomatis jatuh ke struk teks di bawah. ──
+    if (PrinterSettings.strukGambar) {
+      final bool berhasil = await _printStrukGambar(
+        data: data,
+        is80mm: is80mm,
+        options: ReceiptOptions(
+          namaOutlet: namaOutlet,
+          alamat: tampilAlamat ? alamat : '',
+          noHpOutlet: tampilNoHpOutlet ? noHpToko : '',
+          logoPath: logoPath,
+          pesanKaki: pesanKaki,
+          pesanPromo: PrinterSettings.pesanPromo,
+          footerPowered: PrinterSettings.footerPoweredFinal,
+          namaPelangganBesar: namaBesar,
+          sembunyikanNoHpPelanggan: sembunyiNoHpPelanggan,
+          tampilkanQrTracking: tampilQr,
+          tampilkanQrWa: PrinterSettings.tampilkanQrWa,
+          noHpWa: noHpToko.isNotEmpty ? noHpToko : OutletSettings.noHpLaundry,
+          fontScale: PrinterSettings.strukFontScale,
+          stripRows: PrinterSettings.strukStripRows,
+        ),
+      );
+      if (berhasil) return;
+    }
+
     bluetooth.printNewLine();
     bluetooth.printNewLine();
     bluetooth.printNewLine();
@@ -645,6 +672,54 @@ class ThermalPrinterService {
     bluetooth.printNewLine();
     bluetooth.printNewLine();
     bluetooth.paperCut();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // STRUK CUSTOMER — MODE GAMBAR
+  // Struk digambar jadi bitmap 1-bit lalu dikirim per potongan pendek lewat
+  // jalur printImage yang sama dengan logo/QR (sudah terbukti jalan).
+  // Return false  → render gagal / potongan pertama gagal terkirim
+  //                 (belum ada yang tercetak, aman fallback ke teks).
+  // Throw         → gagal di tengah jalan (koneksi putus), sama seperti
+  //                 perilaku struk teks.
+  // ─────────────────────────────────────────────────────────────────────────
+  Future<bool> _printStrukGambar({
+    required Map<String, dynamic> data,
+    required bool is80mm,
+    required ReceiptOptions options,
+  }) async {
+    final List<Uint8List> strips;
+    try {
+      strips = await ReceiptImageBuilder(is80mm: is80mm).build(data, options);
+      if (strips.isEmpty) return false;
+    } catch (e, st) {
+      debugPrint('[ThermalPrinter] Render struk gambar gagal: $e');
+      debugPrint('$st');
+      return false;
+    }
+
+    for (int i = 0; i < strips.length; i++) {
+      try {
+        await bluetooth.printImageBytes(strips[i]);
+      } catch (e) {
+        debugPrint('[ThermalPrinter] Kirim potongan ${i + 1} gagal: $e');
+        if (i == 0) return false; // belum ada yang tercetak → fallback teks
+        rethrow;
+      }
+      // Jeda antar potongan bisa diatur di Pengaturan Printer.
+      if (PrinterSettings.strukJedaMs > 0) {
+        await Future.delayed(
+          Duration(milliseconds: PrinterSettings.strukJedaMs),
+        );
+      }
+    }
+
+    bluetooth.printNewLine();
+    bluetooth.printNewLine();
+    bluetooth.printNewLine();
+    bluetooth.printNewLine();
+    bluetooth.paperCut();
+    return true;
   }
 
   Future<void> _printQrCodeSplit(

@@ -16,6 +16,30 @@ class PrinterSettings {
   static bool namaPelangganBesar = false;
   static bool sembunyikanNoHpPelanggan = false;
   static bool tampilkanQrStruk = true;
+
+  /// true  → struk dicetak sebagai gambar (desain modern: logo, kotak total, 2 QR)
+  /// false → struk teks klasik (cepat, paling kompatibel)
+  static bool strukGambar = true;
+
+  // ── Pengaturan tampilan struk gambar ──────────────────────────────
+  static const double defaultStrukFontScale = 1.3;
+  static const int defaultStrukStripRows = 160;
+  static const int defaultStrukJedaMs = 600;
+
+  /// Pengali ukuran font struk gambar (1.0 = kecil, 1.3 = bawaan, 2.0 = maks)
+  static double strukFontScale = defaultStrukFontScale;
+
+  /// Tinggi tiap potongan gambar (baris piksel). Besar = cepat tapi berisiko.
+  static int strukStripRows = defaultStrukStripRows;
+
+  /// Jeda setelah tiap potongan terkirim (milidetik).
+  static int strukJedaMs = defaultStrukJedaMs;
+
+  /// QR WhatsApp outlet di struk gambar.
+  static bool tampilkanQrWa = true;
+
+  /// Teks promo di atas QR (kosong = tidak tampil).
+  static String pesanPromo = '';
   static int ukuranLabelPelanggan = 1;
   static String customNota = '';
   static int ukuranKertas = 58;
@@ -64,6 +88,21 @@ class PrinterSettingsService {
           (d['ukuran_label_pelanggan'] as int?) ?? 1;
       PrinterSettings.ukuranKertas = (d['ukuran_kertas'] as int?) ?? 58;
       PrinterSettings.tampilkanQrStruk = d['tampilkan_qr_struk'] ?? true;
+      PrinterSettings.strukGambar = d['struk_gambar'] ?? true;
+      PrinterSettings.strukFontScale =
+          ((d['struk_font_scale'] as num?)?.toDouble() ??
+                  PrinterSettings.defaultStrukFontScale)
+              .clamp(0.8, 2.2);
+      PrinterSettings.strukStripRows =
+          ((d['struk_strip_rows'] as num?)?.toInt() ??
+                  PrinterSettings.defaultStrukStripRows)
+              .clamp(48, 400);
+      PrinterSettings.strukJedaMs =
+          ((d['struk_jeda_ms'] as num?)?.toInt() ??
+                  PrinterSettings.defaultStrukJedaMs)
+              .clamp(0, 3000);
+      PrinterSettings.tampilkanQrWa = d['tampilkan_qr_wa'] ?? true;
+      PrinterSettings.pesanPromo = d['pesan_promo']?.toString() ?? '';
       PrinterSettings.footerPowered = d['footer_powered']?.toString() ?? '';
       PrinterSettings.footerPoweredEnabled =
           d['footer_powered_enabled'] ?? true; //
@@ -93,6 +132,12 @@ class PrinterSettingsService {
     required int ukuranLabelPelanggan,
     required int ukuranKertas,
     required bool tampilkanQrStruk,
+    required bool strukGambar,
+    required double strukFontScale,
+    required int strukStripRows,
+    required int strukJedaMs,
+    required bool tampilkanQrWa,
+    required String pesanPromo,
     required String customNota,
     required List<Map<String, String>> rekeningList,
     required String footerPowered,
@@ -107,6 +152,12 @@ class PrinterSettingsService {
       'ukuran_label_pelanggan': ukuranLabelPelanggan,
       'ukuran_kertas': ukuranKertas,
       'tampilkan_qr_struk': tampilkanQrStruk,
+      'struk_gambar': strukGambar,
+      'struk_font_scale': strukFontScale,
+      'struk_strip_rows': strukStripRows,
+      'struk_jeda_ms': strukJedaMs,
+      'tampilkan_qr_wa': tampilkanQrWa,
+      'pesan_promo': pesanPromo,
       'custom_nota': customNota,
       'rekening_list': rekeningList,
       'footer_powered': footerPowered,

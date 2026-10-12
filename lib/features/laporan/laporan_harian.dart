@@ -167,8 +167,12 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
             masukLunas += biaya;
             break;
           case 'dp':
-            // Yang masuk ke kas adalah sebesar dp_amount, bukan biaya penuh
-            masukDP += dpAmount > 0 ? dpAmount : biaya;
+            // Yang masuk ke kas hanya sebesar dp_amount (maksimal sebesar biaya).
+            // Sisanya (biaya - dp) masih tagihan → masuk "Belum Bayar" supaya
+            // Lunas + DP Masuk + Belum Bayar selalu = Total Omzet.
+            final double dpMasuk = dpAmount.clamp(0.0, biaya).toDouble();
+            masukDP += dpMasuk;
+            belumBayar += biaya - dpMasuk;
             break;
           case 'belum_bayar':
           default:
@@ -417,7 +421,8 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
                   content: const Text(
                     'Total Omzet    = semua biaya yang tercatat hari itu\n'
                     'Kas Masuk      = lunas + dp_amount (yang benar-benar diterima)\n'
-                    'Belum Bayar    = order yang belum dibayar sama sekali\n'
+                    'Belum Bayar    = tagihan yang belum diterima (belum bayar + sisa DP)\n'
+                    'Lunas + DP Masuk + Belum Bayar = Total Omzet\n'
                     'Laba/Rugi      = Kas Masuk - Pengeluaran.\n\n'
                     'Tarik ke bawah untuk refresh data.',
                   ),
@@ -695,7 +700,7 @@ class _LaporanHarianPageState extends State<LaporanHarianPage> {
             badgeBg: const Color(0xffE0F2FE),
           ),
           _detailRowWithBadge(
-            'Belum Bayar',
+            'Belum Bayar (sisa tagihan)',
             _formatRp(_belumBayar),
             bodySmall,
             badgeColor: const Color(0xffDC2626),

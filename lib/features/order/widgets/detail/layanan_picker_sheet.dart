@@ -97,6 +97,31 @@ class DetailLayananPickerSheetState extends State<DetailLayananPickerSheet> {
     await _loadLayanan();
   }
 
+  /// Layanan sekali pakai: form yang sama dengan "Tambah Layanan", tetapi
+  /// TIDAK ditulis ke Firestore — hanya diteruskan ke order yang sedang dibuka.
+  Future<void> _showLayananSekaliPakai() async {
+    Layanan? dibuat;
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => LayananFormSheet(
+        sekaliPakai: true,
+        onSave: (nama, tipe, harga, durasiJam) async {
+          dibuat = Layanan(
+            id: 'sekali_${DateTime.now().microsecondsSinceEpoch}',
+            nama: nama,
+            tipe: tipe,
+            harga: harga,
+            durasiJam: durasiJam,
+          );
+        },
+      ),
+    );
+    final hasil = dibuat;
+    if (hasil != null && mounted) widget.onSelected(hasil);
+  }
+
   Color _tipeColor(String tipe) {
     switch (tipe) {
       case 'kiloan':
@@ -231,7 +256,51 @@ class DetailLayananPickerSheetState extends State<DetailLayananPickerSheet> {
               ],
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
+
+          // Layanan sekali pakai — tidak ikut daftar layanan, tanpa izin khusus
+          // karena tidak mengubah data master.
+          GestureDetector(
+            onTap: _showLayananSekaliPakai,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 14),
+              decoration: BoxDecoration(
+                color: primary.withOpacity(0.06),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: primary.withOpacity(0.35)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.add_circle_outline_rounded, color: primary, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Layanan Sekali Pakai',
+                          style: TextStyle(
+                            color: primary,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                        Text(
+                          'Untuk order ini saja, tidak masuk daftar layanan',
+                          style: TextStyle(
+                            color: Colors.grey.shade500,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
 
           // Content
           if (_isLoading)

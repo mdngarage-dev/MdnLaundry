@@ -524,7 +524,14 @@ class _ListPengeluaranPageState extends State<ListPengeluaranPage> {
                                 .doc(item['id'])
                                 .update({
                                   'keterangan': ketCtrl.text,
-                                  'nominal': double.tryParse(nomCtrl.text) ?? 0,
+                                  'nominal':
+                                      double.tryParse(
+                                        nomCtrl.text.replaceAll(
+                                          RegExp(r'[^0-9]'),
+                                          '',
+                                        ),
+                                      ) ??
+                                      0,
                                   'kategori': selectedKategori,
                                 });
                             Navigator.pop(ctx);

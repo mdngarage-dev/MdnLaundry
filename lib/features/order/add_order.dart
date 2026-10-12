@@ -1794,7 +1794,11 @@ class _AddOrderScreenState extends State<AddOrderScreen> {
         'dp_amount': dpInt,
         'diskon_nominal': _diskonNominal,
         'status_bayar': _statusBayar,
-        'waktu_transaksi': FieldValue.serverTimestamp(),
+        // Ikut tanggal order (sama dengan waktu_order di dokumen order) supaya
+        // order bertanggal mundur tidak masuk ke laporan hari ini.
+        'waktu_transaksi': _customTanggal != null
+            ? Timestamp.fromDate(_waktuOrderFinal)
+            : FieldValue.serverTimestamp(),
       });
 
       if (!context.mounted) return;

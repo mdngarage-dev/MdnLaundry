@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:mdnlaundry_project/features/settings/outlet/wa_settings.dart';
 import 'package:mdnlaundry_project/core/app_exports.dart';
 import 'package:mdnlaundry_project/services/order_payment_service.dart';
+import 'package:mdnlaundry_project/features/order/widgets/detail/biaya_tambahan_sheet.dart';
 import 'package:mdnlaundry_project/core/utils/format_utils.dart';
 import 'package:mdnlaundry_project/features/order/widgets/detail/pilih_rak_dialog.dart';
 import 'package:mdnlaundry_project/features/order/widgets/detail/edit_item_list_sheet.dart';
@@ -40,6 +41,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   List<Map<String, dynamic>> _items = [];
   List<Map<String, dynamic>> _biayaTambahan = [];
   List<Map<String, dynamic>> _riwayatBayar = [];
+  bool _bolehEditBiaya = false; // izin edit/hapus biaya tambahan (sama dgn edit layanan)
   bool _isLoadingItems = true;
 
   @override
@@ -48,6 +50,9 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     _data = Map.from(widget.data);
     _loadItemsFromFirestore();
     _muatRiwayatBayar();
+    canAccess('can_eit_layanan').then((v) {
+      if (mounted) setState(() => _bolehEditBiaya = v);
+    });
   }
 
   Future<void> _muatRiwayatBayar() async {
@@ -2642,6 +2647,36 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                       ),
                     ),
                   ),
+                  const SizedBox(height: 10),
+
+                  // ── Tombol Tambah Biaya Tambahan ───────────────────────────
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _bukaBiayaSheet(),
+                      icon: Icon(
+                        Icons.add_card_outlined,
+                        color: Colors.orange.shade700,
+                        size: 18,
+                      ),
+                      label: Text(
+                        'Tambah Biaya Tambahan',
+                        style: TextStyle(
+                          color: Colors.orange.shade700,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(
+                          color: Colors.orange.shade400.withOpacity(0.6),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 16),
 
                   // ── Pembayaran ────────────────────────────────────────────
@@ -2692,8 +2727,14 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                             final subtotal = nominal * qty;
                             final keterangan =
                                 b['keterangan']?.toString() ?? '-';
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 6),
+                            final idxBiaya = _biayaTambahan.indexOf(b);
+                            return InkWell(
+                              onTap: _bolehEditBiaya
+                                  ? () => _bukaBiayaSheet(idx: idxBiaya)
+                                  : null,
+                              borderRadius: BorderRadius.circular(6),
+                              child: Padding(
+                              padding: const EdgeInsets.only(bottom: 6, top: 2),
                               child: Row(
                                 children: [
                                   Container(
@@ -2727,7 +2768,16 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                                           fontWeight: FontWeight.w500,
                                         ),
                                   ),
+                                  if (_bolehEditBiaya) ...[
+                                    const SizedBox(width: 6),
+                                    Icon(
+                                      Icons.edit_outlined,
+                                      size: 14,
+                                      color: Colors.grey.shade500,
+                                    ),
+                                  ],
                                 ],
+                              ),
                               ),
                             );
                           }),
@@ -3179,6 +3229,103 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
           ],
         );
       }),
+    );
+  }
+
+  // ── Biaya tambahan: tambah / edit / hapus ─────────────────────────────────
+  void _bukaBiayaSheet({int? idx}) {
+    final existing = idx != null ? _biayaTambahan[idx] : null;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => BiayaTambahanSheet(
+        existing: existing,
+        onSave: (ket, nominal, qty) => _simpanBiaya(idx, ket, nominal, qty),
+        onDelete: idx == null ? null : () => _hapusBiaya(idx),
+      ),
+    );
+  }
+
+  Future<void> _simpanBiaya(int? idx, String ket, int nominal, int qty) async {
+    final col = FirebaseFirestore.instance
+        .collection('order')
+        .doc(widget.docId)
+        .collection('biaya_tambahan');
+
+    if (idx == null) {
+      final ref = await col.add({
+        'keterangan': ket,
+        'nominal': nominal,
+        'qty': qty,
+        'created_at': FieldValue.serverTimestamp(),
+      });
+      if (!mounted) return;
+      setState(
+        () => _biayaTambahan.add({
+          'keterangan': ket,
+          'nominal': nominal,
+          'qty': qty,
+          '_biayaDocId': ref.id,
+        }),
+      );
+    } else {
+      final docId = _biayaTambahan[idx]['_biayaDocId']?.toString() ?? '';
+      if (docId.isEmpty) {
+        throw StateError('Data biaya tidak ditemukan di server');
+      }
+      await col.doc(docId).update({
+        'keterangan': ket,
+        'nominal': nominal,
+        'qty': qty,
+      });
+      if (!mounted) return;
+      setState(() {
+        _biayaTambahan[idx] = {
+          ..._biayaTambahan[idx],
+          'keterangan': ket,
+          'nominal': nominal,
+          'qty': qty,
+        };
+      });
+    }
+
+    // Total berubah → hitung ulang harga_total, status bayar & data keuangan.
+    await _syncOrderSummary();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          idx == null
+              ? 'Biaya tambahan ditambahkan'
+              : 'Biaya tambahan diperbarui',
+        ),
+        backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  Future<void> _hapusBiaya(int idx) async {
+    final docId = _biayaTambahan[idx]['_biayaDocId']?.toString() ?? '';
+    if (docId.isNotEmpty) {
+      await FirebaseFirestore.instance
+          .collection('order')
+          .doc(widget.docId)
+          .collection('biaya_tambahan')
+          .doc(docId)
+          .delete();
+    }
+    if (!mounted) return;
+    setState(() => _biayaTambahan.removeAt(idx));
+    await _syncOrderSummary();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Biaya tambahan dihapus'),
+        backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 

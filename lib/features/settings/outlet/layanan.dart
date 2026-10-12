@@ -822,7 +822,15 @@ class LayananFormSheet extends StatefulWidget {
   )
   onSave;
 
-  const LayananFormSheet({this.existing, required this.onSave});
+  /// true  → layanan hanya dipakai untuk satu order, TIDAK disimpan ke daftar
+  ///         layanan (dipakai di halaman Tambah Order).
+  final bool sekaliPakai;
+
+  const LayananFormSheet({
+    this.existing,
+    required this.onSave,
+    this.sekaliPakai = false,
+  });
 
   @override
   State<LayananFormSheet> createState() => LayananFormSheetState();
@@ -995,13 +1003,47 @@ class LayananFormSheetState extends State<LayananFormSheet> {
 
             // Judul
             Text(
-              isEdit ? 'Edit Layanan' : 'Tambah Layanan',
+              widget.sekaliPakai
+                  ? 'Layanan Sekali Pakai'
+                  : (isEdit ? 'Edit Layanan' : 'Tambah Layanan'),
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
                 color: Theme.of(context).textTheme.bodyLarge?.color,
               ),
             ),
+            if (widget.sekaliPakai) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.info_outline_rounded,
+                      size: 16,
+                      color: Colors.orange,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Hanya berlaku untuk order ini dan tidak disimpan '
+                        'ke daftar layanan.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.orange.shade800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 20),
 
             // ── Nama Layanan ──────────────────────────────────────────────
@@ -1115,7 +1157,9 @@ class LayananFormSheetState extends State<LayananFormSheet> {
                         ),
                       )
                     : Text(
-                        isEdit ? 'Simpan Perubahan' : 'Tambah Layanan',
+                        widget.sekaliPakai
+                            ? 'Pakai Layanan Ini'
+                            : (isEdit ? 'Simpan Perubahan' : 'Tambah Layanan'),
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
